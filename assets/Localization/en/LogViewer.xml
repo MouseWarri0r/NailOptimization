@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- LogViewer localization. en is the fallback for every id; Localization/<lang>/LogViewer.xml overrides texts. -->
+<LogViewer>
+  <Text id="Title">Logs</Text>
+  <Text id="TabOwn">NailOptimization.log</Text>
+  <Text id="TabBaseMod">BaseMod Log.txt</Text>
+  <Text id="OpenFolder">Open log folder</Text>
+  <Text id="OpenFile">Open log file</Text>
+  <Text id="Clear">Clear</Text>
+  <Text id="NotFound">File not found:</Text>
+  <Text id="Lines">lines</Text>
+  <Text id="TabAdvanced">Advanced log</Text>
+  <Text id="TabProfiler">Profiler</Text>
+  <Text id="ProfStart">Start profiler</Text>
+  <Text id="ProfStop">Stop profiler</Text>
+  <Text id="ColDiag">Diagnostics</Text>
+  <Text id="ColIssues">Errors and warnings</Text>
+  <Text id="Trimmed">This line is no longer kept in the window.</Text>
+</LogViewer>

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Module FastFix: modules/FastFix.dll, loaded by the core at start. -->
+  <Import Project="../../Common.props" />
+  <PropertyGroup>
+    <AssemblyName>FastFix</AssemblyName>
+    <OutputPath>$(ModOut)modules/</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../src/modules/FastFix.cs" />
+    <ProjectReference Include="../../NailOptimization.csproj"><Private>false</Private></ProjectReference>
+  </ItemGroup>
+</Project>

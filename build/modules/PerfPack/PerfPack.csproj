@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Module PerfPack: modules/PerfPack.dll, loaded by the core at start. -->
+  <Import Project="../../Common.props" />
+  <PropertyGroup>
+    <AssemblyName>PerfPack</AssemblyName>
+    <OutputPath>$(ModOut)modules/</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../src/modules/PerfPack.cs" />
+    <ProjectReference Include="../../NailOptimization.csproj"><Private>false</Private></ProjectReference>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Module LogViewer: modules/LogViewer.dll, loaded by the core at start. -->
+  <Import Project="../../Common.props" />
+  <PropertyGroup>
+    <AssemblyName>LogViewer</AssemblyName>
+    <OutputPath>$(ModOut)modules/</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../src/modules/LogViewer.cs" />
+    <ProjectReference Include="../../NailOptimization.csproj"><Private>false</Private></ProjectReference>
+  </ItemGroup>
+</Project>

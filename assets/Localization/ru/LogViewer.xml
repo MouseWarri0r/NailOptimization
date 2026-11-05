@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- LogViewer localization (ru). Missing ids fall back to en. -->
+<LogViewer>
+  <Text id="Title">Логи</Text>
+  <Text id="TabOwn">NailOptimization.log</Text>
+  <Text id="TabBaseMod">BaseMod Log.txt</Text>
+  <Text id="OpenFolder">Открыть папку лога</Text>
+  <Text id="OpenFile">Открыть файл лога</Text>
+  <Text id="Clear">Очистить</Text>
+  <Text id="NotFound">Файл не найден:</Text>
+  <Text id="Lines">строк</Text>
+  <Text id="TabAdvanced">Расширенный лог</Text>
+  <Text id="TabProfiler">Профайлер</Text>
+  <Text id="ProfStart">Запустить профайлер</Text>
+  <Text id="ProfStop">Остановить профайлер</Text>
+  <Text id="ColDiag">Диагностика</Text>
+  <Text id="ColIssues">Ошибки и предупреждения</Text>
+  <Text id="Trimmed">Эта строка уже не хранится в окне.</Text>
+</LogViewer>

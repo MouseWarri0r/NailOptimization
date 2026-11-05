@@ -1,0 +1,38 @@
+# lobotomy-modding: .gitignore for one mod repository (mods/<ModName>/). Add lines; keep these.
+# Build output
+bin/
+obj/
+*.pdb
+*.mdb
+*.user
+.vs/
+
+# Assemblies: game, Unity, Harmony, BaseMod and the mod's own build (add `!<ModName>.dll` only when asked)
+*.dll
+*.exe
+
+# Decompiled or third-party code, scratch
+baseline/
+decomp/
+out/
+*.orig
+*.rej
+# paintkit art projects: undo history and previews (keep doc.json and layers/)
+art/**/history/
+art/**/view/
+
+# Logs and local config
+*.log
+Player.log
+CLAUDE.local.md
+
+# Secrets
+.env
+*.pem
+*.key
+*.pfx
+
+# OS
+Thumbs.db
+desktop.ini
+.DS_Store

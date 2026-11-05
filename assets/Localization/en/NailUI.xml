@@ -1,0 +1,834 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  NailUI localization. en is the LAYOUT SOURCE: sections, groups and the placement of every option (section, group, order, restart, hidden).
+  Other languages (Localization/<lang>/NailUI.xml) override texts only; their section/group/option attributes are ignored.
+  Language folder = GlobalGameManager.currentLanguageFont.language; a missing language falls back to en.
+  An option that is not listed here is shown under Advanced with its raw key. hidden="1" removes an option from the interface.
+  restart="1" marks an option that needs a game restart (red text with a warning sign).
+-->
+<NailUI title="NailOptimization" version="1.0">
+  <ui>
+    <s id="QualityHigh">High</s>
+    <s id="ModeFullscreen">Fullscreen</s>
+    <s id="FpsOff">Off</s>
+    <s id="FpsSimple">Simple</s>
+    <s id="FpsStats">Average, min, max</s>
+    <s id="FpsFull">Full</s>
+    <s id="ModeBorderless">Borderless fullscreen</s>
+    <s id="ModeWindow">Window</s>
+    <s id="QualityMiddle">Middle</s>
+    <s id="QualityLow">Low</s>
+    <s id="Search">Search...</s>
+    <s id="Apply">Apply</s>
+    <s id="Done">Done</s>
+    <s id="On">ON</s>
+    <s id="Off">OFF</s>
+    <s id="Pending">{0} not applied</s>
+    <s id="Restart">Restart required</s>
+    <s id="Modules">modules</s>
+    <s id="NoOptions">No options in this section</s>
+    <s id="NoMatches">Nothing found</s>
+    <s id="SearchResults">Search results</s>
+    <s id="Default">Default</s>
+    <s id="Range">Range</s>
+    <s id="PressKey">Press a key... (Esc = cancel)</s>
+    <s id="ResetAll">Reset all options to defaults</s>
+    <s id="DefaultsGroup">Defaults</s>
+    <s id="Yes">Yes</s>
+    <s id="No">No</s>
+    <s id="ConfirmReset">Reset all options to their default values?</s>
+    <s id="ConfirmResetWarn">All current settings, including the hotkey and module switches, will be replaced by the defaults. The change takes effect after Apply.</s>
+    <s id="RestartNotice">These options take effect after a game restart:</s>
+    <s id="Ok">OK</s>
+    <s id="State.saved">saved</s>
+    <s id="State.writing">saving...</s>
+    <s id="State.session">session only (not written to the file)</s>
+    <s id="State.notsaved">NOT SAVED</s>
+  </ui>
+
+  <sections>
+    <section id="General" side="top">General</section>
+    <section id="Performance" side="top">Performance</section>
+    <section id="Memory" side="top">Memory</section>
+    <section id="Effects" side="top">Effects</section>
+    <section id="Protection" side="top">Protection</section>
+    <section id="Bugfixes" side="top">Bugfixes</section>
+    <section id="ModFixes" side="top">Mod fixes</section>
+    <section id="Interface" side="bottom">Interface</section>
+    <section id="Experimental" side="bottom">Experimental</section>
+    <section id="Debug" side="bottom">Debug</section>
+    <section id="Advanced" side="bottom">Advanced</section>
+  </sections>
+
+  <groups>
+    <group id="Display">Display</group>
+    <group id="Startup">Game start</group>
+    <group id="Protection">Crash and save protection</group>
+    <group id="Vanilla">Fixes of the game</group>
+    <group id="Testing">Test modes</group>
+    <group id="Modules">Optimization modules</group>
+    <group id="RecoverEffects">Heal effects</group>
+    <group id="DamageEffects">Damage popups</group>
+    <group id="Pools">Object pools</group>
+    <group id="Blood">Blood splashes and cleanup</group>
+    <group id="Popups">Damage popup animation</group>
+    <group id="BloodCleanup">Blood cleanup</group>
+    <group id="Config">Configuration file</group>
+    <group id="Hints">Hints</group>
+    <group id="Hotkey">Hotkey</group>
+    <group id="ParticlePool">Hit particle pool</group>
+    <group id="Logging">Logging</group>
+    <group id="LogWindow">Log window</group>
+    <group id="UiDebug">Interface debugging</group>
+    <group id="Other">Other options</group>
+    <group id="ModFixList">Specific mods</group>
+    <group id="PatchGuard">Patch guard</group>
+    <group id="PerfOverlay">Performance overlay</group>
+    <group id="Profiler">Profiler</group>
+    <group id="PerfPack">Engine optimizations</group>
+    <group id="PerfRender">Drawing and off-screen</group>
+    <group id="PerfAnim">Animations</group>
+    <group id="PerfLogic">Movement and game logic</group>
+    <group id="PerfMass">Mass events</group>
+    <group id="PerfUi">Interface and EGO list</group>
+    <group id="PerfLoad">Loading</group>
+    <group id="PerfAlloc">Fewer garbage collections</group>
+    <group id="MemMain">Memory use</group>
+    <group id="ModFixMain">Module</group>
+    <group id="ModFixGeneral">Errors of any mod</group>
+    <group id="OnScreen">On screen</group>
+    <group id="DayButton">Day screen button</group>
+  </groups>
+
+  <options>
+    <option key="RecoverEffectThrottle.Enabled" section="Effects" group="Modules" order="30">
+      <name>Heal effect limiter</name>
+      <desc>Limits heal and sanity recovery effects.</desc>
+    </option>
+    <option key="DamageEffectThrottle.Enabled" section="Effects" group="Modules" order="20">
+      <name>Damage effect limiter</name>
+      <desc>Limits damage popups and removes old blood splashes.</desc>
+    </option>
+    <option key="EffectPool.Enabled" section="Effects" group="Modules" order="10">
+      <name>Effect pooling</name>
+      <desc>Damage popups are reused instead of created and destroyed.</desc>
+    </option>
+    <option key="LoadGuard.Enabled" section="Protection" group="Protection" order="10" restart="1">
+      <name>Mod data load guard</name>
+      <desc>A broken mod data file is skipped and logged instead of breaking the whole load. A missing mod language falls back to English.</desc>
+    </option>
+    <option key="LoadGuard.Alerts" section="Protection" group="Protection" order="30" restart="1">
+      <name>Mod load problem warnings</name>
+      <desc>A warning button on the title lists mods that broke loading: code that failed to load or start, data files that had to be skipped. Shows the mod folder.</desc>
+    </option>
+    <option key="LoadGuard.Repair" section="Protection" group="Protection" order="20" restart="1">
+      <name>Repair broken mod data</name>
+      <desc>Instead of skipping, fixes common errors in memory (a non-number level becomes 0, a gift without a position gets an empty one). Files on disk stay unchanged. Needs the load guard.</desc>
+    </option>
+    <option key="SaveGuard.Enabled" section="Protection" group="Protection" order="40" restart="1">
+      <name>Save guard</name>
+      <desc>Save files are copied to SaveBackups before they are overwritten; a save that failed to load is not overwritten. The log names missing mods.</desc>
+    </option>
+    <option key="SaveGuard.Protect" section="Protection" group="Protection" order="50" restart="1">
+      <name>No overwrite after a failed load</name>
+      <desc>After a failed load the save file is not written until it loads again; progress of that session is not saved. Needs the save guard.</desc>
+    </option>
+    <option key="SaveGuard.SafeLoad" section="Protection" group="Protection" order="60" restart="1">
+      <name>Load without removed mods</name>
+      <desc>Data of removed mods is taken out on load, so the rest of the save loads. The original stays in SaveStash; the data returns with the mod. Needs the save guard.</desc>
+    </option>
+    <option key="SaveGuard.Backups" section="Protection" group="Protection" order="70">
+      <name>Backups per save file</name>
+      <desc>Copies of each save file kept in SaveBackups. 0 = none. A copy made after a sudden loss of data is never deleted.</desc>
+    </option>
+    <option key="FastFix.Bamboo" section="ModFixes" group="ModFixList" order="40" restart="1">
+      <name>Bamboo-hatted Kim</name>
+      <desc>Fixes double buff ticks, repeated icon and sound loads and the tassel buff.</desc>
+    </option>
+    <option key="FastFix.Cauldron" section="ModFixes" group="ModFixList" order="50" restart="1">
+      <name>Cauldron</name>
+      <desc>Minion animation events no longer throw errors.</desc>
+    </option>
+    <option key="FastFix.Chaofeng" section="ModFixes" group="ModFixList" order="60" restart="1">
+      <name>Chaofeng</name>
+      <desc>The slowing wind no longer makes units walk backwards; its damage no longer throws on a kill.</desc>
+    </option>
+    <option key="FastFix.OverBossBird" section="ModFixes" group="ModFixList" order="70" restart="1">
+      <name>Over Armor Twilight</name>
+      <desc>Agent deaths no longer log an error.</desc>
+    </option>
+    <option key="FastFix.AddRoom" section="ModFixes" group="ModFixList" order="80" restart="1">
+      <name>kekesi_AddRoom</name>
+      <desc>The department panel no longer logs a layer error.</desc>
+    </option>
+    <option key="FastFix.AcaciaBullet" section="ModFixes" group="ModFixList" order="90" restart="1">
+      <name>Acacia</name>
+      <desc>The bullet check no longer throws when the bullet touches something that is not a unit.</desc>
+    </option>
+    <option key="FastFix.ElysiaRiskUnit" section="ModFixes" group="ModFixList" order="100" restart="1">
+      <name>Elysia RiskLevel</name>
+      <desc>The creature check no longer throws every frame for a creature with a missing part.</desc>
+    </option>
+    <option key="FastFix.KingOfGreedPassage" section="ModFixes" group="ModFixList" order="110" restart="1">
+      <name>KingOfGreedWeapon Enhance</name>
+      <desc>The weapon no longer throws when its wearer is hit between passages.</desc>
+    </option>
+    <option key="FastFix.PinelWorkText" section="ModFixes" group="ModFixList" order="120" restart="1">
+      <name>Pinel Luti's Creature</name>
+      <desc>The work text check no longer throws in every containment unit each tick (about 2 ms per frame).</desc>
+    </option>
+    <option key="FastFix.SpecialAttackStuck" section="ModFixes" group="ModFixGeneral" order="10">
+      <name>Special EGO attack stuck (remake weapons)</name>
+      <desc>EGO weapons with their own Spine attack (kygi123 remakes and similar): when the attack animation never plays, the agent no longer stands still for about 100 s and then walks in battle stance; the attack ends after 1 s. A playing attack is never touched.</desc>
+    </option>
+    <option key="FastFix.TrainRestart" section="Bugfixes" group="Vanilla" order="20" restart="1">
+      <name>Day restart during the Hell Train kills employees</name>
+      <desc>Restarting the day while Express Train to Hell departs no longer kills employees of the reloaded day: they no longer start dead with their EGO lost.</desc>
+    </option>
+    <option key="FastFix.VoidDream" section="Bugfixes" group="Vanilla" order="30" restart="1">
+      <name>Void Dream: employees stay asleep or frozen</name>
+      <desc>Each employee put to sleep by Void Dream is released by his own wake-up animation, or after 8 s if it never plays, instead of staying frozen and invincible until he dies at day end. The cry hits every unit in the hallway, not only those before the first downed one.</desc>
+    </option>
+    <option key="FastFix.ExpandOnce" section="Bugfixes" group="Vanilla" order="50" restart="1">
+      <name>Department expanded twice in one day</name>
+      <desc>Cancel pressed after confirming a department expansion no longer lets the same expansion be confirmed again.</desc>
+    </option>
+    <option key="FastFix.SelectClick" section="Bugfixes" group="Vanilla" order="60" restart="1">
+      <name>Clicks taken for a drag</name>
+      <desc>A click that moved the mouse a little still selects or gives the move order instead of being taken for a drag. A drag cut off by switching windows no longer blocks later clicks.</desc>
+    </option>
+    <option key="FastFix.CameraDrag" section="Bugfixes" group="Vanilla" order="70" restart="1">
+      <name>Map drag freezes during camera shake</name>
+      <desc>Dragging the map with the right or middle mouse button keeps following the mouse while the camera shakes from hits, instead of freezing and jumping.</desc>
+    </option>
+    <option key="FastFix.PanicStuck" section="Bugfixes" group="Vanilla" order="10" restart="1">
+      <name>Panicking agent stuck on the way</name>
+      <desc>A panicking agent sent to open a containment unit walks on after an interrupted walk.</desc>
+    </option>
+    <option key="FastFix.Enabled" section="ModFixes" group="ModFixMain" order="10" restart="1">
+      <name>Fixes for other mods</name>
+      <desc>Fixes known errors of installed mods; each fix works only when its mod is loaded. The list appears in Mod fixes after a restart.</desc>
+    </option>
+    <option key="FastFix.WhiteRabbit" section="ModFixes" group="ModFixList" order="10" restart="1">
+      <name>Celestial Bunny</name>
+      <desc>The normal time mode is turned off: it threw errors every frame and changed animation speeds in its room.</desc>
+    </option>
+    <option key="FastFix.RiskPortrait" section="ModFixes" group="ModFixList" order="20" restart="1">
+      <name>FEW and Elysia risk levels</name>
+      <desc>No error every frame for empty abnormality slots on the preparation screen.</desc>
+    </option>
+    <option key="FastFix.Starflare" section="ModFixes" group="ModFixList" order="30" restart="1">
+      <name>Starflare</name>
+      <desc>Suit notes and creature movement no longer throw.</desc>
+    </option>
+    <option key="FastFix.MecanimMissing" section="ModFixes" group="ModFixGeneral" order="20" restart="1">
+      <name>Missing animation clips</name>
+      <desc>A mod animation clip missing from its skeleton is skipped instead of throwing every frame.</desc>
+    </option>
+    <option key="FastFix.HellTrain" section="ModFixes" group="ModFixList" order="150">
+      <name>Train Ego: Hell Train gift</name>
+      <desc>A hit is no longer lost when the target has a similar buff.</desc>
+    </option>
+    <option key="FastFix.PersephoneGifts" section="ModFixes" group="ModFixList" order="160" requires="PersephoneCreature">
+      <name>Persephone gifts on death</name>
+      <desc>Gifts of a dead agent in the full set vanish with the body instead of hanging in the air.</desc>
+    </option>
+    <option key="FastFix.TieIcon" section="ModFixes" group="ModFixList" order="170" requires="TieTheTree">
+      <name>TieTheTree armor icon</name>
+      <desc>The armor buff icon is loaded once instead of from disk for every buff (a lag every 6-7 s).</desc>
+    </option>
+    <option key="FastFix.HarmonyLabel" section="ModFixes" group="ModFixList" order="180" requires="YD25_HarmonyRemake_Mod">
+      <name>Harmony label on dead agents</name>
+      <desc>The weapon's note staff is hidden while its agent is dead.</desc>
+    </option>
+    <option key="FastFix.StartTooltip" section="ModFixes" group="ModFixGeneral" order="100">
+      <name>Tooltip at the start of the day</name>
+      <desc>A tooltip shown at day start is closed.</desc>
+    </option>
+    <option key="FastFix.ChildBufs" section="ModFixes" group="ModFixGeneral" order="60">
+      <name>Effects on killed child creatures</name>
+      <desc>Mod effects on a killed child creature are removed.</desc>
+    </option>
+    <option key="FastFix.NoticeLeaks" section="ModFixes" group="ModFixGeneral" order="70">
+      <name>Old days in game events</name>
+      <desc>Timers and scripts of earlier days are unsubscribed at day start, so they no longer stay in memory or run every tick.</desc>
+    </option>
+    <option key="FastFix.ForeignLeaks" section="ModFixes" group="ModFixGeneral" order="80">
+      <name>Old days in mod lists</name>
+      <desc>At day start, entries of earlier days are removed from mod lists that never clear them.</desc>
+    </option>
+    <option key="FastFix.EffectNames" section="ModFixes" group="ModFixGeneral" order="90" restart="1">
+      <name>Same effect names</name>
+      <desc>Two mods with the same effect folder name each show their own effect.</desc>
+    </option>
+    <option key="FastFix.ExecOrderAttr" section="ModFixes" group="ModFixGeneral" order="30" restart="1">
+      <name>Missing attribute in a mod class</name>
+      <desc>A mod class with an attribute this game lacks no longer logs an error when added.</desc>
+    </option>
+    <option key="FastFix.BufSnapshot" section="ModFixes" group="ModFixGeneral" order="40" restart="1">
+      <name>Buffs changed during a hit</name>
+      <desc>A buff that adds or removes buffs while damage is counted no longer loses the hit.</desc>
+    </option>
+    <option key="FastFix.BlackSwanReflect" section="Bugfixes" group="Vanilla" order="80" restart="1">
+      <name>Black Swan reflection</name>
+      <desc>Black Swan no longer reflects damage to herself endlessly (a stack overflow).</desc>
+    </option>
+    <option key="FastFix.FixerWhiteReflect" section="Bugfixes" group="Vanilla" order="90" restart="1">
+      <name>White fixer reflection</name>
+      <desc>The White fixer no longer reflects damage endlessly while praying (a game freeze).</desc>
+    </option>
+    <option key="FastFix.WeaponSplashArmor" section="ModFixes" group="ModFixGeneral" order="50" restart="1">
+      <name>Creature splash attacks</name>
+      <desc>A creature's splash or piercing attack no longer stops at its first target.</desc>
+    </option>
+    <option key="FastFix.PatchGuard" section="Protection" group="PatchGuard" order="10" restart="1">
+      <name>Patch guard</name>
+      <desc>A mod patch that throws the same error many times within 10 s is skipped until the game closes and logged with the mod id. Can turn off a feature of that mod.</desc>
+    </option>
+    <option key="FastFix.GuardCount" section="Protection" group="PatchGuard" order="20">
+      <name>Patch guard: errors before skip</name>
+      <desc>Identical errors within 10 s before a patch is skipped.</desc>
+    </option>
+
+    <option key="RecoverEffectThrottle.CooldownPerAgent" section="Effects" group="RecoverEffects" order="10">
+      <name>Heal effect cooldown</name>
+      <desc>Game seconds between heal effects of one type on one agent. 0 = no cooldown.</desc>
+    </option>
+    <option key="RecoverEffectThrottle.MaxPerFrame" section="Effects" group="RecoverEffects" order="20">
+      <name>Heal effects per frame</name>
+      <desc>Most heal effects in one frame.</desc>
+    </option>
+    <option key="RecoverEffectThrottle.MaxPerSecond" section="Effects" group="RecoverEffects" order="30">
+      <name>Heal effects per second</name>
+      <desc>Most heal effects per second.</desc>
+    </option>
+    <option key="RecoverEffectThrottle.SkipWhenNothingToHeal" section="Effects" group="RecoverEffects" order="40">
+      <name>Skip empty heals</name>
+      <desc>No effect when the heal changes nothing.</desc>
+    </option>
+
+    <option key="DamageEffectThrottle.MaxPopupsPerFrame" section="Effects" group="DamageEffects" order="10">
+      <name>Damage popups per frame</name>
+      <desc>Most damage popups in one frame.</desc>
+    </option>
+    <option key="DamageEffectThrottle.MaxPopupsPerSecond" section="Effects" group="DamageEffects" order="20">
+      <name>Damage popups per second</name>
+      <desc>Most damage popups per second.</desc>
+    </option>
+
+    <option key="EffectPool.MaxPool" section="Effects" group="Pools" order="10">
+      <name>Damage popup pool size</name>
+      <desc>Most pooled damage popups. 0 = no pooling.</desc>
+    </option>
+
+    <option key="DamageEffectThrottle.MaxBloodPerPassage" section="Effects" group="Blood" order="10">
+      <name>Blood splashes per passage</name>
+      <desc>Blood splashes at once in a passage; the oldest is removed first. 0 = no limit.</desc>
+    </option>
+    <option key="DamageEffectThrottle.BloodLifetimeSeconds" section="Effects" group="Blood" order="20">
+      <name>Blood lifetime</name>
+      <desc>Game seconds before a splash is removed. 0 = never.</desc>
+    </option>
+
+    <option key="EffectPool.RebindAnimators" section="Effects" group="Popups" order="10">
+      <name>Restart popup animation</name>
+      <desc>A reused popup plays its animation from the start.</desc>
+    </option>
+
+    <option key="DamageEffectThrottle.SweepInterval" section="Effects" group="Blood" order="30">
+      <name>Cleanup interval</name>
+      <desc>Seconds between checks for expired splashes.</desc>
+    </option>
+    <option key="DamageEffectThrottle.DestroyInsteadOfHide" section="Effects" group="Blood" order="40">
+      <name>Destroy removed splashes</name>
+      <desc>On: removed splashes are destroyed. Off: they are hidden (use it if MissingReferenceException appears).</desc>
+    </option>
+
+    <option key="Config.Save" section="Advanced" group="Config" order="10">
+      <name>Save changes to the file</name>
+      <desc>Changes are written to NailOptimization.cfg.txt. Off: they last until the game closes.</desc>
+    </option>
+    <option key="Config.WatchSeconds" section="Advanced" group="Config" order="20">
+      <name>Check file for edits</name>
+      <desc>Seconds between checks of the config file for outside edits. 0 = never.</desc>
+    </option>
+
+    <option key="NailUI.HotkeyEnabled" section="Interface" group="Hotkey" order="10">
+      <name>Open with a key</name>
+      <desc>The hotkey opens and closes this window.</desc>
+    </option>
+    <option key="NailUI.Hotkey" section="Interface" group="Hotkey" order="20" control="key">
+      <name>Interface key</name>
+      <desc>Click, then press a key. Esc cancels. Takes effect after Apply.</desc>
+    </option>
+    <option key="NailUI.Tooltips" section="Interface" group="Hints" order="10">
+      <name>Show tooltips</name>
+      <desc>A description appears when the mouse rests on an option.</desc>
+    </option>
+    <option key="NailUI.TooltipDelay" section="Interface" group="Hints" order="20">
+      <name>Tooltip delay</name>
+      <desc>Seconds before a tooltip appears.</desc>
+    </option>
+
+    <option key="EffectPool.PoolParticles" section="Experimental" group="ParticlePool" order="10">
+      <name>Pool hit particles</name>
+      <desc>Hit particles are reused. Check hit effects by eye.</desc>
+    </option>
+    <option key="EffectPool.MaxParticlePerKey" section="Experimental" group="ParticlePool" order="20">
+      <name>Particles pooled per variant</name>
+      <desc>Pooled particles per damage type and defense level. 0 = no pooling.</desc>
+    </option>
+
+    <option key="Logging" section="Debug" group="Logging" order="10">
+      <name>Write log</name>
+      <desc>Info and warnings go to NailOptimization.log. Errors are always written.</desc>
+    </option>
+    <option key="NailUI.ForceOpen" section="Debug" group="UiDebug" order="10">
+      <name>Force open with hotkey</name>
+      <desc>The hotkey opens this window even during loading and day transitions. Debug only.</desc>
+    </option>
+    <option key="EffectPool.ParticleDump" section="Debug" group="Logging" order="40">
+      <name>Dump particle prefabs</name>
+      <desc>Writes the components of hit particle prefabs to the log once.</desc>
+    </option>
+    <option key="LogViewer.AdvancedLog" section="Debug" group="Logging" order="30" restart="1">
+      <name>Advanced log</name>
+      <desc>Own log in the Logs folder instead of Log.txt, with a column of warnings, errors and mod file problems. Needs the log window.</desc>
+    </option>
+    <option key="LogViewer.Enabled" section="Interface" group="LogWindow" order="10" restart="1">
+      <name>Log window</name>
+      <desc>Log window, opened by the Logs button on the title and day screens.</desc>
+    </option>
+    <option key="LogViewer.MaxLines" section="Interface" group="LogWindow" order="20">
+      <name>Lines kept per tab</name>
+      <desc>Lines kept per tab; more lines use more memory.</desc>
+    </option>
+    <option key="LogViewer.PollMs" section="Interface" group="LogWindow" order="30">
+      <name>File check interval (ms)</name>
+      <desc>Milliseconds between checks for new log lines.</desc>
+    </option>
+    <option key="LogViewer.HideBenign" section="Interface" group="LogWindow" order="40">
+      <name>Hide harmless errors</name>
+      <desc>Known harmless Unity errors are written as short INFO lines and are not counted.</desc>
+    </option>
+	
+	<option key="NailUI.ButtonEnabled" section="Interface" group="DayButton" order="10" restart="0" hidden="0" control="">
+	  <name>Day screen button</name>
+	  <desc>Window button in the day screen under the mission panel.</desc>
+	</option>
+	<option key="NailUI.FpsCounter" section="Interface" group="OnScreen" order="10" restart="0" hidden="0" control="choice">
+	  <name>FPS counter</name>
+	  <desc>FPS above the energy bar: simple, with average/min/max, or full.</desc>
+	</option>
+	<option key="NailUI.HideAgentTitles" section="Interface" group="OnScreen" order="20" restart="0" hidden="0" control="">
+	  <name>Hide agent titles</name>
+	  <desc>Hides the title under agents. Visual only.</desc>
+	</option>
+	<option key="NailUI.HideClerkNames" section="Interface" group="OnScreen" order="30" restart="0" hidden="0" control="">
+	  <name>Hide clerk names</name>
+	  <desc>Hides clerk names.</desc>
+	</option>
+	<option key="NailUI.ButtonSize" section="Interface" group="DayButton" order="20" restart="0" hidden="0" control="">
+	  <name>Day button size</name>
+	  <desc>Size of the day screen button.</desc>
+	</option>
+
+    <option key="PerfTools.Enabled" section="Debug" group="PerfOverlay" order="10" restart="1">
+      <name>Performance overlay and profiler</name>
+      <desc>F3 shows FPS, frame time and memory graphs; Shift+F3 records a profiler session to Logs/Profiler.log.</desc>
+    </option>
+    <option key="PerfTools.Corner" section="Debug" group="PerfOverlay" order="20">
+      <name>Overlay corner</name>
+      <desc>0 top left, 1 top right, 2 bottom left, 3 bottom right.</desc>
+    </option>
+    <option key="PerfTools.Scale" section="Debug" group="PerfOverlay" order="30">
+      <name>Overlay size</name>
+      <desc>Overlay size multiplier.</desc>
+    </option>
+    <option key="PerfTools.LogPerf" section="Debug" group="PerfOverlay" order="40">
+      <name>Write Logs/Perf.log</name>
+      <desc>While the overlay or profiler runs, one line per second and a SPIKE line per slow frame go to Logs/Perf.log.</desc>
+    </option>
+    <option key="PerfTools.SpikeMs" section="Debug" group="PerfOverlay" order="50">
+      <name>Spike threshold (ms)</name>
+      <desc>A frame this long or longer is logged as SPIKE.</desc>
+    </option>
+    <option key="LoadGuard.BootProfile" section="Debug" group="Profiler" order="10" restart="1">
+      <name>Boot profile (diagnostic)</name>
+      <desc>Logs the time of every assembly load until the first frame, to measure how long each mod takes to start. Off for normal play.</desc>
+    </option>
+    <option key="PerfTools.ProfSummarySec" section="Debug" group="Profiler" order="20">
+      <name>Summary interval (s)</name>
+      <desc>Seconds between profiler summary tables.</desc>
+    </option>
+    <option key="PerfTools.ProfMaxSec" section="Debug" group="Profiler" order="30">
+      <name>Session time limit (s)</name>
+      <desc>A session stops after this many seconds. 0 = no limit.</desc>
+    </option>
+    <option key="PerfTools.ProfMaxEvents" section="Debug" group="Profiler" order="40">
+      <name>Slow call lines per session</name>
+      <desc>Most slow-call lines per session.</desc>
+    </option>
+    <option key="PerfTools.ProfMaxKB" section="Debug" group="Profiler" order="50">
+      <name>Profiler log size limit (KB)</name>
+      <desc>Above this size only the final summary is written.</desc>
+    </option>
+
+    <option key="PerfPack.Enabled" section="Performance" group="Modules" order="10" restart="1">
+      <name>Engine optimizations</name>
+      <desc>All optimizations of the game's code; each has its own switch.</desc>
+    </option>
+    <option key="PerfPack.AnimatorParams" section="Performance" group="PerfAnim" order="10" restart="1">
+      <name>Animator parameter cache</name>
+      <desc>Animator parameter checks of agents and clerks are cached instead of building a list each time.</desc>
+    </option>
+    <option key="PerfPack.SoundPrewarm" section="Performance" group="PerfLoad" order="10" restart="1">
+      <name>Sound preload</name>
+      <desc>Sounds played before are loaded ahead at game start, so their first play does not freeze a fight.</desc>
+    </option>
+    <option key="PerfPack.SoundPrewarmBudgetMs" section="Performance" group="PerfLoad" order="20">
+      <name>Sound preload: ms per frame</name>
+      <desc>Most ms per frame spent preloading sounds.</desc>
+    </option>
+    <option key="PerfPack.SoundKeepMax" section="Performance" group="PerfLoad" order="30">
+      <name>Sound preload: sounds kept</name>
+      <desc>Most sounds kept loaded; more use more memory.</desc>
+    </option>
+    <option key="PerfPack.CorpseFreeze" section="Performance" group="PerfAnim" order="40" restart="1">
+      <name>Freeze dead bodies</name>
+      <desc>Dead agents and clerks stop animating after a short delay and wake up if revived.</desc>
+    </option>
+    <option key="PerfPack.CorpseDelaySeconds" section="Performance" group="PerfAnim" order="50">
+      <name>Freeze dead bodies: delay (s)</name>
+      <desc>Game seconds after death before a body is frozen.</desc>
+    </option>
+    <option key="PerfPack.PanicThrottle" section="Performance" group="PerfMass" order="10" restart="1">
+      <name>Spread mass panic</name>
+      <desc>Mass panic starts over several frames instead of one, so the game does not freeze.</desc>
+    </option>
+    <option key="PerfPack.PanicBudgetMs" section="Performance" group="PerfMass" order="20">
+      <name>Spread mass panic: ms per frame</name>
+      <desc>Most ms per frame spent starting panic.</desc>
+    </option>
+    <option key="PerfPack.SlotCull" section="Performance" group="PerfUi" order="30" restart="1">
+      <name>Inventory: update visible slots only</name>
+      <desc>With the inventory open, slots out of view skip their update.</desc>
+    </option>
+    <option key="PerfPack.PathCheck" section="Performance" group="PerfLogic" order="20" restart="1">
+      <name>Room connection check without a path search</name>
+      <desc>Room connection checks skip the full path search; same answers.</desc>
+    </option>
+    <option key="PerfPack.IdleSpeed" section="Performance" group="PerfLogic" order="40" restart="1">
+      <name>No speed calculation for standing agents</name>
+      <desc>Standing agents skip the speed calculation each tick.</desc>
+    </option>
+    <option key="PerfPack.SkinCache" section="Memory" group="MemMain" order="30" restart="1">
+      <name>Shared armor textures</name>
+      <desc>Agents share armor textures and materials instead of creating new ones on each animation change.</desc>
+    </option>
+    <option key="PerfPack.FrameStepCap" section="Performance" group="PerfLogic" order="90" restart="1">
+      <name>Cap slow frame step</name>
+      <desc>A slow frame runs at most 2-3 game ticks instead of about 16. Below 20 FPS the game runs slower than real time.</desc>
+    </option>
+    <option key="PerfPack.ClerkImpostor" section="Performance" group="PerfRender" order="50" restart="1">
+      <name>Clerks as pictures at wide zoom</name>
+      <desc>With 20 or more clerks at wide zoom, calm clerks are drawn as still pictures.</desc>
+    </option>
+    <option key="PerfPack.RoomScan" section="Performance" group="PerfLogic" order="30" restart="1">
+      <name>Skip enemy search in calm rooms</name>
+      <desc>Units skip the enemy search in rooms with only controlled workers.</desc>
+    </option>
+    <option key="PerfPack.UiRefresh" section="Performance" group="PerfUi" order="10" restart="1">
+      <name>Slower agent label refresh</name>
+      <desc>Agent names and titles refresh a few times per second instead of every frame.</desc>
+    </option>
+    <option key="PerfPack.CursorScale" section="Memory" group="MemMain" order="50" restart="1">
+      <name>Aiming cursor memory fix</name>
+      <desc>The aiming cursor frees its old texture.</desc>
+    </option>
+    <option key="PerfPack.RequireCache" section="Performance" group="PerfUi" order="40" restart="1">
+      <name>E.G.O list opening speed</name>
+      <desc>The EGO list keeps its requirement plates between openings.</desc>
+    </option>
+    <option key="PerfPack.EffectTextures" section="Memory" group="MemMain" order="10" restart="1">
+      <name>Effect pictures in memory</name>
+      <desc>Effect pictures keep one copy in memory; identical ones are shared.</desc>
+    </option>
+    <option key="PerfPack.MeshRelease" section="Memory" group="MemMain" order="40" restart="1">
+      <name>Character mesh memory fix</name>
+      <desc>Old character meshes are destroyed on an animator change and at day start.</desc>
+    </option>
+    <option key="PerfPack.SkeletonPrewarm" section="Performance" group="PerfAnim" order="30" restart="1">
+      <name>Prepare special weapon skeletons</name>
+      <desc>Special weapon skeletons load at day start, not in the first fight.</desc>
+    </option>
+    <option key="PerfPack.DeathBubbleCap" section="Performance" group="PerfMass" order="50" restart="1">
+      <name>Fewer bubbles after a death</name>
+      <desc>Limits speech bubbles per frame after a death.</desc>
+    </option>
+    <option key="PerfPack.BossTextSpread" section="Performance" group="PerfMass" order="70" restart="1">
+      <name>Build boss texts gradually</name>
+      <desc>Boss texts build over several frames.</desc>
+    </option>
+    <option key="FastFix.StandingCG" section="Bugfixes" group="Vanilla" order="100" restart="1">
+      <name>Story character pictures</name>
+      <desc>A story picture with duplicate face names loads instead of breaking.</desc>
+    </option>
+    <option key="Display.Resolution" section="General" group="Display" order="10" control="choice">
+      <name>Screen resolution</name>
+      <desc>Click to cycle 16:9 resolutions. Takes effect after Apply.</desc>
+    </option>
+    <option key="Display.WindowMode" section="General" group="Display" order="20" control="choice">
+      <name>Window mode</name>
+      <desc>Fullscreen, borderless (instant alt-tab, resolution ignored) or window.</desc>
+    </option>
+    <option key="Display.VSync" section="General" group="Display" order="30">
+      <name>V-sync</name>
+      <desc>Frames wait for the monitor. Off: a bit more FPS below the refresh rate, tearing possible.</desc>
+    </option>
+    <option key="Display.FpsCap" section="General" group="Display" order="40">
+      <name>FPS limit</name>
+      <desc>Most frames per second. 0 = no limit. Ignored with V-sync.</desc>
+    </option>
+    <option key="Display.FpsSmooth" section="General" group="Display" order="50">
+      <name>Smooth motion (50/25 FPS)</name>
+      <desc>Holds 50 FPS, one game tick per frame; drops to 25 when the game cannot keep up. Replaces the FPS limit.</desc>
+    </option>
+    <option key="Display.TextureQuality" section="General" group="Display" order="60" control="choice">
+      <name>Texture quality</name>
+      <desc>Lower saves video memory; little FPS change.</desc>
+    </option>
+    <option key="PerfPack.CanvasCull" section="Performance" group="PerfRender" order="20" restart="1">
+      <name>Hide off-screen interface</name>
+      <desc>World interface outside the view is switched off.</desc>
+    </option>
+    <option key="PerfPack.AgentUiHideZoom" section="Performance" group="PerfRender" order="90">
+      <name>Hide employee bars from zoom</name>
+      <desc>From this camera size the bars, grade, title, buffs and speech of employees are hidden. 0 = never.</desc>
+    </option>
+    <option key="PerfPack.CameraCache" section="Performance" group="PerfRender" order="110" restart="1">
+      <name>Main camera cache</name>
+      <desc>The main camera is found once per frame.</desc>
+    </option>
+    <option key="PerfPack.WitnessSpread" section="Performance" group="PerfMass" order="30" restart="1">
+      <name>Spread witness reactions</name>
+      <desc>Witness reactions to a death spread over a few ticks; same damage.</desc>
+    </option>
+    <option key="PerfPack.WitnessBudgetMs" section="Performance" group="PerfMass" order="40">
+      <name>Witness reaction budget (ms)</name>
+      <desc>Most ms per tick spent on witness reactions.</desc>
+    </option>
+    <option key="PerfPack.DeathBubbleMax" section="Performance" group="PerfMass" order="60">
+      <name>Death speech bubbles per frame</name>
+      <desc>Speech bubbles per frame after a death.</desc>
+    </option>
+    <option key="PerfPack.UiRefreshHz" section="Performance" group="PerfUi" order="20">
+      <name>Agent label refreshes per second</name>
+      <desc>Label refreshes per second.</desc>
+    </option>
+    <option key="PerfPack.DoorAnimCull" section="Performance" group="PerfRender" order="80" restart="1">
+      <name>Stop off-screen door animators</name>
+      <desc>Door animators stop out of view. A door changed off-screen plays its old transition when seen.</desc>
+    </option>
+    <option key="PerfPack.PathCheckVerify" section="Debug" group="Testing" order="10" restart="1">
+      <name>Path check: verify mode</name>
+      <desc>Runs the game's check too and logs differences; no speed gain.</desc>
+    </option>
+    <option key="PerfPack.SkinCacheStats" section="Debug" group="Testing" order="30" restart="1">
+      <name>Skin cache: statistics</name>
+      <desc>Logs material, texture and mesh counts every 10 s.</desc>
+    </option>
+    <option key="PerfPack.BonusPool" section="Performance" group="PerfAlloc" order="30" restart="1">
+      <name>Bonus pool</name>
+      <desc>Equipment and gift bonuses are summed without new objects.</desc>
+    </option>
+    <option key="PerfPack.SefiraLookup" section="Performance" group="PerfLogic" order="60" restart="1">
+      <name>Department lookup</name>
+      <desc>Department lookup creates no garbage.</desc>
+    </option>
+    <option key="PerfPack.AgentAnimLod" section="Performance" group="PerfRender" order="60">
+      <name>Agent animation LOD</name>
+      <desc>Zoomed out, agents animate a little less often.</desc>
+    </option>
+    <option key="PerfPack.PauseSkeletons" section="Performance" group="PerfRender" order="70">
+      <name>Skeletons on pause</name>
+      <desc>On pause, characters refresh their pose rarely.</desc>
+    </option>
+    <option key="PerfPack.InventoryDefer" section="Performance" group="PerfUi" order="50">
+      <name>EGO list build</name>
+      <desc>The EGO list builds gradually on the preparation screen; the day loads up to twice as fast.</desc>
+    </option>
+    <option key="PerfPack.FastScale" section="Performance" group="PerfLoad" order="50">
+      <name>Custom sprite scaling</name>
+      <desc>Custom agent sprites are scaled on the video card at start; full-size copies are freed.</desc>
+    </option>
+    <option key="PerfPack.InventoryZayinFirst" section="Performance" group="PerfUi" order="60">
+      <name>EGO list opens on ZAYIN</name>
+      <desc>The EGO list opens on ZAYIN each day; click ZAYIN again for all grades.</desc>
+    </option>
+    <option key="PerfPack.ArmorAtlas" section="Memory" group="MemMain" order="20" restart="1">
+      <name>Fast mod armor loading</name>
+      <desc>Mod armor pictures load once into one texture instead of from disk on every use.</desc>
+    </option>
+    <option key="PerfPack.FastSearch" section="Performance" group="PerfLogic" order="10">
+      <name>Fast path search</name>
+      <desc>Path search without allocations; same paths.</desc>
+    </option>
+    <option key="PerfPack.InventoryTabs" section="Performance" group="PerfUi" order="70">
+      <name>Fast EGO tabs</name>
+      <desc>EGO tabs switch without toggling every slot.</desc>
+    </option>
+    <option key="PerfPack.DistortionGrab" section="Performance" group="PerfRender" order="10">
+      <name>Dimensional Refraction render</name>
+      <desc>The distortion bends the last frame instead of drawing the scene twice.</desc>
+    </option>
+    <option key="PerfPack.FastFindCreature" section="Performance" group="PerfLogic" order="50">
+      <name>Fast abnormality search</name>
+      <desc>Abnormality search by id without allocations.</desc>
+    </option>
+    <option key="PerfPack.NoticePool" section="Performance" group="PerfAlloc" order="40">
+      <name>Notice pool</name>
+      <desc>Game notices no longer copy the listener list on each send.</desc>
+    </option>
+    <option key="PerfPack.OrchestraWorkers" section="Performance" group="PerfLogic" order="80" restart="1">
+      <name>Silent Orchestra worker list</name>
+      <desc>The abnormality reuses its employee list while breached.</desc>
+    </option>
+    <option key="PerfPack.DescReuse" section="Performance" group="PerfUi" order="80">
+      <name>Info window lines</name>
+      <desc>The abnormality info window reuses its description lines.</desc>
+    </option>
+    <option key="PerfPack.FontWarm" section="Performance" group="PerfUi" order="90">
+      <name>Font warm-up</name>
+      <desc>Info window text sizes are prepared at day start.</desc>
+    </option>
+    <option key="PerfPack.GcQuiet" section="Memory" group="MemMain" order="60">
+      <name>Memory cleaning in quiet moments</name>
+      <desc>Memory is cleaned on pause, in the info window and at day end.</desc>
+    </option>
+    <option key="PerfPack.GcQuietGrowMb" section="Memory" group="MemMain" order="70">
+      <name>Quiet cleaning threshold (MB)</name>
+      <desc>Memory growth in MB before a quiet cleaning.</desc>
+    </option>
+    <option key="PerfPack.BufNameCache" section="Performance" group="PerfAlloc" order="50" restart="1">
+      <name>Buff name cache</name>
+      <desc>Buff search by name without allocations.</desc>
+    </option>
+    <option key="PerfPack.LcIdCache" section="Performance" group="PerfAlloc" order="60" restart="1">
+      <name>Equipment id cache</name>
+      <desc>Equipment ids are not created again on each request.</desc>
+    </option>
+    <option key="PerfPack.HpTrackerLoop" section="ModFixes" group="ModFixList" order="190" restart="1" requires="TheNamesan_HPAwareness_MOD">
+      <name>HP Awareness</name>
+      <desc>No allocations for every employee every frame.</desc>
+    </option>
+    <option key="PerfPack.QuietLog" section="Debug" group="Logging" order="20" restart="1">
+      <name>Quiet log</name>
+      <desc>Ordinary log lines are not written; warnings and errors stay.</desc>
+    </option>
+    <option key="PerfPack.AgentCull" section="Performance" group="PerfRender" order="30">
+      <name>Agents outside the view</name>
+      <desc>Calm agents out of view stop animating and drawing.</desc>
+    </option>
+    <option key="PerfPack.ClerkCull" section="Performance" group="PerfRender" order="40">
+      <name>Clerks outside the view</name>
+      <desc>Calm clerks out of view stop animating and drawing. Off while clerk pictures are on.</desc>
+    </option>
+    <option key="PerfPack.OrdealUiHideZoom" section="Performance" group="PerfRender" order="100">
+      <name>Hide ordeal unit bars from zoom</name>
+      <desc>From this camera size, bars and names of ordeal units are hidden when 20 or more are out. 0 = never.</desc>
+    </option>
+    <option key="PerfPack.UnitLoops" section="Performance" group="PerfAlloc" order="10" restart="1">
+      <name>Unit loops without allocations</name>
+      <desc>Buff and gift loops of employees and clerks without allocations.</desc>
+    </option>
+    <option key="PerfPack.AgentStats" section="Performance" group="PerfAlloc" order="20" restart="1">
+      <name>Employee stats without allocations</name>
+      <desc>Reading employee stats does not allocate memory.</desc>
+    </option>
+    <option key="PerfPack.ModSkeletonCache" section="Performance" group="PerfAnim" order="20" restart="1">
+      <name>Mod skeleton cache</name>
+      <desc>Mod weapon and animation skeletons are parsed once, not on each animation change (10-100 ms each).</desc>
+    </option>
+    <option key="LoadGuard.BootFiles" section="Performance" group="PerfLoad" order="80" restart="1">
+      <name>Shared BaseMods file list at start</name>
+      <desc>Some mods read the list of all BaseMods files when the game starts (Train Ego Mod: about 3 s). The list is built in the background while other mods load and handed to them. The log compares it with a fresh list after start.</desc>
+    </option>
+    <option key="LoadGuard.CreatureIndex" section="Performance" group="PerfLoad" order="90" restart="1">
+      <name>Abnormality file index</name>
+      <desc>Abnormality stat files are found through an index built once instead of searching all mod folders each time. Needs the load guard.</desc>
+    </option>
+    <option key="PerfPack.SkipIntroLogos" section="General" group="Startup" order="10" restart="1">
+      <name>Skip intro logos</name>
+      <desc>The two logo screens before the title are skipped (about 12 s).</desc>
+    </option>
+    <option key="PerfPack.FastSearchVerify" section="Debug" group="Testing" order="20" restart="1">
+      <name>Fast path search: verify mode</name>
+      <desc>Runs the game's search too and logs differences; no speed gain.</desc>
+    </option>
+    <option key="PerfPack.AgentTexturesExperimental" section="Experimental" group="PerfPack" order="10" restart="1">
+      <name>Agent pictures: one copy</name>
+      <desc>Agent animation pictures keep one copy in memory. Mods that read them may break.</desc>
+    </option>
+    <option key="PerfPack.CreatureTexturesExperimental" section="Experimental" group="PerfPack" order="20" restart="1">
+      <name>Abnormality pictures: one copy</name>
+      <desc>Abnormality pictures keep one copy in memory from day start. Needs Agent pictures: one copy.</desc>
+    </option>
+    <option key="PerfPack.AgentLazyExperimental" section="Experimental" group="PerfPack" order="30" restart="1">
+      <name>Agent animations on first use</name>
+      <desc>Agent animation pictures load on first use: faster start, a short stutter later.</desc>
+    </option>
+    <option key="PerfPack.CatLazyExperimental" section="ModFixes" group="ModFixList" order="200" restart="1">
+      <name>ChildHood: cat animations on first appearance</name>
+      <desc>Cat animations load when a cat first appears: faster start, a short stutter later. Experimental.</desc>
+    </option>
+    <option key="PerfPack.EffectLazyExperimental" section="Experimental" group="PerfPack" order="40" restart="1">
+      <name>Effect pictures on first show</name>
+      <desc>Effect pictures are freed at start and load when first shown.</desc>
+    </option>
+    <option key="FastFix.OrdealReset" section="Bugfixes" group="Vanilla" order="40" restart="1">
+      <name>Ordeal does not carry over to the next day</name>
+      <desc>An ordeal still running when the day ends (retry, return to title) no longer continues in the next day.</desc>
+    </option>
+    <option key="FastFix.UnknownEquipCount" section="Protection" group="Protection" order="80" restart="1">
+      <name>Save load: ignore equipment no mod defines</name>
+      <desc>A mod that grants equipment no mod defines gets nothing instead of an error that stops the save load (Sephirah data).</desc>
+    </option>
+    <option key="FastFix.CensoredChildren" section="ModFixes" group="ModFixList" order="140" restart="1" requires="kygi123_Censored_Remake">
+      <name>CENSORED Remake: dead children removed</name>
+      <desc>Summoned children that died are removed 3 s later instead of at the end of the day, so the day no longer slows down with every summon.</desc>
+    </option>
+    <option key="FastFix.ColoredFixer" section="ModFixes" group="ModFixList" order="130" restart="1">
+      <name>Colored Fixer: stuck agent after Kali EGO</name>
+      <desc>An agent no longer stays stunned and out of control after Kali's EGO ends; EGO change and teleport effects no longer repeat on later animations.</desc>
+    </option>
+    <option key="PerfPack.CameraRange" section="Performance" group="PerfRender" order="120" restart="1">
+      <name>Camera zoom range read once</name>
+      <desc>The camera reads its zoom range once instead of rebuilding the list of open departments several times per frame.</desc>
+    </option>
+    <option key="PerfPack.OrdealIdle" section="Performance" group="PerfLogic" order="70" restart="1">
+      <name>Skip ordeal update without ordeals</name>
+      <desc>The ordeal update is skipped while no ordeal is running, instead of creating a list every tick.</desc>
+    </option>
+    <option key="PerfPack.MouseLists" section="Performance" group="PerfUi" order="100" restart="1">
+      <name>Mouse hover without new lists</name>
+      <desc>The check of what is under the mouse cursor reuses its lists instead of creating new ones every frame.</desc>
+    </option>
+    <option key="PerfPack.OptionSave" section="Performance" group="PerfUi" order="110" restart="1">
+      <name>Mod option sliders save once</name>
+      <desc>Dragging a mod option slider writes the options file once, 0.5 s after the last change, instead of on every step.</desc>
+    </option>
+    <option key="PerfPack.AttachMiss" section="Performance" group="PerfLoad" order="60" restart="1">
+      <name>Missing gift sprite looked up once</name>
+      <desc>A gift sprite that no mod provides is looked up once instead of in every mod folder on each appearance update.</desc>
+    </option>
+    <option key="PerfPack.PortraitCache" section="Performance" group="PerfLoad" order="70" restart="1">
+      <name>Portraits looked up once</name>
+      <desc>Vanilla abnormality portraits and missing custom portraits are looked up once per scene instead of on every call.</desc>
+    </option>
+    <option key="PerfPack.ScriptTypes" section="Performance" group="PerfLoad" order="40" restart="1">
+      <name>Mod weapon and gift scripts found through one list</name>
+      <desc>Weapons and gifts find their mod script through a list built once instead of scanning the types of every mod each time.</desc>
+    </option>
+  </options>
+</NailUI>

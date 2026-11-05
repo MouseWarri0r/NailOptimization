@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Module RecoverEffectThrottle: modules/RecoverEffectThrottle.dll, loaded by the core at start. -->
+  <Import Project="../../Common.props" />
+  <PropertyGroup>
+    <AssemblyName>RecoverEffectThrottle</AssemblyName>
+    <OutputPath>$(ModOut)modules/</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../src/modules/RecoverEffectThrottle.cs" />
+    <ProjectReference Include="../../NailOptimization.csproj"><Private>false</Private></ProjectReference>
+  </ItemGroup>
+</Project>

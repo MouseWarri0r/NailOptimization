@@ -1,0 +1,36 @@
+<Project>
+  <!-- Shared settings: compile against the game's own mscorlib 2.0 / Unity 2017 assemblies; nothing from the game is copied to the output. -->
+  <PropertyGroup>
+    <TargetFramework>net35</TargetFramework>
+    <LangVersion>7.3</LangVersion>
+    <NoStdLib>true</NoStdLib>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultNoneItems>false</EnableDefaultNoneItems>
+    <Optimize>true</Optimize>
+    <DebugType>none</DebugType>
+    <!-- Assembly-CSharp also references mscorlib 4.0 (a patcher artifact); skip dependency analysis so it still resolves (MSB3258). -->
+    <_FindDependencies>false</_FindDependencies>
+    <!-- Other install folder: dotnet build -p:GameManaged=".../LobotomyCorp_Data/Managed" -->
+    <GameManaged Condition="'$(GameManaged)' == ''">C:/Program Files (x86)/Steam/steamapps/common/LobotomyCorp/LobotomyCorp_Data/Managed</GameManaged>
+    <ModOut>$(MSBuildThisFileDirectory)../bin/NailOptimization/</ModOut>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net35" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="mscorlib"><HintPath>$(GameManaged)/mscorlib.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System"><HintPath>$(GameManaged)/System.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System.Core"><HintPath>$(GameManaged)/System.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="System.Xml"><HintPath>$(GameManaged)/System.Xml.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp"><HintPath>$(GameManaged)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp-firstpass"><HintPath>$(GameManaged)/Assembly-CSharp-firstpass.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="LobotomyBaseModLib"><HintPath>$(GameManaged)/LobotomyBaseModLib.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="0Harmony"><HintPath>$(GameManaged)/0Harmony.dll</HintPath><Private>false</Private></Reference>
+    <!-- UnityEngine facade and modules (compile time only). Never reference 12Harmony.dll: same namespace, Harmony 2 API. -->
+    <Reference Include="$(GameManaged)/UnityEngine*.dll"><Private>false</Private></Reference>
+  </ItemGroup>
+</Project>

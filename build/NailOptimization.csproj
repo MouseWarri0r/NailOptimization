@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Core: NailOptimization.dll (Harmony entry, Core API, module loader, config, log) plus the mod's data files. -->
+  <Import Project="Common.props" />
+  <PropertyGroup>
+    <AssemblyName>NailOptimization</AssemblyName>
+    <OutputPath>$(ModOut)</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../src/NailOptimization.cs" />
+    <None Include="../assets/**/*" Link="%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

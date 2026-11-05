@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Module PerfTools: modules/PerfTools.dll, loaded by the core at start. -->
+  <Import Project="../../Common.props" />
+  <PropertyGroup>
+    <AssemblyName>PerfTools</AssemblyName>
+    <OutputPath>$(ModOut)modules/</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../src/modules/PerfTools.cs" />
+    <ProjectReference Include="../../NailOptimization.csproj"><Private>false</Private></ProjectReference>
+  </ItemGroup>
+</Project>

@@ -1,0 +1,828 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- NailUI: русская локализация. Только тексты; разделы, группы и размещение опций берутся из en/NailUI.xml. -->
+<NailUI title="NailOptimization" version="1.0">
+  <ui>
+    <s id="QualityHigh">Высокое</s>
+    <s id="ModeFullscreen">Полный экран</s>
+    <s id="FpsOff">Выкл.</s>
+    <s id="FpsSimple">Простой</s>
+    <s id="FpsStats">Среднее, мин., макс.</s>
+    <s id="FpsFull">Полный</s>
+    <s id="ModeBorderless">Без рамки</s>
+    <s id="ModeWindow">Окно</s>
+    <s id="QualityMiddle">Среднее</s>
+    <s id="QualityLow">Низкое</s>
+    <s id="Search">Поиск...</s>
+    <s id="Apply">Применить</s>
+    <s id="Done">Готово</s>
+    <s id="On">ВКЛ</s>
+    <s id="Off">ВЫКЛ</s>
+    <s id="Pending">Не применено: {0}</s>
+    <s id="Restart">Нужен перезапуск игры</s>
+    <s id="Modules">модули</s>
+    <s id="NoOptions">В этом разделе нет опций</s>
+    <s id="NoMatches">Ничего не найдено</s>
+    <s id="SearchResults">Результаты поиска</s>
+    <s id="Default">По умолчанию</s>
+    <s id="Range">Диапазон</s>
+    <s id="PressKey">Нажмите клавишу... (Esc = отмена)</s>
+    <s id="ResetAll">Сбросить все опции к стандартным</s>
+    <s id="DefaultsGroup">Стандартные значения</s>
+    <s id="Yes">Да</s>
+    <s id="No">Нет</s>
+    <s id="ConfirmReset">Сбросить все опции к стандартным значениям?</s>
+    <s id="ConfirmResetWarn">Все текущие настройки, включая клавишу вызова и переключатели модулей, будут заменены стандартными. Изменение вступит в силу после нажатия «Применить».</s>
+    <s id="RestartNotice">Эти опции вступят в силу после перезапуска игры:</s>
+    <s id="Ok">ОК</s>
+    <s id="State.saved">сохранено</s>
+    <s id="State.writing">сохранение...</s>
+    <s id="State.session">только на эту сессию (в файл не пишется)</s>
+    <s id="State.notsaved">НЕ СОХРАНЕНО</s>
+  </ui>
+
+  <sections>
+    <section id="General">Общие</section>
+    <section id="Performance">Производительность</section>
+    <section id="Memory">Память</section>
+    <section id="Effects">Эффекты</section>
+    <section id="Protection">Защита</section>
+    <section id="Bugfixes">Исправления</section>
+    <section id="ModFixes">Исправления модов</section>
+    <section id="Interface">Интерфейс</section>
+    <section id="Experimental">Экспериментальные</section>
+    <section id="Debug">Отладка</section>
+    <section id="Advanced">Расширенные</section>
+  </sections>
+
+  <groups>
+    <group id="Display">Экран</group>
+    <group id="Startup">Запуск игры</group>
+    <group id="Protection">Защита от сбоев и сейва</group>
+    <group id="Vanilla">Исправления игры</group>
+    <group id="Testing">Тестовые режимы</group>
+    <group id="Modules">Модули оптимизации</group>
+    <group id="RecoverEffects">Эффекты лечения</group>
+    <group id="DamageEffects">Всплывающий урон</group>
+    <group id="Pools">Пулы объектов</group>
+    <group id="Blood">Кровь и её очистка</group>
+    <group id="Popups">Анимация всплывающего урона</group>
+    <group id="BloodCleanup">Очистка крови</group>
+    <group id="Config">Файл настроек</group>
+    <group id="Hints">Подсказки</group>
+    <group id="Hotkey">Клавиша вызова</group>
+    <group id="ParticlePool">Пул частиц попаданий</group>
+    <group id="Logging">Журнал</group>
+    <group id="LogWindow">Окно логов</group>
+    <group id="UiDebug">Отладка интерфейса</group>
+    <group id="Other">Прочие опции</group>
+    <group id="ModFixList">Конкретные моды</group>
+    <group id="PatchGuard">Страж патчей</group>
+    <group id="PerfOverlay">Оверлей производительности</group>
+    <group id="Profiler">Профайлер</group>
+    <group id="PerfPack">Оптимизации движка</group>
+    <group id="PerfRender">Отрисовка и то, что за экраном</group>
+    <group id="PerfAnim">Анимации</group>
+    <group id="PerfLogic">Движение и логика игры</group>
+    <group id="PerfMass">Массовые события</group>
+    <group id="PerfUi">Интерфейс и список EGO</group>
+    <group id="PerfLoad">Загрузка</group>
+    <group id="PerfAlloc">Меньше сборок мусора</group>
+    <group id="MemMain">Расход памяти</group>
+    <group id="ModFixMain">Модуль</group>
+    <group id="ModFixGeneral">Ошибки любых модов</group>
+    <group id="OnScreen">На экране</group>
+    <group id="DayButton">Кнопка на экране дня</group>
+  </groups>
+
+  <options>
+    <option key="RecoverEffectThrottle.Enabled">
+      <name>Ограничение эффектов лечения</name>
+      <desc>Ограничивает эффекты лечения HP и рассудка.</desc>
+    </option>
+    <option key="DamageEffectThrottle.Enabled">
+      <name>Ограничение эффектов урона</name>
+      <desc>Ограничивает числа урона и убирает старые брызги крови.</desc>
+    </option>
+    <option key="EffectPool.Enabled">
+      <name>Пул эффектов</name>
+      <desc>Числа урона используются повторно, а не создаются заново.</desc>
+    </option>
+    <option key="LoadGuard.Enabled">
+      <name>Защита загрузки данных модов</name>
+      <desc>Сломанный файл данных мода пропускается с записью в лог и не обрывает всю загрузку. Нет перевода мода: берётся английский.</desc>
+    </option>
+    <option key="LoadGuard.Alerts" section="Advanced" group="Protection" order="12" restart="1">
+      <name>Предупреждения о проблемах загрузки модов</name>
+      <desc>Кнопка-предупреждение на титуле показывает моды, сломавшие загрузку: код, который не загрузился или упал при запуске, и пропущенные файлы данных. Указывает папку мода.</desc>
+    </option>
+    <option key="LoadGuard.Repair">
+      <name>Исправлять сломанные данные модов</name>
+      <desc>Вместо пропуска исправляет частые ошибки в памяти (нечисловой уровень становится 0, дар без позиции получает пустую). Файлы на диске не меняются. Нужна защита загрузки.</desc>
+    </option>
+    <option key="SaveGuard.Enabled">
+      <name>Защита сохранений</name>
+      <desc>Перед перезаписью сохранения копируются в SaveBackups; сохранение, которое не загрузилось, не перезаписывается. Лог называет недостающие моды.</desc>
+    </option>
+    <option key="SaveGuard.Protect">
+      <name>Без перезаписи после ошибки загрузки</name>
+      <desc>После неудачной загрузки файл не записывается, пока не загрузится снова; прогресс этой сессии не сохраняется. Нужна защита сохранений.</desc>
+    </option>
+    <option key="SaveGuard.SafeLoad">
+      <name>Загрузка без удалённых модов</name>
+      <desc>Данные удалённых модов убираются при загрузке, и остальное сохранение загружается. Оригинал хранится в SaveStash; данные вернутся вместе с модом. Нужна защита сохранений.</desc>
+    </option>
+    <option key="SaveGuard.Backups">
+      <name>Копий на файл сохранения</name>
+      <desc>Сколько копий каждого сохранения хранить в SaveBackups. 0 = нет. Копия после внезапной потери данных не удаляется.</desc>
+    </option>
+    <option key="FastFix.Bamboo" section="ModFixes" group="ModFixList" order="90" restart="1">
+      <name>Bamboo-hatted Kim</name>
+      <desc>Исправляет двойные тики баффов, повторную загрузку иконок и звуков и бафф кисточки.</desc>
+    </option>
+    <option key="FastFix.Cauldron" section="ModFixes" group="ModFixList" order="91" restart="1">
+      <name>Cauldron</name>
+      <desc>События анимации миньонов больше не вызывают ошибок.</desc>
+    </option>
+    <option key="FastFix.Chaofeng" section="ModFixes" group="ModFixList" order="91" restart="1">
+      <name>Chaofeng</name>
+      <desc>Замедляющий ветер больше не заставляет юнитов идти назад; его урон не вызывает ошибку при убийстве.</desc>
+    </option>
+    <option key="FastFix.OverBossBird" section="ModFixes" group="ModFixList" order="91" restart="1">
+      <name>Over Armor Twilight</name>
+      <desc>Смерти агентов больше не пишут ошибку в лог.</desc>
+    </option>
+    <option key="FastFix.AddRoom" section="ModFixes" group="ModFixList" order="91" restart="1">
+      <name>kekesi_AddRoom</name>
+      <desc>Панель отдела больше не пишет ошибку слоя.</desc>
+    </option>
+    <option key="FastFix.AcaciaBullet" section="ModFixes" group="ModFixList" order="91" restart="1">
+      <name>Acacia</name>
+      <desc>Проверка пули не вызывает ошибку, если пуля задела не юнита.</desc>
+    </option>
+    <option key="FastFix.ElysiaRiskUnit" section="ModFixes" group="ModFixList" order="91" restart="1">
+      <name>Elysia RiskLevel</name>
+      <desc>Проверка аномалии без части больше не вызывает ошибку каждый кадр.</desc>
+    </option>
+    <option key="FastFix.KingOfGreedPassage" section="ModFixes" group="ModFixList" order="91" restart="1">
+      <name>KingOfGreedWeapon Enhance</name>
+      <desc>Оружие не вызывает ошибку, когда носителя бьют между коридорами.</desc>
+    </option>
+    <option key="FastFix.PinelWorkText" section="ModFixes" group="ModFixList" order="91" restart="1">
+      <name>Pinel Luti's Creature</name>
+      <desc>Проверка текста работы больше не вызывает ошибку в каждой камере каждый тик (около 2 мс на кадр).</desc>
+    </option>
+    <option key="FastFix.SpecialAttackStuck" section="ModFixes" group="ModFixList" order="92">
+      <name>Зависание атаки особого EGO (ремейки оружия)</name>
+      <desc>EGO-оружие со своей Spine-атакой (ремейки kygi123 и похожие): если анимация атаки так и не запустилась, агент больше не стоит на месте около 100 с и потом не ходит в боевой стойке; атака завершается через 1 с. Идущую атаку фикс не трогает.</desc>
+    </option>
+    <option key="FastFix.TrainRestart" section="Bugfixes" group="Vanilla" order="97" restart="1">
+      <name>Перезапуск дня во время Поезда в ад убивает сотрудников</name>
+      <desc>Перезапуск дня в момент отправления Поезда в ад больше не убивает сотрудников перезагруженного дня: они не начинают день мёртвыми и не теряют EGO.</desc>
+    </option>
+    <option key="FastFix.VoidDream" section="Bugfixes" group="Vanilla" order="96" restart="1">
+      <name>Void Dream: сотрудники не просыпаются или замирают</name>
+      <desc>Каждого усыплённого Void Dream сотрудника отпускает его собственная анимация пробуждения, а если она не сыграла, то через 8 с. Раньше он стоял замороженным и неуязвимым до конца дня и погибал. Крик бьёт всех в коридоре, а не только тех, кто стоял до первого упавшего.</desc>
+    </option>
+    <option key="FastFix.ExpandOnce" section="Bugfixes" group="Vanilla" order="95" restart="1">
+      <name>Отдел расширяется дважды за день</name>
+      <desc>Отмена после подтверждения расширения отдела больше не позволяет подтвердить его второй раз.</desc>
+    </option>
+    <option key="FastFix.SelectClick" section="Bugfixes" group="Vanilla" order="94" restart="1">
+      <name>Клики, принятые за перетаскивание</name>
+      <desc>Клик с небольшим сдвигом мыши всё равно выделяет или отдаёт приказ идти, а не считается перетаскиванием. Перетаскивание, прерванное переключением окон, больше не блокирует клики.</desc>
+    </option>
+    <option key="FastFix.CameraDrag" section="Bugfixes" group="Vanilla" order="93" restart="1">
+      <name>Перетаскивание карты замирает при тряске камеры</name>
+      <desc>Перетаскивание карты правой или средней кнопкой мыши продолжает следовать за мышью, пока камера трясётся от ударов, а не замирает и прыгает.</desc>
+    </option>
+    <option key="FastFix.PanicStuck" section="Bugfixes" group="Vanilla" order="92" restart="1">
+      <name>Агент в панике застрял по пути</name>
+      <desc>Паникующий агент, идущий открыть камеру, продолжает путь после прерванной ходьбы.</desc>
+    </option>
+    <option key="FastFix.Enabled">
+      <name>Исправления для других модов</name>
+      <desc>Исправляет известные ошибки установленных модов; каждое исправление работает только с загруженным модом. Список появляется в разделе исправлений модов после перезапуска.</desc>
+    </option>
+    <option key="FastFix.WhiteRabbit">
+      <name>Celestial Bunny</name>
+      <desc>Режим normal time отключён: он вызывал ошибки каждый кадр и менял скорость анимаций в комнате.</desc>
+    </option>
+    <option key="FastFix.RiskPortrait">
+      <name>Уровни риска FEW и Elysia</name>
+      <desc>Нет ошибки каждый кадр для пустых слотов аномалий на экране подготовки.</desc>
+    </option>
+    <option key="FastFix.Starflare">
+      <name>Starflare</name>
+      <desc>Заметки костюма и движение аномалии не вызывают ошибок.</desc>
+    </option>
+    <option key="FastFix.MecanimMissing">
+      <name>Нет клипов анимации</name>
+      <desc>Клип анимации мода, которого нет в скелете, пропускается без ошибки каждый кадр.</desc>
+    </option>
+    <option key="FastFix.HellTrain">
+      <name>Train Ego: гифт Hell Train</name>
+      <desc>Удар не теряется, если у цели похожий бафф.</desc>
+    </option>
+    <option key="FastFix.PersephoneGifts">
+      <name>Гифты при смерти в комплекте Persephone</name>
+      <desc>Дары погибшего агента в полном комплекте исчезают вместе с телом, а не висят в воздухе.</desc>
+    </option>
+    <option key="FastFix.TieIcon">
+      <name>Значок брони TieTheTree</name>
+      <desc>Иконка баффа брони загружается один раз, а не с диска на каждый бафф (лаг раз в 6-7 с).</desc>
+    </option>
+    <option key="FastFix.HarmonyLabel">
+      <name>Лейбл Harmony на мёртвых агентах</name>
+      <desc>Нотный стан оружия скрыт, пока агент мёртв.</desc>
+    </option>
+    <option key="FastFix.StartTooltip">
+      <name>Подсказка при начале дня</name>
+      <desc>Подсказка, показанная в начале дня, закрывается.</desc>
+    </option>
+    <option key="FastFix.ChildBufs">
+      <name>Эффекты на убитых дочерних существах</name>
+      <desc>Эффекты модов на убитой дочерней аномалии убираются.</desc>
+    </option>
+    <option key="FastFix.NoticeLeaks">
+      <name>Старые дни в событиях игры</name>
+      <desc>Таймеры и скрипты прошлых дней отписываются в начале дня и больше не держат память и не работают каждый тик.</desc>
+    </option>
+    <option key="FastFix.ForeignLeaks">
+      <name>Старые дни в списках модов</name>
+      <desc>В начале дня из списков модов, которые их не очищают, удаляются записи прошлых дней.</desc>
+    </option>
+    <option key="FastFix.EffectNames">
+      <name>Одинаковые имена эффектов</name>
+      <desc>Два мода с одинаковой папкой эффекта показывают каждый свой эффект.</desc>
+    </option>
+    <option key="FastFix.ExecOrderAttr">
+      <name>Нет атрибута в классе мода</name>
+      <desc>Класс мода с атрибутом, которого нет в игре, больше не пишет ошибку при добавлении.</desc>
+    </option>
+    <option key="FastFix.BufSnapshot">
+      <name>Смена баффов при ударе</name>
+      <desc>Бафф, добавляющий или убирающий баффы при подсчёте урона, больше не теряет удар.</desc>
+    </option>
+    <option key="FastFix.BlackSwanReflect" section="Bugfixes" group="Vanilla" order="93" restart="1">
+      <name>Отражение Чёрного лебедя</name>
+      <desc>Black Swan больше не отражает урон сама себе бесконечно (переполнение стека).</desc>
+    </option>
+    <option key="FastFix.FixerWhiteReflect" section="Bugfixes" group="Vanilla" order="94" restart="1">
+      <name>Отражение Белого фиксера</name>
+      <desc>Белый фиксер больше не отражает урон бесконечно во время молитвы (зависание игры).</desc>
+    </option>
+    <option key="FastFix.WeaponSplashArmor">
+      <name>Атаки аномалий по площади</name>
+      <desc>Атака аномалии по площади или насквозь больше не останавливается на первой цели.</desc>
+    </option>
+    <option key="FastFix.PatchGuard">
+      <name>Страж патчей</name>
+      <desc>Патч мода, много раз выдавший одну ошибку за 10 с, пропускается до закрытия игры, в лог пишется id мода. Может отключить функцию этого мода.</desc>
+    </option>
+    <option key="FastFix.GuardCount">
+      <name>Страж патчей: ошибок до пропуска</name>
+      <desc>Сколько одинаковых ошибок за 10 с нужно для пропуска патча.</desc>
+    </option>
+
+    <option key="RecoverEffectThrottle.CooldownPerAgent">
+      <name>Пауза между эффектами лечения</name>
+      <desc>Секунд игрового времени между одинаковыми эффектами лечения на одном агенте. 0 = без паузы.</desc>
+    </option>
+    <option key="RecoverEffectThrottle.MaxPerFrame">
+      <name>Эффектов лечения за кадр</name>
+      <desc>Максимум эффектов лечения за кадр.</desc>
+    </option>
+    <option key="RecoverEffectThrottle.MaxPerSecond">
+      <name>Эффектов лечения в секунду</name>
+      <desc>Максимум эффектов лечения в секунду.</desc>
+    </option>
+    <option key="RecoverEffectThrottle.SkipWhenNothingToHeal">
+      <name>Пропускать пустое лечение</name>
+      <desc>Нет эффекта, если лечение ничего не меняет.</desc>
+    </option>
+
+    <option key="DamageEffectThrottle.MaxPopupsPerFrame">
+      <name>Чисел урона за кадр</name>
+      <desc>Максимум чисел урона за кадр.</desc>
+    </option>
+    <option key="DamageEffectThrottle.MaxPopupsPerSecond">
+      <name>Чисел урона в секунду</name>
+      <desc>Максимум чисел урона в секунду.</desc>
+    </option>
+
+    <option key="EffectPool.MaxPool">
+      <name>Размер пула чисел урона</name>
+      <desc>Максимум чисел урона в пуле. 0 = без пула.</desc>
+    </option>
+
+    <option key="DamageEffectThrottle.MaxBloodPerPassage">
+      <name>Брызг крови в коридоре</name>
+      <desc>Брызг крови одновременно в коридоре; старые убираются первыми. 0 = без ограничения.</desc>
+    </option>
+    <option key="DamageEffectThrottle.BloodLifetimeSeconds">
+      <name>Время жизни крови</name>
+      <desc>Секунд игрового времени до удаления брызг. 0 = никогда.</desc>
+    </option>
+
+    <option key="EffectPool.RebindAnimators">
+      <name>Перезапуск анимации числа урона</name>
+      <desc>Повторно используемое число урона проигрывает анимацию с начала.</desc>
+    </option>
+
+    <option key="DamageEffectThrottle.SweepInterval">
+      <name>Интервал очистки</name>
+      <desc>Секунд между проверками устаревших брызг.</desc>
+    </option>
+    <option key="DamageEffectThrottle.DestroyInsteadOfHide">
+      <name>Уничтожать убранные брызги</name>
+      <desc>Вкл: убранные брызги уничтожаются. Выкл: скрываются (если появляется MissingReferenceException).</desc>
+    </option>
+
+    <option key="Config.Save">
+      <name>Сохранять изменения в файл</name>
+      <desc>Изменения записываются в NailOptimization.cfg.txt. Выкл: действуют до закрытия игры.</desc>
+    </option>
+    <option key="Config.WatchSeconds">
+      <name>Проверка файла на правки</name>
+      <desc>Секунд между проверками файла настроек на внешние правки. 0 = никогда.</desc>
+    </option>
+
+    <option key="NailUI.HotkeyEnabled">
+      <name>Открывать по клавише</name>
+      <desc>Клавиша открывает и закрывает это окно.</desc>
+    </option>
+    <option key="NailUI.Hotkey">
+      <name>Клавиша интерфейса</name>
+      <desc>Нажмите, затем нажмите клавишу. Esc отменяет. Действует после применения.</desc>
+    </option>
+    <option key="NailUI.Tooltips">
+      <name>Показывать подсказки</name>
+      <desc>Описание появляется при наведении на опцию.</desc>
+    </option>
+    <option key="NailUI.TooltipDelay">
+      <name>Задержка подсказки</name>
+      <desc>Секунд до появления подсказки.</desc>
+    </option>
+
+    <option key="EffectPool.PoolParticles">
+      <name>Пул частиц попаданий</name>
+      <desc>Частицы ударов используются повторно. Проверьте эффекты ударов на глаз.</desc>
+    </option>
+    <option key="EffectPool.MaxParticlePerKey">
+      <name>Частиц в пуле на вариант</name>
+      <desc>Частиц в пуле на тип урона и уровень защиты. 0 = без пула.</desc>
+    </option>
+
+    <option key="Logging">
+      <name>Вести журнал</name>
+      <desc>Информация и предупреждения пишутся в NailOptimization.log. Ошибки пишутся всегда.</desc>
+    </option>
+    <option key="NailUI.ForceOpen">
+      <name>Принудительное открытие по клавише</name>
+      <desc>Клавиша открывает окно даже при загрузке и смене дня. Только для отладки.</desc>
+    </option>
+    <option key="EffectPool.ParticleDump">
+      <name>Выгрузить префабы частиц</name>
+      <desc>Один раз пишет в лог компоненты префабов частиц ударов.</desc>
+    </option>
+    <option key="LogViewer.AdvancedLog">
+      <name>Расширенный лог</name>
+      <desc>Свой лог в папке Logs вместо Log.txt, с колонкой предупреждений, ошибок и проблем файлов модов. Нужно окно логов.</desc>
+    </option>
+    <option key="LogViewer.Enabled">
+      <name>Окно логов</name>
+      <desc>Окно логов, открывается кнопкой Logs на титульном экране и на экране дня.</desc>
+    </option>
+    <option key="LogViewer.MaxLines">
+      <name>Строк на вкладку</name>
+      <desc>Строк на вкладку; больше строк - больше памяти.</desc>
+    </option>
+    <option key="LogViewer.PollMs">
+      <name>Интервал проверки файла (мс)</name>
+      <desc>Миллисекунд между проверками новых строк лога.</desc>
+    </option>
+    <option key="LogViewer.HideBenign">
+      <name>Скрывать безвредные ошибки</name>
+      <desc>Известные безвредные ошибки Unity пишутся короткими строками INFO и не считаются.</desc>
+    </option>
+	
+	<option key="NailUI.ButtonEnabled" section="Interface" group="Hints" order="30" restart="0" hidden="0" control="">
+	  <name>Day screen button</name>
+	  <desc>Кнопка окна на экране дня под панелью миссий.</desc>
+	</option>
+	<option key="NailUI.FpsCounter" section="Interface" group="Hints" order="32" restart="0" hidden="0" control="choice">
+	  <name>Счётчик FPS</name>
+	  <desc>FPS над полосой энергии: простой, со средним/мин/макс или полный.</desc>
+	</option>
+	<option key="NailUI.HideAgentTitles" section="Interface" group="Hints" order="33" restart="0" hidden="0" control="">
+	  <name>Скрыть титулы агентов</name>
+	  <desc>Скрывает титул под агентами. Только внешний вид.</desc>
+	</option>
+	<option key="NailUI.HideClerkNames" section="Interface" group="Hints" order="34" restart="0" hidden="0" control="">
+	  <name>Скрыть имена клерков</name>
+	  <desc>Скрывает имена клерков.</desc>
+	</option>
+	<option key="NailUI.ButtonSize" section="Interface" group="Hints" order="31" restart="0" hidden="0" control="">
+	  <name>Day button size</name>
+	  <desc>Размер кнопки на экране дня.</desc>
+	</option>
+
+    <option key="PerfTools.Enabled">
+      <name>Оверлей производительности и профайлер</name>
+      <desc>F3 показывает графики FPS, времени кадра и памяти; Shift+F3 записывает сессию профайлера в Logs/Profiler.log.</desc>
+    </option>
+    <option key="PerfTools.Corner">
+      <name>Угол оверлея</name>
+      <desc>0 слева сверху, 1 справа сверху, 2 слева снизу, 3 справа снизу.</desc>
+    </option>
+    <option key="PerfTools.Scale">
+      <name>Размер оверлея</name>
+      <desc>Множитель размера оверлея.</desc>
+    </option>
+    <option key="PerfTools.LogPerf">
+      <name>Писать Logs/Perf.log</name>
+      <desc>Пока работает оверлей или профайлер, в Logs/Perf.log пишется строка в секунду и SPIKE на каждый медленный кадр.</desc>
+    </option>
+    <option key="PerfTools.SpikeMs">
+      <name>Порог пика (мс)</name>
+      <desc>Кадр такой длины и дольше пишется как SPIKE.</desc>
+    </option>
+    <option key="LoadGuard.BootProfile" section="Debug" group="Profiler" order="5" restart="1">
+      <name>Профиль загрузки (диагностика)</name>
+      <desc>Пишет в лог время загрузки каждой сборки до первого кадра, чтобы измерить, сколько стартует каждый мод. Для обычной игры выключено.</desc>
+    </option>
+    <option key="PerfTools.ProfSummarySec">
+      <name>Интервал сводки (с)</name>
+      <desc>Секунд между сводными таблицами профайлера.</desc>
+    </option>
+    <option key="PerfTools.ProfMaxSec">
+      <name>Лимит сессии (с)</name>
+      <desc>Сессия останавливается через столько секунд. 0 = без ограничения.</desc>
+    </option>
+    <option key="PerfTools.ProfMaxEvents">
+      <name>Строк медленных вызовов за сессию</name>
+      <desc>Максимум строк медленных вызовов за сессию.</desc>
+    </option>
+    <option key="PerfTools.ProfMaxKB">
+      <name>Лимит размера лога профайлера (КБ)</name>
+      <desc>Выше этого размера пишется только итоговая сводка.</desc>
+    </option>
+
+    <option key="PerfPack.Enabled">
+      <name>Оптимизации движка</name>
+      <desc>Все оптимизации кода игры; у каждой свой переключатель.</desc>
+    </option>
+    <option key="PerfPack.AnimatorParams">
+      <name>Кэш параметров аниматора</name>
+      <desc>Проверки параметров аниматора у агентов и клерков кешируются, а не строят список каждый раз.</desc>
+    </option>
+    <option key="PerfPack.SoundPrewarm">
+      <name>Предзагрузка звуков</name>
+      <desc>Звуки, игравшие раньше, загружаются заранее при запуске, и первое воспроизведение не подвешивает бой.</desc>
+    </option>
+    <option key="PerfPack.SoundPrewarmBudgetMs">
+      <name>Предзагрузка звуков: мс за кадр</name>
+      <desc>Максимум мс за кадр на предзагрузку звуков.</desc>
+    </option>
+    <option key="PerfPack.SoundKeepMax">
+      <name>Предзагрузка звуков: сколько хранить</name>
+      <desc>Максимум звуков в памяти; больше - больше памяти.</desc>
+    </option>
+    <option key="PerfPack.CorpseFreeze">
+      <name>Заморозка тел погибших</name>
+      <desc>Мёртвые агенты и клерки перестают анимироваться после короткой задержки и оживают вместе с юнитом.</desc>
+    </option>
+    <option key="PerfPack.OrdealUiHideZoom">
+      <name>Скрывать полосы юнитов ордалий с масштаба</name>
+      <desc>С этого размера камеры полоски и имена юнитов испытаний скрываются, если их 20 и больше. 0 = никогда.</desc>
+    </option>
+    <option key="PerfPack.CorpseDelaySeconds">
+      <name>Заморозка тел: задержка (с)</name>
+      <desc>Секунд игрового времени после смерти до заморозки тела.</desc>
+    </option>
+    <option key="PerfPack.PanicThrottle">
+      <name>Распределять массовую панику</name>
+      <desc>Массовая паника запускается за несколько кадров, а не за один, и игра не замирает.</desc>
+    </option>
+    <option key="PerfPack.PanicBudgetMs">
+      <name>Массовая паника: мс за кадр</name>
+      <desc>Максимум мс за кадр на запуск паники.</desc>
+    </option>
+    <option key="PerfPack.SlotCull">
+      <name>Инвентарь: обновлять только видимые ячейки</name>
+      <desc>При открытом инвентаре невидимые слоты не обновляются.</desc>
+    </option>
+    <option key="PerfPack.PathCheck">
+      <name>Проверка связи в комнате без поиска пути</name>
+      <desc>Проверка связи в комнате обходится без полного поиска пути; ответы те же.</desc>
+    </option>
+    <option key="PerfPack.IdleSpeed">
+      <name>Без расчёта скорости у стоящих агентов</name>
+      <desc>Стоящие агенты не считают скорость каждый тик.</desc>
+    </option>
+    <option key="PerfPack.SkinCache">
+      <name>Общие текстуры брони</name>
+      <desc>Агенты делят текстуры и материалы брони, а не создают новые при каждой смене анимации.</desc>
+    </option>
+    <option key="PerfPack.FrameStepCap">
+      <name>Ограничить шаг медленного кадра</name>
+      <desc>Медленный кадр выполняет не больше 2-3 тиков вместо ~16. Ниже 20 FPS игра идёт медленнее реального времени.</desc>
+    </option>
+    <option key="PerfPack.ClerkImpostor">
+      <name>Клерки картинками при малом зуме</name>
+      <desc>При 20 и более клерках на дальнем зуме спокойные клерки рисуются неподвижными картинками.</desc>
+    </option>
+    <option key="PerfPack.RoomScan">
+      <name>Не искать врагов в спокойных комнатах</name>
+      <desc>Юниты не ищут врагов в комнатах, где только подконтрольные сотрудники.</desc>
+    </option>
+    <option key="PerfPack.UiRefresh">
+      <name>Реже обновлять подписи агентов</name>
+      <desc>Имена и титулы агентов обновляются несколько раз в секунду, а не каждый кадр.</desc>
+    </option>
+    <option key="PerfPack.CursorScale">
+      <name>Память курсора прицела</name>
+      <desc>Курсор прицела освобождает старую текстуру.</desc>
+    </option>
+    <option key="PerfPack.RequireCache">
+      <name>Скорость открытия списка Э.Г.О.</name>
+      <desc>Список ЭГО хранит таблички требований между открытиями.</desc>
+    </option>
+    <option key="PerfPack.EffectTextures">
+      <name>Картинки эффектов в памяти</name>
+      <desc>Картинки эффектов хранятся в одном экземпляре; одинаковые общие.</desc>
+    </option>
+    <option key="PerfPack.MeshRelease">
+      <name>Память мешей персонажей</name>
+      <desc>Старые меши персонажей уничтожаются при смене аниматора и в начале дня.</desc>
+    </option>
+    <option key="PerfPack.SkeletonPrewarm">
+      <name>Заранее готовить скелеты спецоружия</name>
+      <desc>Скелеты особого оружия загружаются в начале дня, а не в первом бою.</desc>
+    </option>
+    <option key="PerfPack.DeathBubbleCap">
+      <name>Меньше реплик после смерти</name>
+      <desc>Ограничивает реплики за кадр после смерти.</desc>
+    </option>
+    <option key="PerfPack.BossTextSpread">
+      <name>Строить тексты боссов постепенно</name>
+      <desc>Тексты босса собираются за несколько кадров.</desc>
+    </option>
+    <option key="FastFix.StandingCG">
+      <name>Сюжетные изображения персонажей</name>
+      <desc>Сюжетная картинка с повторяющимися именами лиц загружается, а не ломается.</desc>
+    </option>
+    <option key="Display.Resolution">
+      <name>Разрешение экрана</name>
+      <desc>Нажатие переключает разрешения 16:9. Действует после применения.</desc>
+    </option>
+    <option key="Display.WindowMode">
+      <name>Режим окна</name>
+      <desc>Полный экран, без рамки (быстрый alt-tab, разрешение не действует) или окно.</desc>
+    </option>
+    <option key="Display.VSync">
+      <name>Вертикальная синхронизация</name>
+      <desc>Кадры ждут монитор. Выкл: чуть больше FPS ниже частоты экрана, возможны разрывы.</desc>
+    </option>
+    <option key="Display.FpsCap">
+      <name>Ограничение FPS</name>
+      <desc>Максимум кадров в секунду. 0 = без ограничения. Не действует с V-sync.</desc>
+    </option>
+    <option key="Display.FpsSmooth">
+      <name>Плавное движение (50/25 FPS)</name>
+      <desc>Держит 50 FPS, один тик игры на кадр; если игра не успевает, 25. Заменяет ограничение FPS.</desc>
+    </option>
+    <option key="Display.TextureQuality">
+      <name>Качество текстур</name>
+      <desc>Ниже - меньше видеопамяти; на FPS почти не влияет.</desc>
+    </option>
+    <option key="PerfPack.CanvasCull">
+      <name>Скрывать интерфейс вне экрана</name>
+      <desc>Интерфейс мира вне экрана отключается.</desc>
+    </option>
+    <option key="PerfPack.AgentUiHideZoom">
+      <name>Скрывать полосы сотрудников с масштаба</name>
+      <desc>С этого размера камеры полоски, ранг, титул, баффы и реплики сотрудников скрываются. 0 = никогда.</desc>
+    </option>
+    <option key="PerfPack.CameraCache">
+      <name>Кэш главной камеры</name>
+      <desc>Главная камера ищется один раз за кадр.</desc>
+    </option>
+    <option key="PerfPack.WitnessSpread">
+      <name>Растянуть реакцию свидетелей</name>
+      <desc>Реакции свидетелей смерти распределяются на несколько тиков; урон тот же.</desc>
+    </option>
+    <option key="PerfPack.WitnessBudgetMs">
+      <name>Бюджет реакции свидетелей (мс)</name>
+      <desc>Максимум мс за тик на реакции свидетелей.</desc>
+    </option>
+    <option key="PerfPack.DeathBubbleMax">
+      <name>Реплик о смерти за кадр</name>
+      <desc>Реплик за кадр после смерти.</desc>
+    </option>
+    <option key="PerfPack.UiRefreshHz">
+      <name>Обновлений подписей агентов в секунду</name>
+      <desc>Обновлений надписей в секунду.</desc>
+    </option>
+    <option key="PerfPack.DoorAnimCull">
+      <name>Останавливать аниматоры дверей вне экрана</name>
+      <desc>Аниматоры дверей вне экрана останавливаются. Дверь, изменённая вне экрана, доигрывает переход при появлении.</desc>
+    </option>
+    <option key="PerfPack.PathCheckVerify">
+      <name>Проверка пути: режим сверки</name>
+      <desc>Выполняет и проверку игры, пишет различия в лог; без ускорения.</desc>
+    </option>
+    <option key="PerfPack.SkinCacheStats">
+      <name>Кэш скинов: статистика</name>
+      <desc>Каждые 10 с пишет в лог число материалов, текстур и мешей.</desc>
+    </option>
+    <option key="PerfPack.BonusPool">
+      <name>Пул бонусов</name>
+      <desc>Бонусы снаряжения и даров суммируются без новых объектов.</desc>
+    </option>
+    <option key="PerfPack.SefiraLookup">
+      <name>Поиск отделов</name>
+      <desc>Поиск отдела не создаёт мусора.</desc>
+    </option>
+    <option key="PerfPack.AgentAnimLod">
+      <name>LOD анимаций агентов</name>
+      <desc>На дальнем зуме агенты обновляют анимацию реже.</desc>
+    </option>
+    <option key="PerfPack.PauseSkeletons">
+      <name>Скелеты на паузе</name>
+      <desc>На паузе персонажи редко обновляют позу.</desc>
+    </option>
+    <option key="PerfPack.InventoryDefer">
+      <name>Построение списка E.G.O</name>
+      <desc>Список ЭГО строится постепенно на экране подготовки; день загружается до двух раз быстрее.</desc>
+    </option>
+    <option key="PerfPack.FastScale">
+      <name>Масштабирование своих спрайтов</name>
+      <desc>Свои спрайты агентов масштабируются на видеокарте при запуске; полноразмерные копии освобождаются.</desc>
+    </option>
+    <option key="PerfPack.InventoryZayinFirst">
+      <name>Список E.G.O открывается на ZAYIN</name>
+      <desc>Список ЭГО каждый день открывается на ZAYIN; повторный клик по ZAYIN показывает все уровни.</desc>
+    </option>
+    <option key="PerfPack.ArmorAtlas">
+      <name>Быстрая загрузка брони из модов</name>
+      <desc>Картинки брони модов загружаются один раз в одну текстуру, а не с диска при каждом использовании.</desc>
+    </option>
+    <option key="PerfPack.FastSearch">
+      <name>Быстрый поиск пути</name>
+      <desc>Поиск пути без выделения памяти; пути те же.</desc>
+    </option>
+    <option key="PerfPack.InventoryTabs">
+      <name>Быстрые вкладки E.G.O</name>
+      <desc>Вкладки ЭГО переключаются без перебора каждого слота.</desc>
+    </option>
+    <option key="PerfPack.DistortionGrab">
+      <name>Рендер Dimensional Refraction</name>
+      <desc>Искажение использует прошлый кадр, а не рисует сцену дважды.</desc>
+    </option>
+    <option key="PerfPack.FastFindCreature">
+      <name>Быстрый поиск аномалии</name>
+      <desc>Поиск аномалии по id без выделения памяти.</desc>
+    </option>
+    <option key="PerfPack.NoticePool" section="Performance" group="PerfPack" order="132">
+      <name>Пул уведомлений</name>
+      <desc>Уведомления игры не копируют список слушателей при каждой отправке.</desc>
+    </option>
+    <option key="PerfPack.OrchestraWorkers" section="Performance" group="PerfPack" order="132" restart="1">
+      <name>Список сотрудников Silent Orchestra</name>
+      <desc>Аномалия повторно использует список сотрудников при прорыве.</desc>
+    </option>
+    <option key="PerfPack.DescReuse" section="Performance" group="PerfPack" order="132">
+      <name>Строки окна описания</name>
+      <desc>Окно информации об аномалии повторно использует строки описания.</desc>
+    </option>
+    <option key="PerfPack.FontWarm" section="Performance" group="PerfPack" order="133">
+      <name>Прогрев шрифтов</name>
+      <desc>Размеры текста окна информации готовятся в начале дня.</desc>
+    </option>
+    <option key="PerfPack.GcQuiet" section="Performance" group="PerfPack" order="133">
+      <name>Очистка памяти в тихие моменты</name>
+      <desc>Память чистится на паузе, в окне информации и в конце дня.</desc>
+    </option>
+    <option key="PerfPack.GcQuietGrowMb" section="Performance" group="PerfPack" order="133">
+      <name>Порог тихой очистки (МБ)</name>
+      <desc>Рост памяти в МБ до тихой очистки.</desc>
+    </option>
+    <option key="PerfPack.BufNameCache">
+      <name>Кэш имён баффов</name>
+      <desc>Поиск баффа по имени без выделения памяти.</desc>
+    </option>
+    <option key="PerfPack.LcIdCache">
+      <name>Кэш ID снаряжения</name>
+      <desc>Id снаряжения не создаются заново при каждом запросе.</desc>
+    </option>
+    <option key="PerfPack.HpTrackerLoop">
+      <name>HP Awareness</name>
+      <desc>Без выделения памяти на каждого сотрудника каждый кадр.</desc>
+    </option>
+    <option key="PerfPack.QuietLog">
+      <name>Тихий лог</name>
+      <desc>Обычные строки лога не пишутся; предупреждения и ошибки остаются.</desc>
+    </option>
+    <option key="PerfPack.AgentCull">
+      <name>Агенты вне камеры</name>
+      <desc>Спокойные агенты вне экрана не анимируются и не рисуются.</desc>
+    </option>
+    <option key="PerfPack.ClerkCull">
+      <name>Клерки вне камеры</name>
+      <desc>Спокойные клерки вне экрана не анимируются и не рисуются. Не работает вместе с картинками клерков.</desc>
+    </option>
+    <option key="PerfPack.UnitLoops">
+      <name>Циклы юнитов без выделений памяти</name>
+      <desc>Циклы баффов и даров сотрудников и клерков без выделения памяти.</desc>
+    </option>
+    <option key="PerfPack.AgentStats">
+      <name>Статы сотрудников без выделений памяти</name>
+      <desc>Чтение характеристик сотрудника не выделяет память.</desc>
+    </option>
+    <option key="PerfPack.ModSkeletonCache">
+      <name>Кэш скелетов модов</name>
+      <desc>Скелеты оружия и анимаций модов разбираются один раз, а не при каждой смене анимации (10-100 мс).</desc>
+    </option>
+    <option key="LoadGuard.BootFiles">
+      <name>Общий список файлов BaseMods при запуске</name>
+      <desc>Некоторые моды при запуске игры читают список всех файлов BaseMods (Train Ego Mod: около 3 с). Список строится в фоне, пока грузятся другие моды, и отдаётся им готовым. После запуска лог сверяет его со свежим списком.</desc>
+    </option>
+    <option key="LoadGuard.CreatureIndex">
+      <name>Индекс файлов аномалий</name>
+      <desc>Файлы характеристик аномалий находятся по индексу, собранному один раз, а не поиском по папкам всех модов. Нужна защита загрузки.</desc>
+    </option>
+    <option key="PerfPack.SkipIntroLogos">
+      <name>Пропуск заставок</name>
+      <desc>Два экрана с логотипами перед титульным экраном пропускаются (около 12 с).</desc>
+    </option>
+    <option key="PerfPack.FastSearchVerify">
+      <name>Быстрый поиск пути: проверка</name>
+      <desc>Выполняет и поиск игры, пишет различия в лог; без ускорения.</desc>
+    </option>
+    <option key="PerfPack.AgentTexturesExperimental">
+      <name>Картинки агентов: одна копия</name>
+      <desc>Картинки анимаций агентов хранятся в памяти в одном экземпляре. Моды, читающие их, могут сломаться.</desc>
+    </option>
+    <option key="PerfPack.CreatureTexturesExperimental">
+      <name>Картинки аномалий: одна копия</name>
+      <desc>Картинки аномалий хранятся в одном экземпляре с начала дня. Нужна опция Картинки агентов: одна копия.</desc>
+    </option>
+    <option key="PerfPack.AgentLazyExperimental">
+      <name>Анимации агентов при первом использовании</name>
+      <desc>Картинки анимаций агентов загружаются при первом использовании: быстрее запуск, короткий рывок потом.</desc>
+    </option>
+    <option key="PerfPack.CatLazyExperimental">
+      <name>ChildHood: анимации кошек при первом появлении</name>
+      <desc>Анимации кошек загружаются при первом появлении кошки: быстрее запуск, короткий рывок потом. Экспериментально.</desc>
+    </option>
+    <option key="PerfPack.EffectLazyExperimental">
+      <name>Картинки эффектов при первом показе</name>
+      <desc>Картинки эффектов освобождаются при запуске и загружаются при первом показе.</desc>
+    </option>
+    <option key="FastFix.OrdealReset">
+      <name>Испытание не переходит в следующий день</name>
+      <desc>Испытание, не закончившееся к концу дня (повтор дня, выход в меню), больше не продолжается в следующем дне.</desc>
+    </option>
+    <option key="FastFix.UnknownEquipCount">
+      <name>Загрузка сейва: пропуск неизвестного снаряжения</name>
+      <desc>Мод, выдающий снаряжение, которое не определено ни одним модом, получает отказ вместо ошибки, обрывающей загрузку сейва (данные сефир).</desc>
+    </option>
+    <option key="FastFix.CensoredChildren">
+      <name>CENSORED Remake: удаление погибших детей</name>
+      <desc>Погибшие призванные дети удаляются через 3 с, а не в конце дня, поэтому день больше не замедляется с каждым призывом.</desc>
+    </option>
+    <option key="FastFix.ColoredFixer">
+      <name>Colored Fixer: застревание агента после EGO Кали</name>
+      <desc>Агент больше не остаётся оглушённым и неуправляемым после окончания EGO Кали; эффекты смены EGO и телепорта больше не повторяются на следующих анимациях.</desc>
+    </option>
+    <option key="PerfPack.CameraRange">
+      <name>Диапазон зума камеры читается один раз</name>
+      <desc>Камера читает диапазон зума один раз, а не пересобирает список открытых отделов несколько раз за кадр.</desc>
+    </option>
+    <option key="PerfPack.OrdealIdle">
+      <name>Пропуск обновления испытаний без испытаний</name>
+      <desc>Обновление испытаний пропускается, пока ни одно не идёт, вместо создания списка каждый тик.</desc>
+    </option>
+    <option key="PerfPack.MouseLists">
+      <name>Наведение мыши без новых списков</name>
+      <desc>Проверка того, что под курсором, переиспользует свои списки вместо создания новых каждый кадр.</desc>
+    </option>
+    <option key="PerfPack.OptionSave">
+      <name>Ползунки опций модов сохраняются один раз</name>
+      <desc>Перетаскивание ползунка опции мода записывает файл опций один раз, через 0.5 с после последнего изменения, а не на каждом шаге.</desc>
+    </option>
+    <option key="PerfPack.AttachMiss">
+      <name>Отсутствующий спрайт дара ищется один раз</name>
+      <desc>Спрайт дара, которого нет ни в одном моде, ищется один раз, а не во всех папках модов при каждом обновлении внешности.</desc>
+    </option>
+    <option key="PerfPack.PortraitCache">
+      <name>Портреты ищутся один раз</name>
+      <desc>Ванильные портреты аномалий и отсутствующие портреты модов ищутся один раз за сцену, а не при каждом вызове.</desc>
+    </option>
+    <option key="PerfPack.ScriptTypes">
+      <name>Скрипты оружия и даров модов через один список</name>
+      <desc>Оружие и дары находят скрипт мода через список, собранный один раз, а не перебирая типы всех модов каждый раз.</desc>
+    </option>
+  </options>
+</NailUI>
