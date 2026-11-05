@@ -155,4 +155,4 @@ MIT License, Copyright (c) 2026 MouseWarri0r. See [LICENSE](LICENSE).
 
 Code written by Claude (Anthropic AI model) in Claude Code, directed, tested in game and published by MouseWarri0r.
 
-Ideas come from earlier optimization mods by NZM, sjksjrjr (SomeOptimizer), abcdcode, VBlankFF and mindedness. Their code is not included. `PerfPack.CatLazyExperimental` targets the cat animations of ChildHood by JamesGreen1233455.
+Ideas come from earlier optimization mods by NZM, sjksjrjr (SomeOptimizer), abcdcode, VBlankFF and mindedness. Their code is not included.
