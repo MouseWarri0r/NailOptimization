@@ -1,6 +1,6 @@
 # Configuration reference
 
-This file lists every option shown in the NailUI panel (F10), generated from `assets/Localization/en/NailUI.xml` and the `Bind*` calls in the sources. The panel has 179 options.
+This file lists every option shown in the NailUI panel (F10), generated from `assets/Localization/en/NailUI.xml` and the `Bind*` calls in the sources. The panel has 218 options.
 
 Options are stored in `NailOptimization.cfg.txt` as `Key=value`. Flags use `true`/`false`. A file edited outside the game is applied live after `Config.WatchSeconds` (default 10 s). Options marked **Restart: yes** apply after a game restart.
 
@@ -211,6 +211,7 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 |---|---|---|---|
 | `FastFix.PatchGuard` | `true` | yes | **Patch guard**. A mod patch that throws the same error many times within 10 s is skipped until the game closes and logged with the mod id. Can turn off a feature of that mod. |
 | `FastFix.GuardCount` | `100` | no | **Patch guard: errors before skip**. Identical errors within 10 s before a patch is skipped. Range 10..1000. |
+| `FastFix.LoopGuard` | `true` | yes | **Loop guard**. A method of another mod (not a patch) that throws the same error many times within 10 s is skipped until the game closes, if it returns nothing, and logged. Can turn off a feature of that mod. |
 
 ## Bugfixes
 
@@ -228,6 +229,8 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `FastFix.BlackSwanReflect` | `true` | yes | **Black Swan reflection**. Black Swan no longer reflects damage to herself endlessly (a stack overflow). |
 | `FastFix.FixerWhiteReflect` | `true` | yes | **White fixer reflection**. The White fixer no longer reflects damage endlessly while praying (a game freeze). |
 | `FastFix.StandingCG` | `true` | yes | **Story character pictures**. A story picture with duplicate face names loads instead of breaking. |
+| `FastFix.ChildDeleteTwice` | `true` | yes | **Child creature removed twice**. A child creature that is suppressed twice (some mods do it) no longer throws the second time. |
+| `FastFix.ChildElevatorStuck` | `true` | yes | **Child creature stuck at an elevator**. A child creature whose path ends on an elevator no longer throws out of its update; it is handled as for other creatures. |
 
 ## Mod fixes
 
@@ -255,6 +258,38 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `FastFix.HarmonyLabel` | `true` | no | **Harmony label on dead agents**. The weapon's note staff is hidden while its agent is dead. Requires mod: YD25_HarmonyRemake_Mod. |
 | `PerfPack.HpTrackerLoop` | `true` | yes | **HP Awareness**. No allocations for every employee every frame. Requires mod: TheNamesan_HPAwareness_MOD. |
 | `PerfPack.CatLazyExperimental` | `true` | yes | **ChildHood: cat animations on first appearance**. Cat animations load when a cat first appears: faster start, a short stutter later. Experimental. |
+| `FastFix.BlackBirdMove` | `true` | yes | **White and Black Bird: first move**. A black bird that escapes no longer throws on its first move. |
+| `FastFix.PinocchioMove` | `true` | yes | **LCPD Pinocchio: first move**. A puppet that escapes no longer throws on its first move. |
+| `FastFix.BoneFishView` | `true` | yes | **Rotten Whale Fall: bone fish**. A bone fish without its animation no longer throws when it appears. |
+| `FastFix.DragonScaleView` | `true` | yes | **Yin Yang Dragon Scale**. The abnormality without its animation no longer throws when the facility loads. |
+| `FastFix.EternalFlowerAttack` | `true` | yes | **Flower of Eternity: attack at day end**. A flower attack that lands at the end of the day no longer throws and stops other animation events of that frame. |
+| `FastFix.IsomerEffect` | `true` | yes | **Isomer: damage effect**. The damage effect picture is read from the mod folder (the mod looks for a folder with another name). |
+| `FastFix.ToyFactoryLog` | `true` | yes | **ToyFactory: full error text**. An error that the mod's notice guard catches is written in full, with its stack, to ToyFactoryError.txt and once per kind to the NailOptimization log. |
+| `FastFix.InvalidumSefira` | `true` | yes | **Invalidum: departments at day end**. Lighting the departments back up no longer throws when a creature is outside every passage. |
+| `FastFix.InvalidumPath` | `true` | yes | **Invalidum: sounds**. Its sounds are read from the mod folder (the mod looks for a folder with another name). |
+| `FastFix.PinocchioRange` | `true` | yes | **LCPD Pinocchio: removed target**. An attack on a target removed at the end of the day no longer throws. |
+| `FastFix.LadyInRainDraw` | `true` | yes | **Lady in Rain: drawing**. Drawing stops when its view or painting tool is gone instead of throwing every frame. |
+| `FastFix.QiuNiuCircle` | `true` | yes | **QiuNiu: circle**. Its circle no longer throws on units that are not agents, officers, creatures or children. |
+| `FastFix.MephistoBuf` | `true` | yes | **Mephisto: debuff on officers**. Its debuff on an officer or another non-agent no longer throws when that unit is hit. |
+| `FastFix.HookahCaterpillarAnim` | `true` | yes | **Hookah Caterpillar: animation**. Its animation is found even when the mod list lookup fails, instead of the creature staying without animation. |
+| `FastFix.WhaleTailPull` | `true` | yes | **Rotten Whale Fall: tail pull**. Its tail skips the pull while the target is between rooms instead of throwing every frame. |
+| `FastFix.CharlotteDamage` | `true` | yes | **Charlotte: damage between rooms**. Taking damage between rooms no longer throws. |
+| `FastFix.KekesiWolfHit` | `true` | yes | **Alleyway Watchdog: area hit**. Its area hit no longer stops when it kills someone in the room. |
+| `FastFix.PuLaoChain` | `true` | yes | **PuLao: endless damage chain**. Its attack near a music creature no longer repeats itself without end and closes the game; each creature joins the chain once. |
+| `FastFix.NothingWorkerNoModel` | `true` | yes | **It Goes By The Name of Dream: empty worker**. A NothingWorker object that the mod created without initializing it no longer throws an error every frame. |
+| `FastFix.PinocchioEscape` | `true` | yes | **LCPD Pinocchio: escape tick**. Picking its defence target and chasing a target that just died no longer throw every tick. |
+| `FastFix.InvalidumFlood` | `true` | yes | **Invalidum: flooded passage**. The flooded passage no longer stops when a unit in it dies or leaves during the check. |
+| `FastFix.HomelessBeastHit` | `true` | yes | **Homeless Beast: department hit**. Its hit on the whole department no longer stops when it kills someone. |
+| `FastFix.YaZiDeath` | `true` | yes | **YaZi: death animation**. Suppression without a death animation no longer throws every frame; the creature is hidden as in vanilla. |
+| `FastFix.BlackBirdDeath` | `true` | yes | **Black Bird: death animation**. Suppression of the black bird without a death animation no longer throws every frame; it goes straight to the pose it takes after that animation. |
+| `FastFix.RottenWhaleRoam` | `true` | yes | **Rotten Whale Fall: roaming**. Without a target it keeps one roaming destination instead of choosing a new one every tick and turning back and forth. |
+| `FastFix.QianRuEquip` | `true` | yes | **QianRu: EGO take-back**. Taking back its EGO from the inventory no longer stops after the first removed item. |
+| `FastFix.CauldronLure` | `true` | yes | **Cauldron: lure**. Luring when every candidate is dead no longer throws; the lure is skipped. |
+| `FastFix.CandeloroRibbon` | `true` | yes | **Candeloro: ribbons**. A ribbon whose end was destroyed no longer throws every frame; it stays where it was until removed. |
+| `FastFix.Cloud9Panic` | `true` | yes | **Cloud9: panic outside rooms**. An agent panicking while the escaped cloud is between rooms no longer throws. |
+| `FastFix.YaZiEscapeUI` | `true` | yes | **YaZi: breach without request window**. A breach before its request window was ever opened no longer throws. |
+| `FastFix.GrunglyLure` | `true` | yes | **Grungly: lure**. A lure whose target no longer qualifies, or with no agent left to lure, no longer throws every tick; the lure stops. |
+| `FastFix.BlackBirdPassageHit` | `true` | yes | **Black Bird: hallway hit**. Its hit on the hallway no longer stops when it kills someone there. Needs 12Harmony. |
 
 ### Errors of any mod
 
@@ -270,6 +305,10 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `FastFix.ForeignLeaks` | `true` | no | **Old days in mod lists**. At day start, entries of earlier days are removed from mod lists that never clear them. |
 | `FastFix.EffectNames` | `true` | yes | **Same effect names**. Two mods with the same effect folder name each show their own effect. |
 | `FastFix.StartTooltip` | `true` | no | **Tooltip at the start of the day**. A tooltip shown at day start is closed. |
+| `FastFix.Covariance` | `true` | yes | **List type crash**. A mod built for a newer .NET that passes a list of one unit type where a list of another is expected no longer closes the game without an error. Such places are found in the mod code at start and listed in the log. |
+| `FastFix.CovarianceHandlers` | `true` | yes | **List type crash: all methods**. Also fixes such places inside a method with foreach, using or try (for example Krau Deluge). This loads 12Harmony, which then builds the patches of all mods. Needs 12Harmony.dll in the game Managed folder; without it these places stay unfixed. On by default; it also lets the ToyFactory log and Invalidum sound fixes apply. |
+| `FastFix.Hint12Harmony` | `true` | no | **12Harmony hint on the title**. Once on the title screen: lists the fixes that are off because 12Harmony is not loaded. Switched off after it was shown. |
+| `FastFix.StageEndGuard` | `true` | yes | **Day end guard**. A creature that throws at the end of the day (for example Invalidum with an escaped creature outside the hallways) no longer stops the day end: the result screen still opens and the error is logged once. |
 
 ### Module
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.1-beta - 2026-11-09
+
+Crash fixes, many fixes for specific mods, one performance change. FastFix 1.30, PerfPack 1.57, NailUI 1.14; the other modules are unchanged.
+
+- Crash: `FastFix.Covariance` (on) repairs mods built for a newer .NET that pass a list of one unit type where the game expects another (game closed with no error, for example after the Binah core suppression). `FastFix.CovarianceHandlers` (on) does the same inside methods with foreach, using or try (Krau Deluge); it needs `12Harmony.dll` in `LobotomyCorp_Data/Managed`. `FastFix.Hint12Harmony` lists once on the title screen the fixes that are off without 12Harmony.
+- Guards: `FastFix.LoopGuard` (on) skips a non-patch method of another mod that keeps throwing the same error. `FastFix.StageEndGuard` (on) keeps a creature that throws at the end of the day from blocking the result screen.
+- Vanilla: `FastFix.ChildDeleteTwice` (a child creature suppressed twice), `FastFix.ChildElevatorStuck` (a child creature whose path ends on an elevator).
+- Specific mods, each with its own switch in Mod fixes (on; they apply only when the mod is installed): `BlackBirdMove`, `BlackBirdDeath`, `BlackBirdPassageHit` (needs 12Harmony), `GrunglyLure`, `PinocchioMove`, `PinocchioEscape`, `PinocchioRange`, `BoneFishView`, `WhaleTailPull`, `RottenWhaleRoam`, `DragonScaleView`, `EternalFlowerAttack`, `IsomerEffect`, `InvalidumPath`, `InvalidumSefira`, `InvalidumFlood`, `LadyInRainDraw`, `QiuNiuCircle`, `MephistoBuf`, `HookahCaterpillarAnim`, `CharlotteDamage`, `KekesiWolfHit`, `HomelessBeastHit`, `PuLaoChain`, `YaZiDeath`, `YaZiEscapeUI`, `QianRuEquip`, `CauldronLure`, `CandeloroRibbon`, `Cloud9Panic`, `NothingWorkerNoModel`, `ToyFactoryLog` (all `FastFix.` keys; `ToyFactoryLog` writes the full error to `ToyFactoryError.txt`).
+- Performance: `PerfPack.PathCheck` now stays on with Candeloro installed; while Candeloro's edges are blocked the game's own path search runs. Before, the check switched itself off for the whole session.
+- The panel now has 218 options.
+
 ## 0.9.0-beta - 2026-11-05: first public release
 
 First public release. Core assembly and ten modules.

@@ -261,6 +261,22 @@
       <name>Same effect names</name>
       <desc>Two mods with the same effect folder name each show their own effect.</desc>
     </option>
+    <option key="FastFix.Covariance" section="ModFixes" group="ModFixGeneral" order="95" restart="1">
+      <name>List type crash</name>
+      <desc>A mod built for a newer .NET that passes a list of one unit type where a list of another is expected no longer closes the game without an error. Such places are found in the mod code at start and listed in the log.</desc>
+    </option>
+    <option key="FastFix.CovarianceHandlers" section="ModFixes" group="ModFixGeneral" order="96" restart="1">
+      <name>List type crash: all methods</name>
+      <desc>Also fixes such places inside a method with foreach, using or try (for example Krau Deluge). This loads 12Harmony, which then builds the patches of all mods. Needs 12Harmony.dll in the game Managed folder; without it these places stay unfixed. On by default; it also lets the ToyFactory log and Invalidum sound fixes apply.</desc>
+    </option>
+    <option key="FastFix.Hint12Harmony" section="ModFixes" group="ModFixGeneral" order="97">
+      <name>12Harmony hint on the title</name>
+      <desc>Once on the title screen: lists the fixes that are off because 12Harmony is not loaded. Switched off after it was shown.</desc>
+    </option>
+    <option key="FastFix.StageEndGuard" section="ModFixes" group="ModFixGeneral" order="97" restart="1">
+      <name>Day end guard</name>
+      <desc>A creature that throws at the end of the day (for example Invalidum with an escaped creature outside the hallways) no longer stops the day end: the result screen still opens and the error is logged once.</desc>
+    </option>
     <option key="FastFix.ExecOrderAttr" section="ModFixes" group="ModFixGeneral" order="30" restart="1">
       <name>Missing attribute in a mod class</name>
       <desc>A mod class with an attribute this game lacks no longer logs an error when added.</desc>
@@ -288,6 +304,10 @@
     <option key="FastFix.GuardCount" section="Protection" group="PatchGuard" order="20">
       <name>Patch guard: errors before skip</name>
       <desc>Identical errors within 10 s before a patch is skipped.</desc>
+    </option>
+    <option key="FastFix.LoopGuard" section="Protection" group="PatchGuard" order="15" restart="1">
+      <name>Loop guard</name>
+      <desc>A method of another mod (not a patch) that throws the same error many times within 10 s is skipped until the game closes, if it returns nothing, and logged. Can turn off a feature of that mod.</desc>
     </option>
 
     <option key="RecoverEffectThrottle.CooldownPerAgent" section="Effects" group="RecoverEffects" order="10">
@@ -574,6 +594,14 @@
       <name>Story character pictures</name>
       <desc>A story picture with duplicate face names loads instead of breaking.</desc>
     </option>
+    <option key="FastFix.ChildDeleteTwice" section="Bugfixes" group="Vanilla" order="110" restart="1">
+      <name>Child creature removed twice</name>
+      <desc>A child creature that is suppressed twice (some mods do it) no longer throws the second time.</desc>
+    </option>
+    <option key="FastFix.ChildElevatorStuck" section="Bugfixes" group="Vanilla" order="115" restart="1">
+      <name>Child creature stuck at an elevator</name>
+      <desc>A child creature whose path ends on an elevator no longer throws out of its update; it is handled as for other creatures.</desc>
+    </option>
     <option key="Display.Resolution" section="General" group="Display" order="10" control="choice">
       <name>Screen resolution</name>
       <desc>Click to cycle 16:9 resolutions. Takes effect after Apply.</desc>
@@ -781,6 +809,134 @@
     <option key="PerfPack.CatLazyExperimental" section="ModFixes" group="ModFixList" order="200" restart="1">
       <name>ChildHood: cat animations on first appearance</name>
       <desc>Cat animations load when a cat first appears: faster start, a short stutter later. Experimental.</desc>
+    </option>
+    <option key="FastFix.BlackBirdMove" section="ModFixes" group="ModFixList" order="210" restart="1">
+      <name>White and Black Bird: first move</name>
+      <desc>A black bird that escapes no longer throws on its first move.</desc>
+    </option>
+    <option key="FastFix.PinocchioMove" section="ModFixes" group="ModFixList" order="220" restart="1">
+      <name>LCPD Pinocchio: first move</name>
+      <desc>A puppet that escapes no longer throws on its first move.</desc>
+    </option>
+    <option key="FastFix.BoneFishView" section="ModFixes" group="ModFixList" order="230" restart="1">
+      <name>Rotten Whale Fall: bone fish</name>
+      <desc>A bone fish without its animation no longer throws when it appears.</desc>
+    </option>
+    <option key="FastFix.DragonScaleView" section="ModFixes" group="ModFixList" order="240" restart="1">
+      <name>Yin Yang Dragon Scale</name>
+      <desc>The abnormality without its animation no longer throws when the facility loads.</desc>
+    </option>
+    <option key="FastFix.EternalFlowerAttack" section="ModFixes" group="ModFixList" order="250" restart="1">
+      <name>Flower of Eternity: attack at day end</name>
+      <desc>A flower attack that lands at the end of the day no longer throws and stops other animation events of that frame.</desc>
+    </option>
+    <option key="FastFix.IsomerEffect" section="ModFixes" group="ModFixList" order="260" restart="1">
+      <name>Isomer: damage effect</name>
+      <desc>The damage effect picture is read from the mod folder (the mod looks for a folder with another name).</desc>
+    </option>
+    <option key="FastFix.ToyFactoryLog" section="ModFixes" group="ModFixList" order="270" restart="1">
+      <name>ToyFactory: full error text</name>
+      <desc>An error that the mod's notice guard catches is written in full, with its stack, to ToyFactoryError.txt and once per kind to the NailOptimization log.</desc>
+    </option>
+    <option key="FastFix.InvalidumSefira" section="ModFixes" group="ModFixList" order="280" restart="1">
+      <name>Invalidum: departments at day end</name>
+      <desc>Lighting the departments back up no longer throws when a creature is outside every passage.</desc>
+    </option>
+    <option key="FastFix.InvalidumPath" section="ModFixes" group="ModFixList" order="290" restart="1">
+      <name>Invalidum: sounds</name>
+      <desc>Its sounds are read from the mod folder (the mod looks for a folder with another name).</desc>
+    </option>
+    <option key="FastFix.PinocchioRange" section="ModFixes" group="ModFixList" order="300" restart="1">
+      <name>LCPD Pinocchio: removed target</name>
+      <desc>An attack on a target removed at the end of the day no longer throws.</desc>
+    </option>
+    <option key="FastFix.LadyInRainDraw" section="ModFixes" group="ModFixList" order="310" restart="1">
+      <name>Lady in Rain: drawing</name>
+      <desc>Drawing stops when its view or painting tool is gone instead of throwing every frame.</desc>
+    </option>
+    <option key="FastFix.QiuNiuCircle" section="ModFixes" group="ModFixList" order="320" restart="1">
+      <name>QiuNiu: circle</name>
+      <desc>Its circle no longer throws on units that are not agents, officers, creatures or children.</desc>
+    </option>
+    <option key="FastFix.MephistoBuf" section="ModFixes" group="ModFixList" order="330" restart="1">
+      <name>Mephisto: debuff on officers</name>
+      <desc>Its debuff on an officer or another non-agent no longer throws when that unit is hit.</desc>
+    </option>
+    <option key="FastFix.HookahCaterpillarAnim" section="ModFixes" group="ModFixList" order="340" restart="1">
+      <name>Hookah Caterpillar: animation</name>
+      <desc>Its animation is found even when the mod list lookup fails, instead of the creature staying without animation.</desc>
+    </option>
+    <option key="FastFix.WhaleTailPull" section="ModFixes" group="ModFixList" order="350" restart="1">
+      <name>Rotten Whale Fall: tail pull</name>
+      <desc>Its tail skips the pull while the target is between rooms instead of throwing every frame.</desc>
+    </option>
+    <option key="FastFix.CharlotteDamage" section="ModFixes" group="ModFixList" order="360" restart="1">
+      <name>Charlotte: damage between rooms</name>
+      <desc>Taking damage between rooms no longer throws.</desc>
+    </option>
+    <option key="FastFix.KekesiWolfHit" section="ModFixes" group="ModFixList" order="370" restart="1">
+      <name>Alleyway Watchdog: area hit</name>
+      <desc>Its area hit no longer stops when it kills someone in the room.</desc>
+    </option>
+    <option key="FastFix.PuLaoChain" section="ModFixes" group="ModFixList" order="380" restart="1">
+      <name>PuLao: endless damage chain</name>
+      <desc>Its attack near a music creature no longer repeats itself without end and closes the game; each creature joins the chain once.</desc>
+    </option>
+    <option key="FastFix.NothingWorkerNoModel" section="ModFixes" group="ModFixList" order="390" restart="1">
+      <name>It Goes By The Name of Dream: empty worker</name>
+      <desc>A NothingWorker object that the mod created without initializing it no longer throws an error every frame.</desc>
+    </option>
+    <option key="FastFix.PinocchioEscape" section="ModFixes" group="ModFixList" order="400" restart="1">
+      <name>LCPD Pinocchio: escape tick</name>
+      <desc>Picking its defence target and chasing a target that just died no longer throw every tick.</desc>
+    </option>
+    <option key="FastFix.InvalidumFlood" section="ModFixes" group="ModFixList" order="410" restart="1">
+      <name>Invalidum: flooded passage</name>
+      <desc>The flooded passage no longer stops when a unit in it dies or leaves during the check.</desc>
+    </option>
+    <option key="FastFix.HomelessBeastHit" section="ModFixes" group="ModFixList" order="420" restart="1">
+      <name>Homeless Beast: department hit</name>
+      <desc>Its hit on the whole department no longer stops when it kills someone.</desc>
+    </option>
+    <option key="FastFix.YaZiDeath" section="ModFixes" group="ModFixList" order="430" restart="1">
+      <name>YaZi: death animation</name>
+      <desc>Suppression without a death animation no longer throws every frame; the creature is hidden as in vanilla.</desc>
+    </option>
+    <option key="FastFix.BlackBirdDeath" section="ModFixes" group="ModFixList" order="440" restart="1">
+      <name>Black Bird: death animation</name>
+      <desc>Suppression of the black bird without a death animation no longer throws every frame; it goes straight to the pose it takes after that animation.</desc>
+    </option>
+    <option key="FastFix.RottenWhaleRoam" section="ModFixes" group="ModFixList" order="450" restart="1">
+      <name>Rotten Whale Fall: roaming</name>
+      <desc>Without a target it keeps one roaming destination instead of choosing a new one every tick and turning back and forth.</desc>
+    </option>
+    <option key="FastFix.QianRuEquip" section="ModFixes" group="ModFixList" order="460" restart="1">
+      <name>QianRu: EGO take-back</name>
+      <desc>Taking back its EGO from the inventory no longer stops after the first removed item.</desc>
+    </option>
+    <option key="FastFix.CauldronLure" section="ModFixes" group="ModFixList" order="470" restart="1">
+      <name>Cauldron: lure</name>
+      <desc>Luring when every candidate is dead no longer throws; the lure is skipped.</desc>
+    </option>
+    <option key="FastFix.CandeloroRibbon" section="ModFixes" group="ModFixList" order="480" restart="1">
+      <name>Candeloro: ribbons</name>
+      <desc>A ribbon whose end was destroyed no longer throws every frame; it stays where it was until removed.</desc>
+    </option>
+    <option key="FastFix.Cloud9Panic" section="ModFixes" group="ModFixList" order="490" restart="1">
+      <name>Cloud9: panic outside rooms</name>
+      <desc>An agent panicking while the escaped cloud is between rooms no longer throws.</desc>
+    </option>
+    <option key="FastFix.YaZiEscapeUI" section="ModFixes" group="ModFixList" order="500" restart="1">
+      <name>YaZi: breach without request window</name>
+      <desc>A breach before its request window was ever opened no longer throws.</desc>
+    </option>
+    <option key="FastFix.GrunglyLure" section="ModFixes" group="ModFixList" order="510" restart="1">
+      <name>Grungly: lure</name>
+      <desc>A lure whose target no longer qualifies, or with no agent left to lure, no longer throws every tick; the lure stops.</desc>
+    </option>
+    <option key="FastFix.BlackBirdPassageHit" section="ModFixes" group="ModFixList" order="520" restart="1">
+      <name>Black Bird: hallway hit</name>
+      <desc>Its hit on the hallway no longer stops when it kills someone there. Needs 12Harmony.</desc>
     </option>
     <option key="PerfPack.EffectLazyExperimental" section="Experimental" group="PerfPack" order="40" restart="1">
       <name>Effect pictures on first show</name>

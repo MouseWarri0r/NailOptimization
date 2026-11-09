@@ -57,4 +57,4 @@ Compiling is not proof that the code runs in the game. These constructs compile 
 
 ## Released DLLs
 
-The DLLs in the 0.9.0-beta package were built from these sources with a different toolchain (Roslyn through a dnlib-based rebuild tool), so a local build is not byte-identical to the release, but it compiles the same code.
+The DLLs in the 0.9.1-beta package were built from these sources with a different toolchain (Roslyn through a dnlib-based rebuild tool), so a local build is not byte-identical to the release, but it compiles the same code.

@@ -50,7 +50,7 @@ namespace NailUI
 		{
 			get
 			{
-				return "1.13";
+				return "1.14";
 			}
 		}
 
@@ -2792,6 +2792,53 @@ namespace NailUI
 		}
 	}
 
+	// Called by FastFix through reflection once on the title: NailUI.H12Hint.Show(option keys, dll missing).
+	// Names come from the NailUI localization; the window is AlertBox.
+	public static class H12Hint
+	{
+		public static bool Show(string[] keys, bool dllMissing)
+		{
+			try
+			{
+				string lang = Gui.LangCode();
+				bool ru = string.Equals(lang, "ru", StringComparison.Ordinal);
+				LocData d = Loc.Load(lang);
+				StringBuilder sb = new StringBuilder();
+				sb.Append(ru ? "\u042d\u0442\u0438 \u0438\u0441\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u044f NailOptimization \u043d\u0435 \u0440\u0430\u0431\u043e\u0442\u0430\u044e\u0442 \u0431\u0435\u0437 12Harmony (\u0432 \u0438\u0445 \u043c\u0435\u0442\u043e\u0434\u0430\u0445 \u0435\u0441\u0442\u044c \u043e\u0431\u0440\u0430\u0431\u043e\u0442\u0447\u0438\u043a\u0438 \u0438\u0441\u043a\u043b\u044e\u0447\u0435\u043d\u0438\u0439):" : "These NailOptimization fixes are off without 12Harmony (their methods have exception handlers):").Append('\n');
+				for (int i = 0; i < keys.Length; i++)
+				{
+					sb.Append("\n<color=#ff5c4d>- ").Append(Name(d, keys[i])).Append("</color>");
+				}
+				sb.Append("\n\n");
+				if (dllMissing)
+				{
+					sb.Append(ru ? "\u0420\u0435\u0448\u0435\u043d\u0438\u0435: \u043f\u043e\u043b\u043e\u0436\u0438\u0442\u0435 12Harmony.dll \u0440\u044f\u0434\u043e\u043c \u0441 0Harmony.dll \u0432 LobotomyCorp_Data/Managed \u0438 \u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u0435 \u0438\u0433\u0440\u0443." : "Fix: put 12Harmony.dll next to 0Harmony.dll in LobotomyCorp_Data/Managed, then restart the game.");
+				}
+				else
+				{
+					sb.Append(string.Format(ru ? "\u0420\u0435\u0448\u0435\u043d\u0438\u0435: \u0432\u043a\u043b\u044e\u0447\u0438\u0442\u0435 \u043e\u043f\u0446\u0438\u044e \"{0}\" \u0432 \u0440\u0430\u0437\u0434\u0435\u043b\u0435 \u0438\u0441\u043f\u0440\u0430\u0432\u043b\u0435\u043d\u0438\u0439 \u043c\u043e\u0434\u043e\u0432 \u0438 \u043f\u0435\u0440\u0435\u0437\u0430\u043f\u0443\u0441\u0442\u0438\u0442\u0435 \u0438\u0433\u0440\u0443." : "Fix: turn on the option \"{0}\" in Mod fixes, then restart the game.", Name(d, "FastFix.CovarianceHandlers")));
+				}
+				sb.Append("\n").Append(ru ? "\u042d\u0442\u043e \u0441\u043e\u043e\u0431\u0449\u0435\u043d\u0438\u0435 \u043f\u043e\u043a\u0430\u0437\u044b\u0432\u0430\u0435\u0442\u0441\u044f \u043e\u0434\u0438\u043d \u0440\u0430\u0437." : "This message is shown once.");
+				return AlertBox.Show(ru ? "12Harmony \u043d\u0435 \u0437\u0430\u0433\u0440\u0443\u0436\u0435\u043d" : "12Harmony is not loaded", sb.ToString());
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error("nailui", "12harmony hint failed: " + e);
+				return false;
+			}
+		}
+
+		private static string Name(LocData d, string key)
+		{
+			OptLayout o;
+			if (d.Opts.TryGetValue(key, out o) && o.Name.Length > 0)
+			{
+				return o.Name;
+			}
+			return key;
+		}
+	}
+
 	internal static class Gui
 	{
 		internal static Font Font;
@@ -3426,7 +3473,7 @@ namespace NailUI
 
 		// ---------- font and language ----------
 		[MethodImpl(MethodImplOptions.NoInlining)]
-		private static string LangCode()
+		internal static string LangCode()
 		{
 			try
 			{

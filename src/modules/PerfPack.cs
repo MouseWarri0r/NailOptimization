@@ -128,7 +128,7 @@ namespace PerfPack
 		{
 			get
 			{
-				return "1.56";
+				return "1.57";
 			}
 		}
 
@@ -9135,6 +9135,10 @@ namespace PerfPack
 		private static MethodBase _search;
 		private static bool _checkedLate;
 		private static bool _off;
+		// Candeloro (HMI.Candeloro2.MOD) puts a Transpiler on SearchPath that skips the (node, edge) pairs in its static
+		// blockedEdges. While that dictionary is empty its search equals the vanilla one; while it holds pairs the original runs.
+		private const string CandeloroOwner = "HMI.Candeloro2.MOD";
+		private static System.Collections.ICollection _blocked;
 		private static int _errors;
 		internal static bool Verify;
 
@@ -9190,6 +9194,10 @@ namespace PerfPack
 					{
 						return true;
 					}
+				}
+				if (_blocked != null && _blocked.Count > 0)
+				{
+					return true;
 				}
 				bool answer;
 				if (n2.currentNode != null)
@@ -9280,9 +9288,74 @@ namespace PerfPack
 			}
 			if (owner != null)
 			{
+				if (Owners.ForeignAny(_target) == null && OnlyCandeloro(_search))
+				{
+					_blocked = CandeloroBlocked();
+					if (_blocked != null)
+					{
+						N.ULog.Info(Tag, "PathCheck kept: the path search is patched by " + CandeloroOwner + "; the original runs while its edges are blocked");
+						return;
+					}
+				}
 				_off = true;
 				N.ULog.Warn(Tag, "PathCheck switched off: the path search is patched by " + owner);
 			}
+		}
+
+		// True when every patch on 'm' outside NailOptimization belongs to Candeloro and at least one does.
+		private static bool OnlyCandeloro(MethodBase m)
+		{
+			Patches ps = PatchProcessor.IsPatched(m);
+			if (ps == null)
+			{
+				return false;
+			}
+			bool seen = false;
+			return OnlyCandeloroIn(ps.Prefixes, ref seen) && OnlyCandeloroIn(ps.Postfixes, ref seen) && OnlyCandeloroIn(ps.Transpilers, ref seen) && seen;
+		}
+
+		private static bool OnlyCandeloroIn(IList<Patch> list, ref bool seen)
+		{
+			for (int i = 0; i < list.Count; i++)
+			{
+				string o = list[i].owner;
+				if (o != null && o.StartsWith("Lobotomy.NailOptimization.", StringComparison.Ordinal))
+				{
+					continue;
+				}
+				if (o != CandeloroOwner)
+				{
+					return false;
+				}
+				seen = true;
+			}
+			return true;
+		}
+
+		// Candeloro's blockedEdges, taken from the class of its SearchPath Transpiler; null when it cannot be read.
+		private static System.Collections.ICollection CandeloroBlocked()
+		{
+			try
+			{
+				IList<Patch> ts = PatchProcessor.IsPatched(_search).Transpilers;
+				for (int i = 0; i < ts.Count; i++)
+				{
+					if (ts[i].owner != CandeloroOwner || object.ReferenceEquals(ts[i].patch, null))
+					{
+						continue;
+					}
+					FieldInfo f = ts[i].patch.DeclaringType.GetField("blockedEdges", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+					if (!object.ReferenceEquals(f, null))
+					{
+						return f.GetValue(null) as System.Collections.ICollection;
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(Tag, "PathCheck: Candeloro blockedEdges not readable: " + e.Message);
+			}
+			return null;
 		}
 
 		// The rules of GraphAstar.SearchPath(start, tempNode, isRabbit: true) for a temp node joined to both ends of 'goal':

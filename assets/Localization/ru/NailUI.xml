@@ -255,6 +255,22 @@
       <name>Одинаковые имена эффектов</name>
       <desc>Два мода с одинаковой папкой эффекта показывают каждый свой эффект.</desc>
     </option>
+    <option key="FastFix.Covariance">
+      <name>Вылет из-за типа списка</name>
+      <desc>Мод, собранный под новый .NET, который передаёт список одного типа юнитов туда, где ждут список другого, больше не закрывает игру без ошибки. Такие места находятся в коде модов при запуске и пишутся в лог.</desc>
+    </option>
+    <option key="FastFix.CovarianceHandlers">
+      <name>Вылет из-за типа списка: все методы</name>
+      <desc>Исправляет и такие места внутри метода с foreach, using или try (например Krau Deluge). Загружает 12Harmony, который затем строит патчи всех модов. Нужен 12Harmony.dll в папке Managed игры; без него такие места не исправляются. Включено по умолчанию; также позволяет применить исправления лога ToyFactory и звуков Invalidum.</desc>
+    </option>
+    <option key="FastFix.Hint12Harmony">
+      <name>Подсказка о 12Harmony на титуле</name>
+      <desc>Один раз на титульном экране: список исправлений, которые не работают без 12Harmony. Выключается после показа.</desc>
+    </option>
+    <option key="FastFix.StageEndGuard">
+      <name>Защита конца дня</name>
+      <desc>Существо, которое выбрасывает ошибку в конце дня (например, Invalidum со сбежавшим существом вне коридоров), больше не останавливает завершение дня: экран итогов открывается, ошибка пишется в лог один раз.</desc>
+    </option>
     <option key="FastFix.ExecOrderAttr">
       <name>Нет атрибута в классе мода</name>
       <desc>Класс мода с атрибутом, которого нет в игре, больше не пишет ошибку при добавлении.</desc>
@@ -282,6 +298,10 @@
     <option key="FastFix.GuardCount">
       <name>Страж патчей: ошибок до пропуска</name>
       <desc>Сколько одинаковых ошибок за 10 с нужно для пропуска патча.</desc>
+    </option>
+    <option key="FastFix.LoopGuard">
+      <name>Страж циклов ошибок</name>
+      <desc>Метод другого мода (не патч), много раз выдавший одну ошибку за 10 с, пропускается до закрытия игры, если ничего не возвращает, и пишется в лог. Может отключить функцию этого мода.</desc>
     </option>
 
     <option key="RecoverEffectThrottle.CooldownPerAgent">
@@ -572,6 +592,14 @@
       <name>Сюжетные изображения персонажей</name>
       <desc>Сюжетная картинка с повторяющимися именами лиц загружается, а не ломается.</desc>
     </option>
+    <option key="FastFix.ChildDeleteTwice">
+      <name>Дочернее существо удалено дважды</name>
+      <desc>Дочернее существо, подавленное дважды (так делают некоторые моды), больше не вызывает ошибку во второй раз.</desc>
+    </option>
+    <option key="FastFix.ChildElevatorStuck">
+      <name>Дочернее существо у лифта</name>
+      <desc>Дочернее существо, чей путь обрывается на лифте, больше не вызывает ошибку; оно обрабатывается как обычные существа.</desc>
+    </option>
     <option key="Display.Resolution">
       <name>Разрешение экрана</name>
       <desc>Нажатие переключает разрешения 16:9. Действует после применения.</desc>
@@ -775,6 +803,134 @@
     <option key="PerfPack.CatLazyExperimental">
       <name>ChildHood: анимации кошек при первом появлении</name>
       <desc>Анимации кошек загружаются при первом появлении кошки: быстрее запуск, короткий рывок потом. Экспериментально.</desc>
+    </option>
+    <option key="FastFix.BlackBirdMove">
+      <name>Белая и Чёрная птица: первый шаг</name>
+      <desc>Сбежавшая чёрная птица больше не вызывает ошибку при первом движении.</desc>
+    </option>
+    <option key="FastFix.PinocchioMove">
+      <name>LCPD Pinocchio: первый шаг</name>
+      <desc>Сбежавшая кукла больше не вызывает ошибку при первом движении.</desc>
+    </option>
+    <option key="FastFix.BoneFishView">
+      <name>Rotten Whale Fall: костяная рыба</name>
+      <desc>Костяная рыба без анимации больше не вызывает ошибку при появлении.</desc>
+    </option>
+    <option key="FastFix.DragonScaleView">
+      <name>Yin Yang Dragon Scale</name>
+      <desc>Аномалия без анимации больше не вызывает ошибку при загрузке комплекса.</desc>
+    </option>
+    <option key="FastFix.EternalFlowerAttack">
+      <name>Flower of Eternity: атака в конце дня</name>
+      <desc>Атака цветка в конце дня больше не вызывает ошибку и не обрывает другие события анимации этого кадра.</desc>
+    </option>
+    <option key="FastFix.IsomerEffect">
+      <name>Isomer: эффект урона</name>
+      <desc>Картинка эффекта урона читается из папки мода (мод ищет папку с другим именем).</desc>
+    </option>
+    <option key="FastFix.ToyFactoryLog">
+      <name>ToyFactory: полный текст ошибки</name>
+      <desc>Ошибка, пойманная защитой оповещений мода, пишется целиком со стеком в ToyFactoryError.txt и по одной на вид в лог NailOptimization.</desc>
+    </option>
+    <option key="FastFix.InvalidumSefira">
+      <name>Invalidum: отделы в конце дня</name>
+      <desc>Включение света в отделах больше не вызывает ошибку, когда существо вне всех коридоров.</desc>
+    </option>
+    <option key="FastFix.InvalidumPath">
+      <name>Invalidum: звуки</name>
+      <desc>Звуки читаются из папки мода (мод ищет папку с другим именем).</desc>
+    </option>
+    <option key="FastFix.PinocchioRange">
+      <name>LCPD Pinocchio: убранная цель</name>
+      <desc>Атака по цели, убранной в конце дня, больше не вызывает ошибку.</desc>
+    </option>
+    <option key="FastFix.LadyInRainDraw">
+      <name>Lady in Rain: рисование</name>
+      <desc>Рисование останавливается, когда его вид или кисть уничтожены, вместо ошибки каждый кадр.</desc>
+    </option>
+    <option key="FastFix.QiuNiuCircle">
+      <name>QiuNiu: круг</name>
+      <desc>Круг больше не вызывает ошибку на юнитах, которые не агенты, офицеры, существа или дети.</desc>
+    </option>
+    <option key="FastFix.MephistoBuf">
+      <name>Mephisto: дебафф на офицере</name>
+      <desc>Его дебафф на офицере или другом не-агенте больше не вызывает ошибку при ударе по юниту.</desc>
+    </option>
+    <option key="FastFix.HookahCaterpillarAnim">
+      <name>Кальянная гусеница: анимация</name>
+      <desc>Анимация находится, даже если поиск в списке модов не удался; иначе существо остаётся без анимации.</desc>
+    </option>
+    <option key="FastFix.WhaleTailPull">
+      <name>Rotten Whale Fall: притяжение хвостом</name>
+      <desc>Хвост пропускает притяжение, пока цель между комнатами, вместо ошибки каждый кадр.</desc>
+    </option>
+    <option key="FastFix.CharlotteDamage">
+      <name>Charlotte: урон между комнатами</name>
+      <desc>Урон, полученный между комнатами, больше не вызывает ошибку.</desc>
+    </option>
+    <option key="FastFix.KekesiWolfHit">
+      <name>Alleyway Watchdog: удар по области</name>
+      <desc>Удар по области больше не обрывается, когда кто-то в комнате погибает.</desc>
+    </option>
+    <option key="FastFix.PuLaoChain">
+      <name>PuLao: бесконечная цепочка урона</name>
+      <desc>Его атака рядом с музыкальным существом больше не повторяется бесконечно и не закрывает игру; каждое существо входит в цепочку один раз.</desc>
+    </option>
+    <option key="FastFix.NothingWorkerNoModel">
+      <name>It Goes By The Name of Dream: пустой работник</name>
+      <desc>Объект NothingWorker, который мод создал без инициализации, больше не вызывает ошибку каждый кадр.</desc>
+    </option>
+    <option key="FastFix.PinocchioEscape">
+      <name>LCPD Pinocchio: тик побега</name>
+      <desc>Выбор цели защиты и погоня за только что погибшей целью больше не вызывают ошибку каждый тик.</desc>
+    </option>
+    <option key="FastFix.InvalidumFlood">
+      <name>Invalidum: затопленный коридор</name>
+      <desc>Затопленный коридор больше не останавливается, когда юнит в нём гибнет или уходит во время проверки.</desc>
+    </option>
+    <option key="FastFix.HomelessBeastHit">
+      <name>Homeless Beast: удар по отделу</name>
+      <desc>Его удар по всему отделу больше не обрывается, когда он кого-то убивает.</desc>
+    </option>
+    <option key="FastFix.YaZiDeath">
+      <name>YaZi: анимация смерти</name>
+      <desc>Подавление без анимации смерти больше не вызывает ошибку каждый кадр; существо скрывается, как в ваниле.</desc>
+    </option>
+    <option key="FastFix.BlackBirdDeath">
+      <name>Black Bird: анимация смерти</name>
+      <desc>Подавление чёрной птицы без анимации смерти больше не вызывает ошибку каждый кадр; она сразу принимает позу, которая была бы после этой анимации.</desc>
+    </option>
+    <option key="FastFix.RottenWhaleRoam">
+      <name>Rotten Whale Fall: блуждание</name>
+      <desc>Без цели он держит одну точку маршрута, а не выбирает новую каждый тик, разворачиваясь туда-сюда.</desc>
+    </option>
+    <option key="FastFix.QianRuEquip">
+      <name>QianRu: изъятие ЭГО</name>
+      <desc>Изъятие его ЭГО из инвентаря больше не обрывается после первого удалённого предмета.</desc>
+    </option>
+    <option key="FastFix.CauldronLure">
+      <name>Cauldron: приманивание</name>
+      <desc>Приманивание, когда все кандидаты мертвы, больше не вызывает ошибку; приманивание пропускается.</desc>
+    </option>
+    <option key="FastFix.CandeloroRibbon">
+      <name>Candeloro: ленты</name>
+      <desc>Лента с уничтоженным концом больше не вызывает ошибку каждый кадр; она остаётся на месте до удаления.</desc>
+    </option>
+    <option key="FastFix.Cloud9Panic">
+      <name>Cloud9: паника вне комнат</name>
+      <desc>Паника агента, когда сбежавшее облако между комнатами, больше не вызывает ошибку.</desc>
+    </option>
+    <option key="FastFix.YaZiEscapeUI">
+      <name>YaZi: побег без окна запроса</name>
+      <desc>Побег до того, как окно запроса хоть раз открывалось, больше не вызывает ошибку.</desc>
+    </option>
+    <option key="FastFix.GrunglyLure">
+      <name>Grungly: приманивание</name>
+      <desc>Приманивание, чья цель больше не подходит или когда приманивать некого, больше не вызывает ошибку каждый тик; приманивание прекращается.</desc>
+    </option>
+    <option key="FastFix.BlackBirdPassageHit">
+      <name>Black Bird: удар по коридору</name>
+      <desc>Его удар по коридору больше не обрывается, когда он кого-то там убивает. Нужен 12Harmony.</desc>
     </option>
     <option key="PerfPack.EffectLazyExperimental">
       <name>Картинки эффектов при первом показе</name>
