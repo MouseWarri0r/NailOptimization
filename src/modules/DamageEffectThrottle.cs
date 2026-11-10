@@ -3,9 +3,9 @@
 // Build: reference NailOptimization.dll, 0Harmony, Assembly-CSharp, UnityEngine. Output goes to <NailOptimization>/modules/.
 // The standalone DamageEffectThrottle.dll must be removed from BaseMods (double Prefix otherwise).
 //
-// 1) Damage popups: UnitModel.MakeDamageEffect -> DamageEffect.Invoker(mov|pos, RwbpType, int, DefenseInfo.Type, UnitModel).
-//    Only these two outer overloads are patched (inner overloads call each other; skipping an inner call would return
-//    null into the outer one). Budget: N per frame and M per second, over budget the popup is not created.
+// 1) Damage popups: Prefix on UnitModel.MakeDamageEffect (the vanilla caller of DamageEffect.Invoker, ignores its result),
+//    priority Last so foreign Prefixes run first. DamageEffect.Invoker itself is not patched: a mod that calls it and uses
+//    the result always gets a popup. Budget: N per frame and M per second, over budget the popup is not created.
 // 2) Blood: ... -> PassageObject.AddBloodMapObject(BloodMapObjectModel model) creates the splash under
 //    SefiraMapLayer.instance.bloodNode (always, no early exit; the new object is the last child of bloodNode).
 //    - Prefix: when the passage already has >= MaxBloodPerPassage tracked splashes, the oldest one is removed.
@@ -45,7 +45,7 @@ namespace DamageEffectThrottle
 		{
 			get
 			{
-				return "1.0";
+				return "1.1";
 			}
 		}
 
@@ -65,7 +65,7 @@ namespace DamageEffectThrottle
 			int popups = Install();
 			if (popups == 0)
 			{
-				throw new InvalidOperationException("DamageEffect.Invoker (outer overloads) was not patched");
+				throw new InvalidOperationException("UnitModel.MakeDamageEffect was not patched");
 			}
 		}
 
@@ -86,12 +86,12 @@ namespace DamageEffectThrottle
 		{
 			HarmonyInstance harmony = HarmonyInstance.Create(HarmonyId);
 			BindingFlags pub = BindingFlags.Public | BindingFlags.Static;
-			HarmonyMethod popup = new HarmonyMethod(typeof(PopupPatch).GetMethod("Prefix", pub));
+			HarmonyMethod popup = N.PatchUtil.WithPriority(typeof(PopupPatch).GetMethod("Prefix", pub), Priority.Last);
 			HarmonyMethod bloodPre = new HarmonyMethod(typeof(BloodPatch).GetMethod("Prefix", pub));
 			HarmonyMethod bloodPost = new HarmonyMethod(typeof(BloodPatch).GetMethod("Postfix", pub));
 			HarmonyMethod sweep = new HarmonyMethod(typeof(SweepPatch).GetMethod("Postfix", pub));
 
-			int n1 = PatchDamageInvokers(harmony, N.TypeCache.Resolve("DamageEffect"), popup);
+			int n1 = PatchMakeDamageEffect(harmony, popup);
 
 			// Exactly ONE view type is patched, otherwise blood is counted twice. PassageObject is the last link of the
 			// chain (called only when an object is really created); SefiraMapLayer is the fallback.
@@ -112,46 +112,19 @@ namespace DamageEffectThrottle
 				N.ULog.Error(Id, "EffectLayer.Update not patched: blood lifetime sweep is inactive");
 			}
 
-			N.ULog.Info(Id, "patched DamageEffect.Invoker " + n1 + ", AddBloodMapObject " + n2 + ", EffectLayer.Update " + n3);
+			N.ULog.Info(Id, "patched MakeDamageEffect " + n1 + ", AddBloodMapObject " + n2 + ", EffectLayer.Update " + n3);
 			return n1;
 		}
 
-		// Only Invoker(?, RwbpType, int, DefenseInfo.Type, UnitModel): the overloads used by UnitModel.MakeDamageEffect.
-		private static int PatchDamageInvokers(HarmonyInstance harmony, Type t, HarmonyMethod prefix)
+		// UnitModel.MakeDamageEffect(RwbpType, float, DefenseInfo.Type): the only vanilla game-path caller of DamageEffect.Invoker.
+		private static int PatchMakeDamageEffect(HarmonyInstance harmony, HarmonyMethod prefix)
 		{
-			if (object.ReferenceEquals(t, null))
+			MethodBase target = N.PatchUtil.Resolve(Id, typeof(UnitModel), "MakeDamageEffect", new Type[] { typeof(RwbpType), typeof(float), typeof(DefenseInfo.Type) });
+			if (object.ReferenceEquals(target, null))
 			{
-				N.ULog.Error(Id, "type not found: DamageEffect");
 				return 0;
 			}
-			BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly;
-			MethodInfo[] methods = t.GetMethods(flags);
-			int count = 0;
-			for (int i = 0; i < methods.Length; i++)
-			{
-				if (methods[i].Name != "Invoker")
-				{
-					continue;
-				}
-				ParameterInfo[] ps = methods[i].GetParameters();
-				if (ps.Length != 5)
-				{
-					continue;
-				}
-				if (ps[1].ParameterType.Name != "RwbpType")
-				{
-					continue;
-				}
-				if (ps[4].ParameterType.Name != "UnitModel")
-				{
-					continue;
-				}
-				if (N.PatchUtil.Install(harmony, Id, methods[i], prefix, null))
-				{
-					count++;
-				}
-			}
-			return count;
+			return N.PatchUtil.Install(harmony, Id, target, prefix, null) ? 1 : 0;
 		}
 
 		private static int PatchBloodAdd(HarmonyInstance harmony, Type t, HarmonyMethod prefix, HarmonyMethod postfix)
@@ -327,8 +300,8 @@ namespace DamageEffectThrottle
 			budget.Reset();
 		}
 
-		// No parameters on purpose: nothing from the original is needed. Skipping returns __result = null to the caller
-		// (UnitModel.MakeDamageEffect does not use it [Inferred]).
+		// No parameters on purpose: nothing from the original is needed. MakeDamageEffect returns void, so skipping it
+		// returns nothing to its caller.
 		public static bool Prefix()
 		{
 			try

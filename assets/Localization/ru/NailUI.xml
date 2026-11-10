@@ -574,7 +574,7 @@
     </option>
     <option key="PerfPack.MeshRelease">
       <name>Память мешей персонажей</name>
-      <desc>Старые меши персонажей уничтожаются при смене аниматора и в начале дня.</desc>
+      <desc>В начале каждого дня уничтожаются меши персонажей, которые больше нигде не используются.</desc>
     </option>
     <option key="PerfPack.SkeletonPrewarm">
       <name>Заранее готовить скелеты спецоружия</name>
@@ -599,6 +599,10 @@
     <option key="FastFix.ChildElevatorStuck">
       <name>Дочернее существо у лифта</name>
       <desc>Дочернее существо, чей путь обрывается на лифте, больше не вызывает ошибку; оно обрабатывается как обычные существа.</desc>
+    </option>
+    <option key="FastFix.WeaponReskin">
+      <name>Вид дубинки после снятия оружия</name>
+      <desc>После снятия оружия сотрудник показывает и бьёт дубинкой (Riot stick), а не оружием One Sin.</desc>
     </option>
     <option key="Display.Resolution">
       <name>Разрешение экрана</name>

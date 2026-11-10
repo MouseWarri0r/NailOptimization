@@ -4622,6 +4622,7 @@ namespace NailOptimization
 			if (_kind == 2 && BuildClone(leftLocal))
 			{
 				BuildActions(leftLocal.y);
+				FitOnScreen();
 				return;
 			}
 			try
@@ -4643,6 +4644,172 @@ namespace NailOptimization
 				return;
 			}
 			BuildActions(leftLocal.y);
+			FitOnScreen();
+		}
+
+		// Group placed right of the gadgets: our leftmost icon on one line with the last gadget icon, with the same icon
+		// spacing as between the last two gadgets. No change when no two gadget icons give a spacing.
+		private static void AlignToGadgets(ref float dx, ref float dy)
+		{
+			RectTransform last = null;
+			RectTransform prev = null;
+			float lastR = float.MinValue;
+			float prevR = float.MinValue;
+			for (int i = 0; i < _anchor.childCount; i++)
+			{
+				RectTransform c = _anchor.GetChild(i) as RectTransform;
+				if (c == null || !c.gameObject.activeInHierarchy || IsOwn(c))
+				{
+					continue;
+				}
+				Image ci = FirstSpriteImage(c);
+				if (ci == null || !ci.gameObject.activeInHierarchy)
+				{
+					continue;
+				}
+				float r = WorldMaxX(ci.rectTransform);
+				if (r > lastR)
+				{
+					prev = last;
+					prevR = lastR;
+					last = ci.rectTransform;
+					lastR = r;
+				}
+				else if (r > prevR)
+				{
+					prev = ci.rectTransform;
+					prevR = r;
+				}
+			}
+			RectTransform first = _own[_own.Count - 1];
+			Image oi = first != null ? FirstSpriteImage(first) : null;
+			if (last == null || prev == null || oi == null)
+			{
+				return;
+			}
+			float step = WorldMinX(last) - prevR;
+			if (step <= 0f)
+			{
+				return;
+			}
+			dx = lastR + step - WorldMinX(oi.rectTransform);
+			dy = WorldMidY(last) - WorldMidY(oi.rectTransform);
+		}
+
+		private static float WorldMinX(RectTransform rt)
+		{
+			rt.GetWorldCorners(_wc);
+			return Mathf.Min(_wc[0].x, _wc[2].x);
+		}
+
+		private static float WorldMaxX(RectTransform rt)
+		{
+			rt.GetWorldCorners(_wc);
+			return Mathf.Max(_wc[0].x, _wc[2].x);
+		}
+
+		private static float WorldMidY(RectTransform rt)
+		{
+			rt.GetWorldCorners(_wc);
+			return (_wc[0].y + _wc[2].y) * 0.5f;
+		}
+
+		// A custom title (BlueArchive) can move the gadgets into a screen corner: our group, built left of them, is then
+		// off-screen. Move it right of the gadgets, or at least inside the screen. A group that fits is left unchanged.
+		private static void FitOnScreen()
+		{
+			if (_own.Count == 0 || _own[0] == null)
+			{
+				return;
+			}
+			Camera cam = CanvasCam();
+			Vector3 lo;
+			Vector3 hi;
+			if (!RectTransformUtility.ScreenPointToWorldPointInRectangle(_anchor, Vector2.zero, cam, out lo)
+				|| !RectTransformUtility.ScreenPointToWorldPointInRectangle(_anchor, new Vector2((float)Screen.width, (float)Screen.height), cam, out hi))
+			{
+				return;
+			}
+			float sxMin = Mathf.Min(lo.x, hi.x);
+			float sxMax = Mathf.Max(lo.x, hi.x);
+			float syMin = Mathf.Min(lo.y, hi.y);
+			float syMax = Mathf.Max(lo.y, hi.y);
+			float gxMin = float.MaxValue;
+			float gxMax = float.MinValue;
+			float gyMin = float.MaxValue;
+			float gyMax = float.MinValue;
+			for (int i = 0; i < _own.Count; i++)
+			{
+				if (_own[i] == null)
+				{
+					continue;
+				}
+				RectTransform[] parts = _own[i].GetComponentsInChildren<RectTransform>(false);
+				for (int p = 0; p < parts.Length; p++)
+				{
+					parts[p].GetWorldCorners(_wc);
+					for (int c = 0; c < 4; c++)
+					{
+						gxMin = Mathf.Min(gxMin, _wc[c].x);
+						gxMax = Mathf.Max(gxMax, _wc[c].x);
+						gyMin = Mathf.Min(gyMin, _wc[c].y);
+						gyMax = Mathf.Max(gyMax, _wc[c].y);
+					}
+				}
+			}
+			if (gxMin == float.MaxValue || (gxMin >= sxMin && gxMax <= sxMax && gyMin >= syMin && gyMax <= syMax))
+			{
+				return;
+			}
+			_own[0].GetWorldCorners(_wc);
+			float gap = Mathf.Abs(_wc[2].x - _wc[0].x) * MoveGapShare;
+			float right = float.MinValue;
+			RectTransform[] rts = _anchor.GetComponentsInChildren<RectTransform>(false);
+			for (int i = 0; i < rts.Length; i++)
+			{
+				if (rts[i] == _anchor || IsOwn(rts[i]))
+				{
+					continue;
+				}
+				rts[i].GetWorldCorners(_wc);
+				right = Mathf.Max(right, Mathf.Max(_wc[0].x, _wc[2].x));
+			}
+			float dx = 0f;
+			float dy = 0f;
+			string where = "inside the screen";
+			if (right != float.MinValue && right + gap >= sxMin && right + gap + (gxMax - gxMin) <= sxMax)
+			{
+				dx = right + gap - gxMin;
+				where = "right of the gadgets";
+				AlignToGadgets(ref dx, ref dy);
+			}
+			else if (gxMin < sxMin)
+			{
+				dx = sxMin + gap - gxMin;
+			}
+			else if (gxMax > sxMax)
+			{
+				dx = sxMax - gap - gxMax;
+			}
+			if (gyMin + dy < syMin)
+			{
+				dy = syMin + gap - gyMin;
+			}
+			else if (gyMax + dy > syMax)
+			{
+				dy = syMax - gap - gyMax;
+			}
+			Vector3 shift = new Vector3(dx, dy, 0f);
+			for (int i = 0; i < _own.Count; i++)
+			{
+				if (_own[i] != null)
+				{
+					_own[i].position = _own[i].position + shift;
+				}
+			}
+			ULog.Info("title", "title buttons off-screen (x " + gxMin.ToString("F2", CultureInfo.InvariantCulture) + ".." + gxMax.ToString("F2", CultureInfo.InvariantCulture)
+				+ ", screen " + sxMin.ToString("F2", CultureInfo.InvariantCulture) + ".." + sxMax.ToString("F2", CultureInfo.InvariantCulture) + "), moved " + where
+				+ " by " + shift.ToString("F2") + ", first now localPos=" + _own[0].localPosition.ToString("F1"));
 		}
 
 		// Plain icon button with its right edge at at.x. Throws on failure (the half-built object is destroyed first).

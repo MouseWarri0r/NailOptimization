@@ -1,6 +1,6 @@
 # Nail Optimization
 
-Version 0.9.1-beta. A modular performance and stability mod for Lobotomy Corporation. It is built on BaseMod (Lobotomy Mod Manager, LMM) and Harmony 1.0.9.1 and runs on the game's Unity 2017 Mono runtime.
+Version 0.9.2-beta. A modular performance and stability mod for Lobotomy Corporation. It is built on BaseMod (Lobotomy Mod Manager, LMM) and Harmony 1.0.9.1 and runs on the game's Unity 2017 Mono runtime.
 
 It targets large mod lists, where the game starts slowly, runs out of memory, stutters on late days and can lose a save because of one broken mod file. Most optimizations work on the game's own code, so they also help a vanilla game. Every feature has its own switch, and the mod writes what it installed, skipped or fixed to `NailOptimization.log`.
 
@@ -91,7 +91,7 @@ If you used standalone versions of DamageEffectThrottle, EffectPool or RecoverEf
 
 ## Settings
 
-- Press **F10** in game, or use the button on the title screen. The panel lists all 218 options in sections (General, Performance, Memory, Effects, Protection, Bugfixes, Mod fixes, Interface, Experimental, Debug, Advanced). Values are staged and written with **Apply**.
+- Press **F10** in game, or use the button on the title screen. The panel lists all 219 options in sections (General, Performance, Memory, Effects, Protection, Bugfixes, Mod fixes, Interface, Experimental, Debug, Advanced). Values are staged and written with **Apply**.
 - The config file is `NailOptimization.cfg.txt` in the mod folder, one `Key=value` per line. It is checked for outside edits every 10 seconds (`Config.WatchSeconds`) and applied live where the option allows.
 - Options marked "restart" in the panel (red text with a warning sign) apply after a game restart. The panel shows a notice after Apply that lists them.
 - A fix for a specific mod is declared only when that mod is loaded and is hidden in the panel otherwise.

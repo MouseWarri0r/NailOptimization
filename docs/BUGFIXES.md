@@ -18,6 +18,7 @@ All fixes belong to the FastFix module (plus a few in PerfPack and LoadGuard whe
 | `FastFix.StandingCG` | A story character picture with duplicate face names broke loading. | The picture loads. |
 | `FastFix.ChildDeleteTwice` | A child creature that is suppressed twice (some mods do it) threw the second time. | No error the second time. |
 | `FastFix.ChildElevatorStuck` | A child creature whose path ends on an elevator threw out of its update. | The error no longer escapes the update; it is handled as for other creatures. |
+| `FastFix.WeaponReskin` | When a weapon was taken off an agent (for example Paulinus released), `AgentModel.OnReleaseWeapon` did not refresh the agent's weapon view, unlike equipping. The agent kept the old weapon's look and attacks; modded special weapons could deal no damage. | Postfix calls `AgentUnit.OnChangeWeapon()`, the same call the game makes on equip. Checked at run time. |
 | `FastFix.UnknownEquipCount` | A mod granting equipment that no mod defines stopped the save load and skipped the Sephirah data. | The unknown equipment is counted and ignored, so the load continues. |
 
 ## Specific mods

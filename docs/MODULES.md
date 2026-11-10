@@ -115,7 +115,7 @@ Common safety rules of all modules:
 
 **Features.** `MaxPopupsPerFrame` (default 6) and `MaxPopupsPerSecond` (default 60); over budget the popup is not created. `MaxBloodPerPassage` (default 10; the oldest splash is removed over the limit), `BloodLifetimeSeconds` (default 60), sweep interval and destroy-or-hide choice for removed splashes.
 
-**Harmony targets.** `UnitModel.MakeDamageEffect` (two outer overloads of `DamageEffect.Invoker`), `PassageObject.AddBloodMapObject` (Prefix and Postfix), `EffectLayer.Update` (Postfix).
+**Harmony targets.** `UnitModel.MakeDamageEffect(RwbpType, float, DefenseInfo.Type)` (Prefix, priority Last; since 1.1 the limit sits here, so mods that call `DamageEffect.Invoker` themselves always get a popup), `PassageObject.AddBloodMapObject` (Prefix and Postfix), `EffectLayer.Update` (Postfix).
 
 **Safety rules.** Only the outer overloads are patched; skipping an inner call would return null into the outer one. Replaces the standalone mod of the same name.
 

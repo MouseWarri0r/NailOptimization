@@ -576,7 +576,7 @@
     </option>
     <option key="PerfPack.MeshRelease" section="Memory" group="MemMain" order="40" restart="1">
       <name>Character mesh memory fix</name>
-      <desc>Old character meshes are destroyed on an animator change and at day start.</desc>
+      <desc>At each day start, character meshes that nothing uses any more are destroyed.</desc>
     </option>
     <option key="PerfPack.SkeletonPrewarm" section="Performance" group="PerfAnim" order="30" restart="1">
       <name>Prepare special weapon skeletons</name>
@@ -601,6 +601,10 @@
     <option key="FastFix.ChildElevatorStuck" section="Bugfixes" group="Vanilla" order="115" restart="1">
       <name>Child creature stuck at an elevator</name>
       <desc>A child creature whose path ends on an elevator no longer throws out of its update; it is handled as for other creatures.</desc>
+    </option>
+    <option key="FastFix.WeaponReskin" section="Bugfixes" group="Vanilla" order="120">
+      <name>Riot stick look after unequip</name>
+      <desc>After a weapon is unequipped the agent shows and swings the Riot stick instead of One Sin's weapon.</desc>
     </option>
     <option key="Display.Resolution" section="General" group="Display" order="10" control="choice">
       <name>Screen resolution</name>

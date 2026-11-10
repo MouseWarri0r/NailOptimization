@@ -519,7 +519,7 @@ namespace FastFix
 		{
 			get
 			{
-				return "1.30";
+				return "1.31";
 			}
 		}
 
@@ -576,6 +576,7 @@ namespace FastFix
 			FastFixDriver.ModNrePending = true;
 			PanicStuck.Install(Harmony, N.Config.BindFlag("FastFix.PanicStuck", true, "An agent in the panic that opens containment units walks again when the walk to the unit was interrupted, and picks another unit if it cannot get there."));
 			TrainRestart.Install(Harmony, N.Config.BindFlag("FastFix.TrainRestart", true, "Restarting the day while Express Train to Hell departs no longer kills employees of the reloaded day and loses their EGO."));
+			WeaponReskin.Install(Harmony, N.Config.BindFlag("FastFix.WeaponReskin", true, "After a weapon is unequipped the agent shows and swings the Riot stick instead of One Sin's weapon."));
 			OrdealReset.Install(Harmony, N.Config.BindFlag("FastFix.OrdealReset", true, "An ordeal still running when the day ends (retry, return to title) no longer keeps running and ending in the next day."));
 			UnknownEquipCount.Install(Harmony, N.Config.BindFlag("FastFix.UnknownEquipCount", true, "A mod that tries to grant equipment no mod defines gets 'nothing to create' instead of an error that stops the save load (Sephirah data)."));
 			CensoredChildren.Install(N.Config.BindFlag("FastFix.CensoredChildren", true, "CENSORED Remake (kygi123): summoned children that died are removed 3 s later instead of at the end of the day, so the day no longer slows down with every summon."));
@@ -7806,6 +7807,59 @@ namespace FastFix
 				{
 					_errorLogged = true;
 					N.ULog.Error(FastFixModule.Tag, "ordeal reset error (logged once): " + e);
+				}
+			}
+		}
+	}
+
+	// Vanilla UnitModel.ReleaseWeaponV2 (unequip in the inventory, another agent taking the weapon, stage release) gives the agent
+	// the dummy Riot stick, but AgentModel.OnReleaseWeapon, unlike OnSetWeapon, does not call AgentUnit.OnChangeWeapon. The unit
+	// keeps the old art and Animator params; the Riot stick (MACE) attack then shows the skeleton's default Weapon_Mace art
+	// (One Sin's weapon). Fix: after OnReleaseWeapon the unit runs OnChangeWeapon (art and params only, the model is not touched).
+	public static class WeaponReskin
+	{
+		private static N.Flag _flag;
+		private static bool _logged;
+		private static int _errors;
+
+		internal static void Install(HarmonyInstance harmony, N.Flag flag)
+		{
+			_flag = flag;
+			MethodBase m = N.PatchUtil.Resolve(FastFixModule.Tag, typeof(AgentModel), "OnReleaseWeapon", Type.EmptyTypes);
+			if (object.ReferenceEquals(m, null))
+			{
+				N.ULog.Warn(FastFixModule.Tag, "weapon release fix not applied: AgentModel.OnReleaseWeapon not found");
+				return;
+			}
+			N.PatchUtil.Install(harmony, FastFixModule.Tag, m, null, new HarmonyMethod(typeof(WeaponReskin).GetMethod("Postfix", BindingFlags.Public | BindingFlags.Static)));
+		}
+
+		public static void Postfix(AgentModel __instance)
+		{
+			if (!_flag.On)
+			{
+				return;
+			}
+			try
+			{
+				AgentUnit unit = __instance.GetUnit();
+				if (unit == null)
+				{
+					return;
+				}
+				unit.OnChangeWeapon();
+				if (!_logged)
+				{
+					_logged = true;
+					N.ULog.Info(FastFixModule.Tag, "weapon release: unit weapon look refreshed after unequip (first agent " + __instance.instanceId + ")");
+				}
+			}
+			catch (Exception e)
+			{
+				if (_errors < 3)
+				{
+					_errors++;
+					N.ULog.Error(FastFixModule.Tag, "weapon release error " + _errors + "/3 (later ones silent): " + e);
 				}
 			}
 		}

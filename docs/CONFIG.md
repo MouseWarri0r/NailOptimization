@@ -1,6 +1,6 @@
 # Configuration reference
 
-This file lists every option shown in the NailUI panel (F10), generated from `assets/Localization/en/NailUI.xml` and the `Bind*` calls in the sources. The panel has 218 options.
+This file lists every option shown in the NailUI panel (F10), generated from `assets/Localization/en/NailUI.xml` and the `Bind*` calls in the sources. The panel has 219 options.
 
 Options are stored in `NailOptimization.cfg.txt` as `Key=value`. Flags use `true`/`false`. A file edited outside the game is applied live after `Config.WatchSeconds` (default 10 s). Options marked **Restart: yes** apply after a game restart.
 
@@ -138,7 +138,7 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `PerfPack.EffectTextures` | `true` | yes | **Effect pictures in memory**. Effect pictures keep one copy in memory; identical ones are shared. |
 | `PerfPack.ArmorAtlas` | `true` | yes | **Fast mod armor loading**. Mod armor pictures load once into one texture instead of from disk on every use. |
 | `PerfPack.SkinCache` | `true` | yes | **Shared armor textures**. Agents share armor textures and materials instead of creating new ones on each animation change. |
-| `PerfPack.MeshRelease` | `true` | yes | **Character mesh memory fix**. Old character meshes are destroyed on an animator change and at day start. |
+| `PerfPack.MeshRelease` | `true` | yes | **Character mesh memory fix**. At each day start, character meshes that nothing uses any more are destroyed; meshes held by any component field are kept. |
 | `PerfPack.CursorScale` | `true` | yes | **Aiming cursor memory fix**. The aiming cursor frees its old texture. |
 | `PerfPack.GcQuiet` | `true` | no | **Memory cleaning in quiet moments**. Memory is cleaned on pause, in the info window and at day end. |
 | `PerfPack.GcQuietGrowMb` | `48` | no | **Quiet cleaning threshold (MB)**. Memory growth in MB before a quiet cleaning. Range 8..256. |
@@ -230,6 +230,7 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `FastFix.FixerWhiteReflect` | `true` | yes | **White fixer reflection**. The White fixer no longer reflects damage endlessly while praying (a game freeze). |
 | `FastFix.StandingCG` | `true` | yes | **Story character pictures**. A story picture with duplicate face names loads instead of breaking. |
 | `FastFix.ChildDeleteTwice` | `true` | yes | **Child creature removed twice**. A child creature that is suppressed twice (some mods do it) no longer throws the second time. |
+| `FastFix.WeaponReskin` | `true` | no | **Riot stick look after unequip**. After a weapon is unequipped the agent shows and swings the default weapon as it should, instead of keeping the old weapon's look and attacks. |
 | `FastFix.ChildElevatorStuck` | `true` | yes | **Child creature stuck at an elevator**. A child creature whose path ends on an elevator no longer throws out of its update; it is handled as for other creatures. |
 
 ## Mod fixes

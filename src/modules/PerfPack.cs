@@ -44,7 +44,8 @@
 // RequireCache: every EGO list opening destroys and rebuilds the requirement plates of all slots (1.6 s of 2.2 s on day 49);
 // a slot whose plates already show the same equipment keeps them. InventoryRequireLayout.Init has try/finally (GL-53),
 // so the patch sits on its only caller, InventoryAgentSlot.SetRequireInfo.
-// MeshRelease: MeshRendererBuffers.Initialize drops its two meshes without destroying them, on every animator change.
+// MeshRelease: MeshRendererBuffers.Initialize drops its two meshes without destroying them, on every animator change;
+// the day-start sweep destroys the unreferenced ones (no Dispose at the change: a mod may still hold the mesh).
 // NZM's off-screen unload is not ported: disabling SkeletonAnimator stops AnimationState.Update, so custom-animator
 // attacks and animations hang off-screen, and vanilla already updates off-screen units at 1/8. Measured on day 49 at
 // full zoom it also gains nothing; the world canvases are what costs (10-12 of 30-50 ms per frame), see CanvasCull.
@@ -128,7 +129,7 @@ namespace PerfPack
 		{
 			get
 			{
-				return "1.57";
+				return "1.58";
 			}
 		}
 
@@ -296,7 +297,7 @@ namespace PerfPack
 				want++;
 				ok += RequireCache.Install(harmony);
 			}
-			N.Flag meshes = N.Config.BindFlag("PerfPack.MeshRelease", true, "A character's old meshes are destroyed when its animator changes, and meshes of the previous day's characters at each day start. Read at game start.");
+			N.Flag meshes = N.Config.BindFlag("PerfPack.MeshRelease", true, "At each day start, character meshes that nothing uses any more are destroyed. Read at game start.");
 			if (meshes.On)
 			{
 				want++;
@@ -675,9 +676,22 @@ namespace PerfPack
 					RuntimeAnimatorController c = animator.runtimeAnimatorController;
 					if (e.Names == null || !object.ReferenceEquals(c, e.Controller))
 					{
+						bool keep;
+						HashSet<string> s = Names(animator, c, out keep);
 						e.Controller = c;
-						e.Names = Names(animator, c);
+						e.Names = keep ? s : null;
+						__result = name != null && s.Contains(name);
+						_hits.Value++;
+						return false;
 					}
+				}
+				if (e.Names == null)
+				{
+					// Only reachable when the same frame already read an uncached set; read it again.
+					bool keep2;
+					__result = name != null && Names(animator, animator.runtimeAnimatorController, out keep2).Contains(name);
+					_hits.Value++;
+					return false;
 				}
 				__result = name != null && e.Names.Contains(name);
 				_hits.Value++;
@@ -694,12 +708,13 @@ namespace PerfPack
 			}
 		}
 
-		private static HashSet<string> Names(Animator animator, RuntimeAnimatorController c)
+		private static HashSet<string> Names(Animator animator, RuntimeAnimatorController c, out bool keep)
 		{
 			int key = c == null ? 0 : c.GetInstanceID();
 			HashSet<string> set;
 			if (key != 0 && _byController.TryGetValue(key, out set))
 			{
+				keep = true;
 				return set;
 			}
 			set = new HashSet<string>(StringComparer.Ordinal);
@@ -709,7 +724,9 @@ namespace PerfPack
 				set.Add(ps[i].name);
 			}
 			_reads.Value++;
-			if (key != 0)
+			// An empty set from a not yet initialized Animator would hide the controller's params until the reset.
+			keep = ps.Length > 0 && animator.isInitialized;
+			if (key != 0 && keep)
 			{
 				_byController[key] = set;
 			}
@@ -795,8 +812,9 @@ namespace PerfPack
 					return;
 				}
 				float start = Time.realtimeSinceStartup;
-				Load(agents[_next]);
+				AgentModel agent = agents[_next];
 				_next++;
+				LoadSafe(agent);
 				_pumpMs += Time.realtimeSinceStartup - start;
 				if (_next >= agents.Count)
 				{
@@ -818,9 +836,10 @@ namespace PerfPack
 			{
 				float start = Time.realtimeSinceStartup;
 				int loaded = 0;
-				foreach (AgentModel agent in AgentManager.instance.GetAgentList())
+				IList<AgentModel> agents = AgentManager.instance.GetAgentList();
+				for (int i = 0; i < agents.Count; i++)
 				{
-					if (Load(agent))
+					if (LoadSafe(agents[i]))
 					{
 						loaded++;
 					}
@@ -830,6 +849,32 @@ namespace PerfPack
 			catch (Exception e)
 			{
 				N.ULog.Warn(Tag, "SkeletonPrewarm failed: " + e);
+			}
+		}
+
+		// One agent's failure (a mod weapon with broken data) skips that agent only.
+		private static int _loadErrors;
+
+		private static bool LoadSafe(AgentModel agent)
+		{
+			try
+			{
+				return Load(agent);
+			}
+			catch (Exception e)
+			{
+				_loadErrors++;
+				if (_loadErrors <= 5)
+				{
+					// Full trace for the first one only; later ones are counted in the line below.
+					N.ULog.Warn(Tag, "SkeletonPrewarm skipped agent " + (agent == null ? "null" : agent.GetUnitName()) + " (" + _loadErrors + "/5 logged): "
+						+ (_loadErrors == 1 ? e.ToString() : e.Message));
+				}
+				else if (_loadErrors % 50 == 0)
+				{
+					N.ULog.Warn(Tag, "SkeletonPrewarm: " + _loadErrors + " agents skipped so far this session");
+				}
+				return false;
 			}
 		}
 
@@ -934,20 +979,29 @@ namespace PerfPack
 			public string Text;
 			public int Index;
 			public bool PrevIsSpace = true;
+			public bool Captured;
+			public float EnableTime = -1f;
+			public float ActivateTime = -1f;
 			public readonly List<SefiraBossDescUI.TextUnit> Letters = new List<SefiraBossDescUI.TextUnit>();
 		}
 
 		private static readonly List<Job> _jobs = new List<Job>();
 		private static bool _finishing;
 		private static FieldInfo _textList;
+		private static FieldInfo _enableTimer;
+		private static FieldInfo _activateTimer;
 
 		[MethodImpl(MethodImplOptions.NoInlining)]
 		internal static int Install(HarmonyInstance harmony)
 		{
-			_textList = typeof(SefiraBossDescUI).GetField("textList", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+			BindingFlags inst = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+			_textList = typeof(SefiraBossDescUI).GetField("textList", inst);
+			_enableTimer = typeof(SefiraBossDescUI).GetField("_enableTimer", inst);
+			_activateTimer = typeof(SefiraBossDescUI).GetField("_activateTimer", inst);
 			MethodBase init = N.PatchUtil.Resolve(Tag, typeof(SefiraBossDescUI), "InitText", Type.EmptyTypes);
 			MethodBase update = N.PatchUtil.Resolve(Tag, typeof(GameManager), "Update", Type.EmptyTypes);
-			if (object.ReferenceEquals(_textList, null) || object.ReferenceEquals(init, null) || object.ReferenceEquals(update, null))
+			if (object.ReferenceEquals(_textList, null) || object.ReferenceEquals(_enableTimer, null) || object.ReferenceEquals(_activateTimer, null)
+				|| object.ReferenceEquals(init, null) || object.ReferenceEquals(update, null))
 			{
 				return 0;
 			}
@@ -994,6 +1048,13 @@ namespace PerfPack
 			Job job = _jobs[0];
 			try
 			{
+				for (int i = 0; i < _jobs.Count; i++)
+				{
+					if (!_jobs[i].Captured)
+					{
+						Capture(_jobs[i]);
+					}
+				}
 				if (job.Ui == null)
 				{
 					_jobs.RemoveAt(0);
@@ -1027,6 +1088,29 @@ namespace PerfPack
 			}
 		}
 
+		// The caller's SetEnableTime/SetActivateTime run right after the queued InitText. Their durations are kept and the
+		// timers stopped, so they cannot expire (and close the empty UI) while the letters are built.
+		private static void Capture(Job job)
+		{
+			job.Captured = true;
+			if (job.Ui == null)
+			{
+				return;
+			}
+			UnscaledTimer enable = (UnscaledTimer)_enableTimer.GetValue(job.Ui);
+			UnscaledTimer activate = (UnscaledTimer)_activateTimer.GetValue(job.Ui);
+			if (enable != null && enable.started)
+			{
+				job.EnableTime = enable.maxTime;
+				enable.StopTimer();
+			}
+			if (activate != null && activate.started)
+			{
+				job.ActivateTime = activate.maxTime;
+				activate.StopTimer();
+			}
+		}
+
 		// Same steps as the loop of SefiraBossDescUI.InitText.
 		private static void AddLetter(Job job, char c)
 		{
@@ -1057,6 +1141,15 @@ namespace PerfPack
 			job.Ui.InitText();
 			job.Ui.text = job.Text;
 			_finishing = false;
+			// InitText restarted both timers with the prefab values; the caller's durations go back.
+			if (job.EnableTime >= 0f)
+			{
+				((UnscaledTimer)_enableTimer.GetValue(job.Ui)).StartTimer(job.EnableTime);
+			}
+			if (job.ActivateTime >= 0f)
+			{
+				((UnscaledTimer)_activateTimer.GetValue(job.Ui)).StartTimer(job.ActivateTime);
+			}
 			((List<SefiraBossDescUI.TextUnit>)_textList.GetValue(job.Ui)).AddRange(job.Letters);
 			job.Ui.SetList();
 		}
@@ -5076,10 +5169,36 @@ namespace PerfPack
 		private const string Tag = "PerfPack";
 		private static FieldInfo _data;
 
+		// Source of the last parse per asset: a hit is served only while the source and the parsed data look unchanged.
+		private sealed class Key
+		{
+			public string Json;
+			public byte[] Bytes;
+			public Spine.Unity.AtlasAsset[] Atlases;
+			public Spine.Unity.AtlasAsset[] AtlasItems;
+			public float Scale;
+			public Spine.SkeletonData Data;
+			public Spine.Unity.SkeletonDataAsset Asset;
+			public int Skins;
+			public int Animations;
+			public int Slots;
+			public int Attachments;
+		}
+
+		private static readonly Dictionary<int, Key> Keys = new Dictionary<int, Key>();
+		private static readonly HashSet<int> Mutable = new HashSet<int>();
+		private static readonly List<int> Dead = new List<int>();
+		private static int _logs;
+		private static int _errors;
+		private static N.Counter _hit;
+		private static N.Counter _parse;
+		private static N.Counter _mutable;
+
 		[MethodImpl(MethodImplOptions.NoInlining)]
 		internal static int Install(HarmonyInstance harmony)
 		{
 			HarmonyMethod prefix = new HarmonyMethod(typeof(ModSkeletonCache).GetMethod("Prefix", BindingFlags.Public | BindingFlags.Static));
+			HarmonyMethod postfix = new HarmonyMethod(typeof(ModSkeletonCache).GetMethod("Postfix", BindingFlags.Public | BindingFlags.Static));
 			Type asset = typeof(Spine.Unity.SkeletonDataAsset);
 			_data = asset.GetField("skeletonData", BindingFlags.NonPublic | BindingFlags.Instance);
 			if (object.ReferenceEquals(_data, null))
@@ -5093,23 +5212,171 @@ namespace PerfPack
 			{
 				return 0;
 			}
-			if (!N.PatchUtil.Install(harmony, Tag, text, prefix, null) || !N.PatchUtil.Install(harmony, Tag, bytes, prefix, null))
+			if (!N.PatchUtil.Install(harmony, Tag, text, prefix, postfix) || !N.PatchUtil.Install(harmony, Tag, bytes, prefix, postfix))
 			{
 				return 0;
 			}
+			_hit = N.Counters.Get(Tag, "modSkelHit");
+			_parse = N.Counters.Get(Tag, "modSkelParse");
+			_mutable = N.Counters.Get(Tag, "modSkelMutable");
+			N.Events.On(NoticeName.OnStageStart, Prune, Tag);
 			N.ULog.Info(Tag, "ModSkeletonCache installed");
 			return 1;
 		}
 
 		public static bool Prefix(Spine.Unity.SkeletonDataAsset __instance, ref Spine.SkeletonData __result)
 		{
-			Spine.SkeletonData data = _data.GetValue(__instance) as Spine.SkeletonData;
-			if (data == null)
+			try
 			{
+				Spine.SkeletonData data = _data.GetValue(__instance) as Spine.SkeletonData;
+				if (data == null)
+				{
+					return true;
+				}
+				int id = __instance.GetInstanceID();
+				if (Mutable.Contains(id))
+				{
+					return true;
+				}
+				Key key;
+				// No parse seen by the cache yet: parse once so the key matches what is served.
+				if (!Keys.TryGetValue(id, out key) || !SameSource(key, __instance, data))
+				{
+					return true;
+				}
+				if (key.Skins != Count(data.Skins) || key.Animations != Count(data.Animations) || key.Slots != Count(data.Slots)
+					|| key.Attachments != AttachmentCount(data))
+				{
+					// A mod edits the returned data per call: vanilla gives it a fresh parse every time, so the cache stays off for it.
+					Mutable.Add(id);
+					_mutable.Value++;
+					Log("ModSkeletonCache: " + __instance.name + " data changed after the parse, cache off for this asset");
+					return true;
+				}
+				_hit.Value++;
+				__result = data;
+				return false;
+			}
+			catch (Exception e)
+			{
+				_errors++;
+				if (_errors == 1)
+				{
+					N.ULog.Error(Tag, "ModSkeletonCache prefix failed, original used (logged once): " + e);
+				}
 				return true;
 			}
-			__result = data;
-			return false;
+		}
+
+		public static void Postfix(Spine.Unity.SkeletonDataAsset __instance, Spine.SkeletonData __result)
+		{
+			if (__result == null)
+			{
+				return;
+			}
+			Key old;
+			// Harmony 1 runs the postfix after a served hit too: the key is already current then.
+			if (Keys.TryGetValue(__instance.GetInstanceID(), out old) && object.ReferenceEquals(old.Data, __result))
+			{
+				return;
+			}
+			_parse.Value++;
+			Key key = new Key();
+			key.Asset = __instance;
+			key.Json = __instance.skeletonJSON_string;
+			key.Bytes = __instance.skeletonSKEL_byte;
+			key.Atlases = __instance.atlasAssets;
+			key.AtlasItems = __instance.atlasAssets == null ? null : (Spine.Unity.AtlasAsset[])__instance.atlasAssets.Clone();
+			key.Scale = __instance.scale;
+			key.Data = __result;
+			key.Skins = Count(__result.Skins);
+			key.Animations = Count(__result.Animations);
+			key.Slots = Count(__result.Slots);
+			key.Attachments = AttachmentCount(__result);
+			Keys[__instance.GetInstanceID()] = key;
+		}
+
+		// Keys of destroyed runtime assets would keep their parsed data and source text for the whole session.
+		private static void Prune()
+		{
+			Dead.Clear();
+			Dictionary<int, Key>.Enumerator it = Keys.GetEnumerator();
+			while (it.MoveNext())
+			{
+				if (it.Current.Value.Asset == null)
+				{
+					Dead.Add(it.Current.Key);
+				}
+			}
+			for (int i = 0; i < Dead.Count; i++)
+			{
+				Keys.Remove(Dead[i]);
+				Mutable.Remove(Dead[i]);
+			}
+			if (Dead.Count > 0)
+			{
+				N.ULog.Info(Tag, "ModSkeletonCache: pruned " + Dead.Count + " destroyed assets, " + Keys.Count + " kept");
+			}
+		}
+
+		private static int AttachmentCount(Spine.SkeletonData data)
+		{
+			Spine.ExposedList<Spine.Skin> skins = data.Skins;
+			if (skins == null)
+			{
+				return -1;
+			}
+			int n = 0;
+			for (int i = 0; i < skins.Count; i++)
+			{
+				Spine.Skin s = skins.Items[i];
+				if (s != null)
+				{
+					n += s.Attachments.Count;
+				}
+			}
+			return n;
+		}
+
+		private static bool SameSource(Key key, Spine.Unity.SkeletonDataAsset asset, Spine.SkeletonData data)
+		{
+			if (!object.ReferenceEquals(key.Data, data) || !object.ReferenceEquals(key.Json, asset.skeletonJSON_string)
+				|| !object.ReferenceEquals(key.Bytes, asset.skeletonSKEL_byte) || !object.ReferenceEquals(key.Atlases, asset.atlasAssets)
+				|| key.Scale != asset.scale)
+			{
+				return false;
+			}
+			Spine.Unity.AtlasAsset[] now = asset.atlasAssets;
+			if (now == null)
+			{
+				return key.AtlasItems == null;
+			}
+			if (key.AtlasItems == null || key.AtlasItems.Length != now.Length)
+			{
+				return false;
+			}
+			for (int i = 0; i < now.Length; i++)
+			{
+				if (!object.ReferenceEquals(key.AtlasItems[i], now[i]))
+				{
+					return false;
+				}
+			}
+			return true;
+		}
+
+		private static int Count<T>(Spine.ExposedList<T> list)
+		{
+			return list == null ? -1 : list.Count;
+		}
+
+		private static void Log(string text)
+		{
+			if (_logs < 20)
+			{
+				_logs++;
+				N.ULog.Info(Tag, text);
+			}
 		}
 	}
 
@@ -5121,6 +5388,7 @@ namespace PerfPack
 		private static readonly Queue<KeyValuePair<AgentModel, AgentModel>> _queue = new Queue<KeyValuePair<AgentModel, AgentModel>>();
 		private static readonly Dictionary<AgentModel, float> _pending = new Dictionary<AgentModel, float>();
 		private static bool _draining;
+		private static bool _warned;
 
 		[MethodImpl(MethodImplOptions.NoInlining)]
 		internal static int Install(HarmonyInstance harmony)
@@ -5146,6 +5414,7 @@ namespace PerfPack
 			{
 				return 0;
 			}
+			N.ResetRegistry.Register(new WitnessResetter());
 			N.ULog.Info(Tag, "WitnessSpread installed");
 			return 1;
 		}
@@ -5156,26 +5425,45 @@ namespace PerfPack
 			{
 				return true;
 			}
-			GameManager gm = GameManager.currentGameManager;
-			if (gm == null || gm.state != GameState.PLAYING)
+			try
 			{
+				GameManager gm = GameManager.currentGameManager;
+				if (gm == null || gm.state != GameState.PLAYING)
+				{
+					return true;
+				}
+				// HorrorDamageByDead: 10/30/60/100 % of max mental by level difference; armor W resistance is not applied
+				// (TakeDamageWithoutEffect); 1.5 leaves room for equipment OnTakeDamage modifiers.
+				int diff = target.level - __instance.level;
+				float share = diff <= -1 ? 0f : (diff == 0 ? 0.1f : (diff == 1 ? 0.3f : (diff == 2 ? 0.6f : 1f)));
+				// Queued reactions count: several deaths in one tick can panic a witness that one death cannot.
+				float need = __instance.maxMental * share * 1.5f;
+				float pending;
+				_pending.TryGetValue(__instance, out pending);
+				if (__instance.mental <= need + pending)
+				{
+					Drain(long.MaxValue);
+					return true;
+				}
+				_pending[__instance] = pending + need;
+				_queue.Enqueue(new KeyValuePair<AgentModel, AgentModel>(__instance, target));
+				return false;
+			}
+			catch (Exception e)
+			{
+				if (!_warned)
+				{
+					_warned = true;
+					N.ULog.Warn(Tag, "WitnessSpread prefix failed, the game's reaction runs: " + e);
+				}
 				return true;
 			}
-			// HorrorDamageByDead: 10/30/60/100 % of max mental by level difference; 1.5 leaves room for damage modifiers.
-			int diff = target.level - __instance.level;
-			float share = diff <= -1 ? 0f : (diff == 0 ? 0.1f : (diff == 1 ? 0.3f : (diff == 2 ? 0.6f : 1f)));
-			// Queued reactions count: several deaths in one tick can panic a witness that one death cannot.
-			float need = __instance.maxMental * share * 1.5f;
-			float pending;
-			_pending.TryGetValue(__instance, out pending);
-			if (__instance.mental <= need + pending)
-			{
-				Drain(long.MaxValue);
-				return true;
-			}
-			_pending[__instance] = pending + need;
-			_queue.Enqueue(new KeyValuePair<AgentModel, AgentModel>(__instance, target));
-			return false;
+		}
+
+		internal static void Clear()
+		{
+			_queue.Clear();
+			_pending.Clear();
 		}
 
 		public static void Pump(GameManager __instance)
@@ -5232,6 +5520,14 @@ namespace PerfPack
 		public Texture2D Tex;
 		public Material Mat;
 		public int Gen;
+	}
+
+	internal sealed class WitnessResetter : N.IResettable
+	{
+		public void ResetState()
+		{
+			WitnessSpread.Clear();
+		}
 	}
 
 	internal sealed class BonusPoolResetter : N.IResettable
@@ -7524,36 +7820,10 @@ namespace PerfPack
 		internal static int Install(HarmonyInstance harmony)
 		{
 			N.Events.On(NoticeName.OnStageStart, Sweep, Tag);
-			MethodBase m = N.PatchUtil.Resolve(Tag, typeof(Spine.Unity.MeshRendererBuffers), "Initialize", new Type[0]);
-			if (object.ReferenceEquals(m, null))
-			{
-				return 0;
-			}
-			string owner = Owners.ForeignPrefix(m);
-			if (owner != null)
-			{
-				N.ULog.Warn(Tag, "MeshRelease not installed: MeshRendererBuffers.Initialize already has a Prefix by " + owner);
-				return 0;
-			}
-			if (!N.PatchUtil.Install(harmony, Tag, m, new HarmonyMethod(typeof(MeshRelease).GetMethod("Prefix", BindingFlags.Public | BindingFlags.Static)), null))
-			{
-				return 0;
-			}
-			N.ULog.Info(Tag, "MeshRelease installed (MeshRendererBuffers.Initialize)");
+			// No Dispose in MeshRendererBuffers.Initialize any more: a mod may hold a mesh it copied out of the renderer.
+			// The replaced meshes stay until the day-start sweep, which destroys them only when nothing references them.
+			N.ULog.Info(Tag, "MeshRelease installed (day-start sweep)");
 			return 1;
-		}
-
-		// SkeletonRenderer.Initialize clears meshFilter.sharedMesh first; Dispose does nothing before the first Initialize.
-		public static void Prefix(Spine.Unity.MeshRendererBuffers __instance)
-		{
-			try
-			{
-				__instance.Dispose();
-			}
-			catch (Exception e)
-			{
-				N.ULog.Error(Tag, "MeshRelease: " + e.Message);
-			}
 		}
 
 		// Renderers of the previous day are destroyed without SkeletonRenderer.OnDestroy, the only path that destroys
@@ -7561,6 +7831,18 @@ namespace PerfPack
 		// that no MeshFilter and no Spine component field (three levels: renderer, buffers, double buffer, smart mesh)
 		// references is destroyed.
 		private static void Sweep()
+		{
+			try
+			{
+				SweepCore();
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(Tag, "MeshRelease sweep failed, no meshes destroyed this day: " + e);
+			}
+		}
+
+		private static void SweepCore()
 		{
 			System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
 			Dictionary<Mesh, bool> held = new Dictionary<Mesh, bool>();
@@ -7585,6 +7867,10 @@ namespace PerfPack
 				if (ns != null && ns.StartsWith("Spine", StringComparison.Ordinal))
 				{
 					Collect(mb, held, 0);
+				}
+				else
+				{
+					CollectMeshFields(mb, held);
 				}
 			}
 			int destroyed = 0;
@@ -7627,9 +7913,83 @@ namespace PerfPack
 					}
 					continue;
 				}
+				if (AddMeshes(w, held))
+				{
+					continue;
+				}
 				if (depth < 3 && !(w is UnityEngine.Object) && !(w is Delegate) && !(w is System.Collections.IEnumerable))
 				{
 					Collect(w, held, depth + 1);
+				}
+			}
+		}
+
+		// Mesh[] or List<Mesh> (pools, afterimages): every element is held.
+		private static bool AddMeshes(object w, Dictionary<Mesh, bool> held)
+		{
+			Mesh[] arr = w as Mesh[];
+			if (arr != null)
+			{
+				for (int i = 0; i < arr.Length; i++)
+				{
+					if (arr[i] != null)
+					{
+						held[arr[i]] = true;
+					}
+				}
+				return true;
+			}
+			List<Mesh> list = w as List<Mesh>;
+			if (list != null)
+			{
+				for (int i = 0; i < list.Count; i++)
+				{
+					if (list[i] != null)
+					{
+						held[list[i]] = true;
+					}
+				}
+				return true;
+			}
+			return false;
+		}
+
+		// Components outside Spine: only fields declared as Mesh, Mesh[] or List<Mesh> (one level), cached per type.
+		private static readonly Dictionary<Type, FieldInfo[]> MeshFields = new Dictionary<Type, FieldInfo[]>();
+
+		private static void CollectMeshFields(MonoBehaviour mb, Dictionary<Mesh, bool> held)
+		{
+			Type type = mb.GetType();
+			FieldInfo[] fs;
+			if (!MeshFields.TryGetValue(type, out fs))
+			{
+				List<FieldInfo> list = new List<FieldInfo>();
+				for (Type t = type; !object.ReferenceEquals(t, null) && !object.ReferenceEquals(t, typeof(MonoBehaviour)); t = t.BaseType)
+				{
+					FieldInfo[] all = t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly);
+					for (int i = 0; i < all.Length; i++)
+					{
+						Type ft = all[i].FieldType;
+						if (object.ReferenceEquals(ft, typeof(Mesh)) || object.ReferenceEquals(ft, typeof(Mesh[])) || object.ReferenceEquals(ft, typeof(List<Mesh>)))
+						{
+							list.Add(all[i]);
+						}
+					}
+				}
+				fs = list.ToArray();
+				MeshFields[type] = fs;
+			}
+			for (int f = 0; f < fs.Length; f++)
+			{
+				object w = fs[f].GetValue(mb);
+				Mesh m = w as Mesh;
+				if (m != null)
+				{
+					held[m] = true;
+				}
+				else if (w != null)
+				{
+					AddMeshes(w, held);
 				}
 			}
 		}
@@ -8962,6 +9322,7 @@ namespace PerfPack
 	{
 		private const string Tag = "PerfPack";
 		private static bool _customSprites;
+		private static int _loadFrame = -1;
 		private static int _errors;
 
 		[MethodImpl(MethodImplOptions.NoInlining)]
@@ -8986,6 +9347,7 @@ namespace PerfPack
 		public static void LoadPrefix()
 		{
 			_customSprites = true;
+			_loadFrame = Time.frameCount;
 		}
 
 		public static void LoadPostfix()
@@ -8995,7 +9357,8 @@ namespace PerfPack
 
 		public static bool Prefix(Texture2D source, int targetWidth, int targetHeight, bool mipmap, ref Texture2D __result)
 		{
-			if (!_customSprites)
+			// LoadCustomSprites is synchronous: a flag from another frame means it threw before LoadPostfix.
+			if (!_customSprites || _loadFrame != Time.frameCount)
 			{
 				return true;
 			}

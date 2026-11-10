@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.2-beta - 2026-11-10
+
+Title button placement, one vanilla fix, safety fixes for caches and spreads. FastFix 1.31, PerfPack 1.58, DamageEffectThrottle 1.1; core TitleWatch; the other modules are unchanged.
+
+- Title: on custom title screens that move the menu icons (BlueArchive) the Nail and Logs buttons were off the screen. They are now placed on screen in one row with the other title icons, with the same spacing.
+- Vanilla: `FastFix.WeaponReskin` (on). After a weapon was taken off an agent (for example Paulinus released) the agent kept the old weapon's look and attacks, and modded special weapons could deal no damage. A Postfix on `AgentModel.OnReleaseWeapon` calls `OnChangeWeapon()` as equipping does.
+- PerfPack 1.58: `ModSkeletonCache` reuses a skeleton only from the same source and drops destroyed assets at day start; `AnimatorParams` no longer stores empty or uninitialized parameter sets; `MeshRelease` frees unused meshes only at day start and keeps meshes held by any component field; `WitnessSpread` falls back to the game's code on an error and clears its queue each day; `BossTextSpread` keeps the display time of boss texts (Binah, Colored Fixer, Red Mist); `FastScale` applies only inside the custom sprite load.
+- DamageEffectThrottle 1.1: the popup limit moved from `DamageEffect.Invoker` to `UnitModel.MakeDamageEffect`, so mods that create popups themselves (BambooHattedKim critical hits) no longer get null.
+
 ## 0.9.1-beta - 2026-11-09
 
 Crash fixes, many fixes for specific mods, one performance change. FastFix 1.30, PerfPack 1.57, NailUI 1.14; the other modules are unchanged.
