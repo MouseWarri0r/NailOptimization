@@ -129,7 +129,7 @@ namespace PerfPack
 		{
 			get
 			{
-				return "1.58";
+				return "1.59";
 			}
 		}
 
@@ -370,6 +370,7 @@ namespace PerfPack
 			if (N.Config.BindFlag("PerfPack.ScriptTypes", true, "Weapons and gifts find their mod script through a list built once instead of scanning the types of every mod each time. Read at game start.").On)
 			{
 				want++;
+				ScriptTypes.WeaponModScript = N.Config.BindFlag("PerfPack.WeaponModScript", true, "With ScriptTypes on: a mod weapon whose script class has no game class of the same name gets its script (the game gives it none, so its special effect never runs).");
 				ok += ScriptTypes.Install(harmony);
 			}
 			N.Flag pauseSkeletons = N.Config.BindFlag("PerfPack.PauseSkeletons", true, "While the game is paused, characters refresh their pose rarely instead of every frame; cutscenes are not affected.");
@@ -380,7 +381,7 @@ namespace PerfPack
 			ok += AgentAnimLod.Install(harmony, agentAnimLod);
 			N.Flag inventoryDefer = N.Config.BindFlag("PerfPack.InventoryDefer", true, "The EGO list is built a little at a time on the preparation screen instead of during the day load.");
 			want++;
-			InventoryDefer.ZayinFirst = N.Config.BindFlag("PerfPack.InventoryZayinFirst", true, "The EGO list opens on ZAYIN each day instead of all grades; clicking ZAYIN again shows all.");
+			InventoryDefer.ZayinFirst = N.Config.BindFlag("PerfPack.InventoryZayinFirst", false, "The EGO list opens on ZAYIN each day instead of all grades; clicking ZAYIN again shows all.");
 			ok += InventoryDefer.Install(harmony, inventoryDefer);
 			if (N.Config.BindFlag("PerfPack.InventoryTabs", true, "EGO tabs and the closed EGO window are hidden without switching off every slot. Read at game start.").On)
 			{
@@ -2317,6 +2318,8 @@ namespace PerfPack
 		private static bool _failLogged;
 		private static int _hits;
 		private static bool _logged;
+		internal static N.Flag WeaponModScript;
+		private static bool _modScriptLogged;
 
 		[MethodImpl(MethodImplOptions.NoInlining)]
 		internal static int Install(HarmonyInstance harmony)
@@ -2531,6 +2534,20 @@ namespace PerfPack
 				{
 					Type mod = Find(info.script);
 					obj = Activator.CreateInstance(object.ReferenceEquals(mod, null) ? type : mod);
+				}
+				else if (WeaponModScript != null && WeaponModScript.On)
+				{
+					// The game scans the mods only when a game class of that name exists (bug-wiki: mod-only weapon scripts).
+					Type mod = Find(info.script);
+					if (!object.ReferenceEquals(mod, null) && typeof(EquipmentScriptBase).IsAssignableFrom(mod) && !mod.IsAbstract)
+					{
+						obj = Activator.CreateInstance(mod);
+						if (!_modScriptLogged)
+						{
+							_modScriptLogged = true;
+							N.ULog.Info(Tag, "weapon mod script used: " + info.script + " (no game class of that name; logged once)");
+						}
+					}
 				}
 				WeaponModel model = new WeaponModel();
 				model.metaInfo = info;

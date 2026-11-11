@@ -1,10 +1,12 @@
 # Nail Optimization
 
-Version 0.9.2-beta. A modular performance and stability mod for Lobotomy Corporation. It is built on BaseMod (Lobotomy Mod Manager, LMM) and Harmony 1.0.9.1 and runs on the game's Unity 2017 Mono runtime.
+Version 0.9.3-beta. A modular performance and stability mod for Lobotomy Corporation. It is built on BaseMod (Lobotomy Mod Manager, LMM) and Harmony 1.0.9.1 and runs on the game's Unity 2017 Mono runtime.
 
 It targets large mod lists, where the game starts slowly, runs out of memory, stutters on late days and can lose a save because of one broken mod file. Most optimizations work on the game's own code, so they also help a vanilla game. Every feature has its own switch, and the mod writes what it installed, skipped or fixed to `NailOptimization.log`.
 
-The mod does not change game rules, damage, stats, work results or the save format. Where an optimization could return a different result from the game, the feature compares itself with the game first and switches itself off if they disagree.
+The default options do not change damage, stats, work results or the save format; the opt-in GameFix module (all options off) fixes game rules and does change them. Where an optimization could return a different result from the game, the feature compares itself with the game first and switches itself off if they disagree.
+
+Some default-on features change timing and off-screen work, not results: `PanicThrottle` and `WitnessSpread` spread a mass panic over several frames, so agents can panic in a different order than in vanilla; `CorpseFreeze`, `ClerkCull`, `SlotCull`, `CanvasCull`, `DoorAnimCull` and `AgentAnimLod` skip animation and UI work that is not on screen; `FastSearch` and `PathCheck` replace parts of pathfinding, and their cross-check modes `FastSearchVerify` and `PathCheckVerify` are off in normal play. Each has its own switch in [docs/CONFIG.md](docs/CONFIG.md).
 
 ## Contents
 
@@ -26,9 +28,10 @@ The mod is one core assembly plus ten modules loaded from `modules/*.dll`. See [
 |---|---|
 | NailUI | Settings panel (F10, a button on the title screen and in the day screen) with every option of every module, tooltips, English and Russian texts. Display settings (resolution, window mode, V-sync, FPS limit, texture quality) and an optional FPS counter. |
 | PerfPack | Engine optimizations, about 60 features: rendering and off-screen culling, animations, interface, path finding, mass events, sounds, loading, memory, garbage-collection pressure. |
-| LoadGuard | A broken mod data file is skipped and logged instead of stopping the load. A missing mod language falls back to English. An index of creature files speeds up start-up. Optional repair of common data errors. |
+| LoadGuard | A broken mod data file, a mod DLL that needs a missing library, or an abnormality whose script is missing is skipped and named in an on-screen warning list instead of stopping the load. The cause of the last native crash is named at the next start; an unsupported BaseMod version is reported. A missing mod language falls back to English. An index of creature files speeds up start-up. Optional repair of common data errors. |
 | SaveGuard | Backups of save files before they are overwritten. A save that failed to load completely is not overwritten by the incomplete version. Optional load without removed mods. |
-| FastFix | About 75 fixes for vanilla bugs, for bugs of specific popular mods and for errors that any mod can have. An optional patch guard that skips a foreign patch method which keeps throwing. |
+| FastFix | About 80 fixes for vanilla bugs, for bugs of specific popular mods and for errors that any mod can have. An optional patch guard that skips a foreign patch method which keeps throwing. |
+| GameFix | Opt-in fixes of game rules (Happy Teddy at day end, lower Central Command service bonus, Yin and Yang dragon and the apostles); every option is off by default. |
 | LogViewer | In-game log window with warning and error badges. Optional advanced log with mod file diagnostics. |
 | EffectPool | Damage popups are reused instead of created and destroyed. |
 | DamageEffectThrottle | Damage popups per frame and per second are capped. Old blood splashes are removed. |
@@ -79,13 +82,13 @@ On vanilla the mod uses about 0.4-0.5 GB more memory, most likely because it kee
 
 ## Installation
 
-Requirements: Lobotomy Corporation (Steam) with BaseMod (Lobotomy Mod Manager).
+Requirements: Lobotomy Corporation (Steam) with BaseMod (Lobotomy Mod Manager) 1.3.9.
 
 1. Extract the `NailOptimization` folder into `LobotomyCorp_Data/BaseMods/`.
 2. Enable NailOptimization in LMM and put it at the top of the mod list.
 3. Start the game. The files `NailOptimization.log` and `NailOptimization.cfg.txt` are created in the mod folder on the first start.
 
-Uninstall: disable the mod and delete the folder. The mod writes no data of its own into your saves. If SaveGuard made backups, they are in `SaveBackups/` inside the mod folder.
+Uninstall: disable the mod and delete the folder. The mod writes no data of its own into your saves. If SaveGuard made backups, they are in `SaveBackups/` inside the mod folder and are deleted with it: copy that folder elsewhere first if you want to keep them.
 
 If you used standalone versions of DamageEffectThrottle, EffectPool or RecoverEffectThrottle, remove them from BaseMods: the matching modules replace them and two patches on one method conflict.
 

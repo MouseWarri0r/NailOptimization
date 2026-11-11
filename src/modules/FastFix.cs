@@ -519,7 +519,7 @@ namespace FastFix
 		{
 			get
 			{
-				return "1.31";
+				return "1.33";
 			}
 		}
 
@@ -584,9 +584,15 @@ namespace FastFix
 			VoidDream.Install(Harmony, N.Config.BindFlag("FastFix.VoidDream", true, "Void Dream: each sleeping employee is released by his own wake-up animation, or after 8 s when it never comes, instead of staying frozen and invincible until he dies at day end; the cry hits every unit in the hallway."));
 			ExpandOnce.Install(Harmony, N.Config.BindFlag("FastFix.ExpandOnce", true, "Cancel pressed after confirming a department expansion no longer lets the same expansion be confirmed a second time the same day."));
 			SelectClick.Install(Harmony, N.Config.BindFlag("FastFix.SelectClick", true, "A click that moved the mouse a little still selects or gives the move order instead of being taken for a drag; a drag cut off by switching windows no longer blocks later clicks."));
+			if (N.Config.BindFlag("FastFix.AgentHoverJitter", true, "The agent name plate no longer flickers when the mouse is over an agent and the enlarged plate covers the pointer. Read at game start.").On)
+			{
+				AgentHover.Install(Harmony);
+			}
 			CameraDrag.Install(Harmony, N.Config.BindFlag("FastFix.CameraDrag", true, "A map drag with the right or middle mouse button keeps following the mouse while the camera shakes from hits, instead of freezing and jumping."));
 			StageEndGuard.Install(Harmony, N.Config.BindFlag("FastFix.StageEndGuard", true, "A creature that throws at the end of the day (Invalidum with an escaped creature outside the hallways) no longer stops the day end: the result screen still opens and the error is logged once."));
 			NothingWorkerNoModel.Install(Harmony, N.Config.BindFlag("FastFix.NothingWorkerNoModel", true, "A NothingWorker object that a mod created without initializing it (It Goes By The Name of Dream) no longer throws an error every frame."));
+			TwilightArmorNull.Install(Harmony, N.Config.BindFlag("FastFix.TwilightArmorNull", true, "The Twilight suit's damage bonus no longer throws an error when it is asked before the day set the suit up (a suit given during the day by a mod). Read at game start."));
+			IronMaidenExit.Install(Harmony, N.Config.BindFlag("FastFix.IronMaidenExit", true, "An agent who leaves We Can Change Anything alive is visible again and is no longer killed at the end of the day; the machine closes as after a death. Read at game start."));
 			GameObject go = new GameObject("NailOptimization.FastFix");
 			UnityEngine.Object.DontDestroyOnLoad(go);
 			go.AddComponent<FastFixDriver>();
@@ -949,6 +955,7 @@ namespace FastFix
 					catch (Exception e)
 					{
 						CovariancePending = false;
+						Covariance.StepClear();
 						N.ULog.Error(FastFixModule.Tag, "covariance install failed: " + e);
 					}
 					try
@@ -1161,6 +1168,10 @@ namespace FastFix
 		private static MethodInfo _covary;
 		private static int _fixed;
 		private static int _applied;
+		private static string _stepFile;
+		private static string _skipFile;
+		private static bool _stepOpen;
+		private static readonly Dictionary<string, bool> SkipKeys = new Dictionary<string, bool>();
 
 		// True when the attempt is finished. Runs on each driver poll until the give-up frame: assemblies a mod loads late are read then.
 		internal static bool TryInstall(bool last)
@@ -1176,6 +1187,7 @@ namespace FastFix
 				BuildOps();
 				_covary = typeof(Covariance).GetMethod("Covary", BindingFlags.Public | BindingFlags.Static);
 				_ownDir = System.IO.Path.GetDirectoryName(typeof(N.ULog).Assembly.Location);
+				StepInit();
 			}
 			if (!_flag.On)
 			{
@@ -1198,13 +1210,21 @@ namespace FastFix
 				{
 					continue;
 				}
+				string key = AsmKey(all[a]);
+				if (SkipKeys.ContainsKey(key))
+				{
+					N.ULog.Warn(FastFixModule.Tag, "covariance: " + key + " not read: the game closed while reading it at an earlier start");
+					continue;
+				}
 				read++;
+				Step("asm", key);
 				ScanAssembly(all[a], targets, ref methods, ref skipped);
 			}
 			for (int i = 0; i < targets.Count; i++)
 			{
 				Patch(targets[i]);
 			}
+			StepClear();
 			if (read > 0)
 			{
 				N.ULog.Info(FastFixModule.Tag, "covariance: " + read + " assemblies, " + methods + " methods read, " + skipped + " not analyzed, " + targets.Count + " methods to patch, " + _fixed + " places fixed in total, " + sw.ElapsedMilliseconds + " ms");
@@ -1282,6 +1302,113 @@ namespace FastFix
 				N.ULog.Error(FastFixModule.Tag, "covariance: transpiler failed, method left unchanged: " + e.Message);
 				return list;
 			}
+		}
+
+		// Crash step guard: a native abort while reading an assembly or building a patch cannot be caught. The step is written
+		// to Logs/Covariance.step.txt before it runs and the file is deleted when the poll ends; a file left by the previous
+		// session names the step that closed the game, which goes to Logs/Covariance.skip.txt and is skipped from then on.
+		// Keys carry the DLL write time, so an updated mod is tried again; deleting the skip file retries everything.
+		private static void StepInit()
+		{
+			try
+			{
+				string dir = System.IO.Path.Combine(N.UiHost.RootDir, "Logs");
+				System.IO.Directory.CreateDirectory(dir);
+				_stepFile = System.IO.Path.Combine(dir, "Covariance.step.txt");
+				_skipFile = System.IO.Path.Combine(dir, "Covariance.skip.txt");
+				if (System.IO.File.Exists(_skipFile))
+				{
+					string[] lines = System.IO.File.ReadAllLines(_skipFile);
+					for (int i = 0; i < lines.Length; i++)
+					{
+						string l = lines[i].Trim();
+						if (l.Length > 0)
+						{
+							SkipKeys[l] = true;
+						}
+					}
+				}
+				if (!System.IO.File.Exists(_stepFile))
+				{
+					return;
+				}
+				string prev = System.IO.File.ReadAllText(_stepFile).Trim();
+				System.IO.File.Delete(_stepFile);
+				int tab = prev.IndexOf('\t');
+				if (tab <= 0)
+				{
+					return;
+				}
+				string kind = prev.Substring(0, tab);
+				string key = prev.Substring(tab + 1);
+				if (!SkipKeys.ContainsKey(key))
+				{
+					SkipKeys[key] = true;
+					System.IO.File.AppendAllText(_skipFile, key + "\r\n");
+				}
+				int bar = key.IndexOf('|');
+				string path = bar > 0 ? key.Substring(0, bar) : key;
+				string what = kind == "asm" ? "reading " + System.IO.Path.GetFileName(path) : "patching " + key.Substring(key.LastIndexOf('|') + 1) + " (" + System.IO.Path.GetFileName(path) + ")";
+				N.ULog.Error(FastFixModule.Tag, "covariance: the last start closed while " + what + "; skipped from now on (" + key + "). Delete " + _skipFile + " to try again");
+				N.Alerts.Add(2, path, "FastFix covariance: the game closed at the last start while " + what + ". It is skipped from now on; delete Logs/Covariance.skip.txt in the NailOptimization folder to try again.");
+			}
+			catch (Exception e)
+			{
+				_stepFile = null;
+				N.ULog.Warn(FastFixModule.Tag, "covariance: crash step guard off: " + e.Message);
+			}
+		}
+
+		private static void Step(string kind, string key)
+		{
+			if (_stepFile == null)
+			{
+				return;
+			}
+			try
+			{
+				System.IO.File.WriteAllText(_stepFile, kind + "\t" + key);
+				_stepOpen = true;
+			}
+			catch (Exception)
+			{
+			}
+		}
+
+		// Also called by the driver when TryInstall throws: a managed exception is not a crash.
+		internal static void StepClear()
+		{
+			if (!_stepOpen)
+			{
+				return;
+			}
+			_stepOpen = false;
+			try
+			{
+				System.IO.File.Delete(_stepFile);
+			}
+			catch (Exception)
+			{
+			}
+		}
+
+		// Assembly file + write ticks; the location was already read by IsModNet4.
+		private static string AsmKey(Assembly asm)
+		{
+			string loc = asm.Location;
+			try
+			{
+				return loc + "|" + System.IO.File.GetLastWriteTimeUtc(loc).Ticks;
+			}
+			catch (Exception)
+			{
+				return loc + "|0";
+			}
+		}
+
+		private static string MethodKey(MethodBase m)
+		{
+			return AsmKey(m.DeclaringType.Assembly) + "|" + m.DeclaringType.FullName + "." + m.Name;
 		}
 
 		private static string Norm(string name)
@@ -2058,6 +2185,17 @@ namespace FastFix
 		private static void Patch(MethodBase m)
 		{
 			List<Site> sites = Sites[m.MethodHandle.Value];
+			string key = MethodKey(m);
+			if (SkipKeys.ContainsKey(key))
+			{
+				for (int i = 0; i < sites.Count; i++)
+				{
+					N.ULog.Warn(FastFixModule.Tag, sites[i].Text + " - not fixed: the game closed while patching this method at an earlier start");
+				}
+				Sites.Remove(m.MethodHandle.Value);
+				return;
+			}
+			Step("method", key);
 			MethodBody body = m.GetMethodBody();
 			if (body.ExceptionHandlingClauses.Count > 0 && !Ensure12())
 			{
@@ -7219,6 +7357,56 @@ namespace FastFix
 		}
 	}
 
+	// Agent name plate flicker on hover (vanilla AgentUI.SetOverlayState): hovering an agent scales its plate (ActiveControl) to
+	// 1.15. UnitMouseEventManager knows the pointer is over the world only through uGUI enter/exit on its background, so the
+	// enlarged plate under the pointer sends OnPointerExit, which clears the hover; the plate shrinks, the background gets the
+	// pointer back and the agent is hovered again, every frame. Fix: Postfix: while enlarged, the plate does not block uGUI rays
+	// (CanvasGroup.blocksRaycasts); at normal size it behaves as in the game.
+	public static class AgentHover
+	{
+		private static bool _errorLogged;
+
+		internal static void Install(HarmonyInstance harmony)
+		{
+			MethodBase m = N.PatchUtil.Resolve(FastFixModule.Tag, typeof(InGameUI.AgentUI), "SetOverlayState", new Type[] { typeof(bool) });
+			if (object.ReferenceEquals(m, null))
+			{
+				return;
+			}
+			N.PatchUtil.Install(harmony, FastFixModule.Tag, m, null, new HarmonyMethod(typeof(AgentHover).GetMethod("Postfix", BindingFlags.Public | BindingFlags.Static)));
+		}
+
+		public static void Postfix(InGameUI.AgentUI __instance, bool b)
+		{
+			try
+			{
+				GameObject plate = __instance.ActiveControl;
+				if (plate == null)
+				{
+					return;
+				}
+				CanvasGroup g = plate.GetComponent<CanvasGroup>();
+				if (g == null)
+				{
+					if (!b)
+					{
+						return;
+					}
+					g = plate.AddComponent<CanvasGroup>();
+				}
+				g.blocksRaycasts = !b;
+			}
+			catch (Exception e)
+			{
+				if (!_errorLogged)
+				{
+					_errorLogged = true;
+					N.ULog.Error(FastFixModule.Tag, "agent hover fix failed (logged once): " + e);
+				}
+			}
+		}
+	}
+
 	// Selection and move-command clicks (vanilla UnitMouseEventManager): uGUI starts a drag once the pointer moves a few pixels
 	// while pressed. A right drag sets _draggingRight, and OnPointerClick_default ignores the right click (the move command)
 	// while it is set; the click is sent before OnEndDrag clears it. So a right click with a small hand movement, more likely at
@@ -7424,6 +7612,120 @@ namespace FastFix
 				N.ULog.Info(FastFixModule.Tag, "NothingWorker without a model (not initialized by a mod), Update skipped (logged once)");
 			}
 			return false;
+		}
+	}
+
+	// Twilight armor (vanilla BossBirdArmor). GetDamageFactor reads _worker.hp, and _worker is set only by Init from
+	// OnStageStart: a damage query on an armor given after the day started (by a mod) or before day start throws a
+	// NullReferenceException. The Prefix returns the neutral factor 1 while _worker is null. No handler in the target (GL-53).
+	public static class TwilightArmorNull
+	{
+		private static N.Flag _flag;
+		private static FieldInfo _worker;
+		private static bool _logged;
+
+		internal static void Install(HarmonyInstance harmony, N.Flag flag)
+		{
+			_flag = flag;
+			_worker = typeof(BossBirdArmor).GetField("_worker", BindingFlags.NonPublic | BindingFlags.Instance);
+			MethodBase m = N.PatchUtil.Resolve(FastFixModule.Tag, typeof(BossBirdArmor), "GetDamageFactor", Type.EmptyTypes);
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(_worker, null))
+			{
+				N.ULog.Warn(FastFixModule.Tag, "twilight armor fix not applied: members not found");
+				return;
+			}
+			N.PatchUtil.Install(harmony, FastFixModule.Tag, m, new HarmonyMethod(typeof(TwilightArmorNull).GetMethod("Prefix", BindingFlags.Public | BindingFlags.Static)), null);
+		}
+
+		public static bool Prefix(BossBirdArmor __instance, ref float __result)
+		{
+			if (!_flag.On || _worker.GetValue(__instance) != null)
+			{
+				return true;
+			}
+			__result = 1f;
+			if (!_logged)
+			{
+				_logged = true;
+				N.ULog.Info(FastFixModule.Tag, "twilight armor: damage factor asked before the armor was set up, 1 returned (logged once)");
+			}
+			return false;
+		}
+	}
+
+	// We Can Change Anything (vanilla IronMaiden). OnEnterRoom stores lockupAgent and the machine animation hides the agent's
+	// animRoot (IronMaidenAnim.LockAgent). OnReleaseWork tears down (End animation, lockupAgent = null, timer stopped) only
+	// when the agent died; nothing in the game shows animRoot again (IL scan 2026-11-11). An agent who leaves alive walks on
+	// invisible, the machine stays in its working animation, and OnStageEnd kills him because lockupAgent is still set.
+	// Fix: a Postfix on OnReleaseWork does the same teardown for a living agent and shows his animRoot again.
+	// No handler in the target (GL-53); OnFixedUpdateInSkill (try/catch) is not patched.
+	public static class IronMaidenExit
+	{
+		private static N.Flag _flag;
+		private static FieldInfo _lockup;
+		private static FieldInfo _anim;
+		private static FieldInfo _timer;
+		private static FieldInfo _cur;
+		private static bool _errorLogged;
+
+		internal static void Install(HarmonyInstance harmony, N.Flag flag)
+		{
+			_flag = flag;
+			BindingFlags f = BindingFlags.NonPublic | BindingFlags.Instance;
+			_lockup = typeof(IronMaiden).GetField("lockupAgent", f);
+			_anim = typeof(IronMaiden).GetField("_anim", f);
+			_timer = typeof(IronMaiden).GetField("_genEnergyTimer", f);
+			_cur = typeof(IronMaidenAnim).GetField("curAgentObj", f);
+			MethodBase m = N.PatchUtil.Resolve(FastFixModule.Tag, typeof(IronMaiden), "OnReleaseWork", new Type[] { typeof(UseSkill) });
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(_lockup, null) || object.ReferenceEquals(_anim, null) || object.ReferenceEquals(_timer, null) || object.ReferenceEquals(_cur, null))
+			{
+				N.ULog.Warn(FastFixModule.Tag, "we can change anything fix not applied: members not found");
+				return;
+			}
+			N.PatchUtil.Install(harmony, FastFixModule.Tag, m, null, new HarmonyMethod(typeof(IronMaidenExit).GetMethod("Postfix", BindingFlags.Public | BindingFlags.Static)));
+		}
+
+		public static void Postfix(IronMaiden __instance)
+		{
+			if (!_flag.On)
+			{
+				return;
+			}
+			try
+			{
+				AgentModel a = _lockup.GetValue(__instance) as AgentModel;
+				if (a == null || a.IsDead() || a.hp <= 0f)
+				{
+					return;
+				}
+				_lockup.SetValue(__instance, null);
+				global::Timer t = _timer.GetValue(__instance) as global::Timer;
+				if (t != null)
+				{
+					t.StopTimer();
+				}
+				IronMaidenAnim anim = _anim.GetValue(__instance) as IronMaidenAnim;
+				if (anim != null)
+				{
+					_cur.SetValue(anim, null);
+					anim.UpdateGeneratingLevel(-1);
+					anim.CompleteGenerating();
+				}
+				AgentUnit u = a.GetUnit();
+				if (u != null && u.animRoot != null)
+				{
+					u.animRoot.gameObject.SetActive(true);
+				}
+				N.ULog.Info(FastFixModule.Tag, "we can change anything: agent " + a.name + " left alive, shown again and released");
+			}
+			catch (Exception e)
+			{
+				if (!_errorLogged)
+				{
+					_errorLogged = true;
+					N.ULog.Error(FastFixModule.Tag, "we can change anything fix error (logged once): " + e);
+				}
+			}
 		}
 	}
 
@@ -8662,6 +8964,7 @@ namespace FastFix
 				w.BlockedFrame = Time.frameCount;
 				n++;
 				N.ULog.Warn(FastFixModule.Tag, "guard blocked patch " + name + " (" + kind + ") of " + original.DeclaringType.FullName + "." + original.Name + " owner=" + p.owner + " reason=" + w.Reason + " count=" + w.Count + "/10s");
+				N.Alerts.Add(2, N.Alerts.PathOf(pm), "patch " + name + " skipped for this session after repeated errors (" + w.Reason + ")");
 			}
 			return n;
 		}
@@ -8965,6 +9268,7 @@ namespace FastFix
 			}
 			w.BlockedFrame = Time.frameCount;
 			N.ULog.Warn(FastFixModule.Tag, "guard quarantined " + name + " reason=" + w.Reason + " count=" + w.Count + "/10s");
+			N.Alerts.Add(2, N.Alerts.PathOf(m), "method " + name + " skipped for this session after repeated errors (" + w.Reason + ")");
 			return 1;
 		}
 

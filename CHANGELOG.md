@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.3-beta - 2026-11-11
+
+Broken-mod guards, crash cause report, a self-healing start-up repair, three vanilla fixes and the new opt-in module GameFix. Core API level 10 (Alerts); FastFix 1.33, LoadGuard 1.6, PerfPack 1.59, NailUI 1.15, GameFix 1.0 (new); the other modules are unchanged.
+
+- LoadGuard 1.6: `LoadGuard.TypeLoad` (on) loads what it can of a mod DLL that needs a missing or later-loaded library instead of stopping the code of every later mod; `LoadGuard.CreatureLoad` (on) skips an abnormality whose mod script is missing or crashes at day load; `LoadGuard.CrashTrail` (on) keeps the last step before a native crash in `Logs/LastSession.txt` and names it in the warning list at the next start; `LoadGuard.BaseModCheck` (on) warns once when BaseMod is not 1.3.9. Guard blocks (PatchGuard, LoopGuard, GuardLate) now show in the warning list through the core `Alerts` API.
+- FastFix 1.33: `FastFix.Covariance` writes each step (assembly read, method patch) to `Logs/Covariance.step.txt` before it runs; a step left by a crashed session goes to `Logs/Covariance.skip.txt`, is skipped from then on and is named in the warning list (keys include the DLL write time, so an updated mod is tried again). Reported: Japanese install closed at start with 0.9.1+.
+- Vanilla: `FastFix.AgentHoverJitter` (on): the enlarged agent plate no longer blocks uGUI rays, so hovering an agent whose plate covers the cursor no longer flickers. `FastFix.IronMaidenExit` (on): an agent who leaves We Can Change Anything alive is visible again and is not killed at day end. `FastFix.TwilightArmorNull` (on): the Twilight suit's damage factor before its setup returns 1.
+- PerfPack 1.59: `PerfPack.WeaponModScript` (on, with ScriptTypes): `MakeWeapon` gives a mod weapon its script when no game class has that name. `PerfPack.InventoryZayinFirst` now defaults to off.
+- GameFix 1.0 (new module, every option off by default, read at game start): `GameFix.TeddyDayEnd`, `GameFix.TipherethLower`, `GameFix.ApostleDragon`.
+- Docs: uninstall text warns about `SaveBackups`; README no longer says the mod never changes gameplay. The panel now has 230 options.
+
 ## 0.9.2-beta - 2026-11-10
 
 Title button placement, one vanilla fix, safety fixes for caches and spreads. FastFix 1.31, PerfPack 1.58, DamageEffectThrottle 1.1; core TitleWatch; the other modules are unchanged.

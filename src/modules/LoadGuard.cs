@@ -55,7 +55,7 @@ namespace LoadGuard
 		{
 			get
 			{
-				return "1.4";
+				return "1.6";
 			}
 		}
 
@@ -81,9 +81,15 @@ namespace LoadGuard
 			{
 				BootFiles.Start(HarmonyInstance.Create(HarmonyId + ".bootfiles"));
 			}
-			if (N.Config.BindFlag("LoadGuard.Alerts", true, "A warning button on the title lists mods that broke loading: code that failed to load or start, and data files that had to be skipped, with the mod folder. Read at game start.").On)
+			if (N.Config.BindFlag("LoadGuard.Alerts", true, "A warning button on the title and in the day lists mod problems with the mod folder: code that failed to load or start, data files that had to be skipped, and mod patches or methods the guards skipped for the session. Read at game start.").On)
 			{
 				LoadAlerts.Start();
+				BaseModCheck.Flag = N.Config.BindFlag("LoadGuard.BaseModCheck", true, "With the warning list on: a BaseMod (LMM) other than 1.3.9 is named in the list, which opens once on the title. Read at game start.");
+				CrashTrail.Flag = N.Config.BindFlag("LoadGuard.CrashTrail", true, "With the warning list on: the last step before a game crash (mod being loaded, scene, day, last error) is kept in Logs/LastSession.txt and shown in the list at the next start. Read at game start.");
+				if (CrashTrail.Flag.On)
+				{
+					CrashTrail.Start();
+				}
 			}
 			if (!_enabled.On)
 			{
@@ -91,12 +97,15 @@ namespace LoadGuard
 				return;
 			}
 			Guard.RepairOn = _repair.On;
+			TypeLoad.Flag = N.Config.BindFlag("LoadGuard.TypeLoad", true, "With LoadGuard on: a mod DLL whose types cannot all load (missing or later-loaded dependency) loads partially instead of stopping the loading of every later mod; it is named in the log and the warning list. Works for mods after NailOptimization in the load order. Read at game start.");
+			CreatureLoad.Flag = N.Config.BindFlag("LoadGuard.CreatureLoad", true, "With LoadGuard on: at day load an abnormality whose script class is missing or throws is skipped (or kept with an error) and named in the log and the warning list, instead of stopping the load. Read at game start.");
 			if (Guard.RepairOn)
 			{
 				N.ULog.Info("loadguard", "repair on");
 			}
 			int n = Install();
-			N.ULog.Info("loadguard", "hook installed " + n + "/" + Expected);
+			int expected = Expected + (TypeLoad.Flag.On ? 1 : 0) + (CreatureLoad.Flag.On ? 1 : 0);
+			N.ULog.Info("loadguard", "hook installed " + n + "/" + expected);
 		}
 
 		[MethodImpl(MethodImplOptions.NoInlining)]
@@ -104,6 +113,12 @@ namespace LoadGuard
 		{
 			HarmonyInstance harmony = HarmonyInstance.Create(HarmonyId);
 			int n = 0;
+
+			// First: every mod DLL after this point goes through Assembly.GetTypes in Add_On.Init.
+			if (TypeLoad.Flag.On)
+			{
+				n += TypeLoad.Install(harmony);
+			}
 
 			if (Guard.Bind())
 			{
@@ -119,6 +134,17 @@ namespace LoadGuard
 			n += Patch(harmony, typeof(CreatureDataLoader), "LoadDoc", typeof(Guard), "PrefixLoadDoc");
 			n += Patch(harmony, typeof(EquipmentDataLoader), "Load", typeof(Guard), "PrefixEquipment");
 			n += Patch(harmony, typeof(GameStaticDataLoader), "LoadModIsolate", typeof(Guard), "PrefixIsolate");
+			if (CreatureLoad.Flag.On && CreatureLoad.Bind())
+			{
+				int k = Patch(harmony, typeof(CreatureManager), "LoadData", typeof(CreatureLoad), "PrefixLoadData");
+				if (k > 0)
+				{
+					// A foreign Prefix after ours or a Transpiler switches the replacement off (the original runs).
+					MethodBase target = N.PatchUtil.Resolve(Guard.Tag, typeof(CreatureManager), "LoadData", null);
+					N.PatchUtil.GuardLate(Guard.Tag, target, typeof(CreatureLoad).GetMethod("PrefixLoadData"), CreatureLoad.Flag, "LoadGuard.CreatureLoad");
+				}
+				n += k;
+			}
 			return n;
 		}
 
@@ -1136,6 +1162,7 @@ namespace LoadGuard
 							continue;
 						}
 						_curFile = fileInfo2.FullName;
+						CreatureLoad.NoteFolder(modInfo2.modid, entries, modInfo2.modpath.Name);
 						if (modInfo2.modid == string.Empty)
 						{
 							List<CreatureTypeInfo> list5 = new List<CreatureTypeInfo>();
@@ -1715,6 +1742,890 @@ namespace LoadGuard
 		}
 	}
 
+	// LoadGuard.CreatureLoad: full replacement of CreatureManager.LoadData (day load of the saved abnormalities). Vanilla has
+	// no try per creature (one exception ends the day load) and a SefiraIsolateException catch, so a Prefix copy is required
+	// (GL-53). Same steps and order as game/CreatureManager.cs 325-453, plus per creature:
+	//   before any side effect: the script class is resolved as BuildCreatureModel_Mod does and instantiated; no class, a
+	//   throwing ctor or a non-CreatureBase type -> the creature is skipped (named in the log and in LoadAlerts);
+	//   CreatureModel.LoadData or GenIsolate throws (other than SefiraIsolateException) -> skipped;
+	//   BuildCreatureModel_Mod / RegisterCreature / AddCreatureInSefira / OnInit throws -> logged, the load goes on (no rollback).
+	public static class CreatureLoad
+	{
+		private const string Tag = "loadguard";
+		private static FieldInfo _nextInstId;
+		private static Assembly _gameAsm;
+		private static int _kept;
+		private static int _skipped;
+		private static int _errors;
+		private static List<string> _mods;
+		internal static N.Flag Flag;
+		// modid + id -> mod folder of the CreatureList file that defined it (LoadGuard creature list load); last file wins.
+		private static readonly Dictionary<string, string> _folders = new Dictionary<string, string>(StringComparer.Ordinal);
+		// Short name -> type over AssemList (last match wins), built once per LoadData call.
+		private static Dictionary<string, Type> _types;
+
+		private static string FolderKey(string modid, long id)
+		{
+			return (modid == null ? string.Empty : modid) + "\n" + id;
+		}
+
+		// Called by the creature list replacement for each mod file (main thread, game start and ReLoad).
+		internal static void NoteFolder(string modid, XmlNodeList entries, string folder)
+		{
+			try
+			{
+				for (int i = 0; i < entries.Count; i++)
+				{
+					XmlAttribute a = entries[i].Attributes == null ? null : entries[i].Attributes["id"];
+					long id;
+					if (a != null && long.TryParse(a.Value.Trim(), out id))
+					{
+						_folders[FolderKey(modid, id)] = folder;
+					}
+				}
+			}
+			catch (Exception)
+			{
+			}
+		}
+
+		internal static bool Bind()
+		{
+			_nextInstId = typeof(CreatureManager).GetField("nextInstId", BindingFlags.Instance | BindingFlags.NonPublic);
+			_gameAsm = typeof(CreatureBase).Assembly;
+			if (object.ReferenceEquals(_nextInstId, null) || !object.ReferenceEquals(_nextInstId.FieldType, typeof(long)))
+			{
+				N.ULog.Error(Tag, "CreatureManager.nextInstId not found, creature load not guarded");
+				return false;
+			}
+			return true;
+		}
+
+		public static bool PrefixLoadData(CreatureManager __instance, Dictionary<string, object> dic)
+		{
+			if (!Flag.On)
+			{
+				return true;
+			}
+			List<Dictionary<string, object>> list;
+			List<long> list2;
+			try
+			{
+				long next = (long)_nextInstId.GetValue(__instance);
+				if (!GameUtil.TryGetValue<long>(dic, "nextInstId", ref next))
+				{
+					int num = 0;
+					if (GameUtil.TryGetValue<int>(dic, "nextInstId", ref num))
+					{
+						next = (long)num;
+					}
+				}
+				_nextInstId.SetValue(__instance, next);
+				list = new List<Dictionary<string, object>>();
+				GameUtil.TryGetValue<List<Dictionary<string, object>>>(dic, "creatureList", ref list);
+				list2 = new List<long>();
+				for (int i = 0; i < list.Count; i++)
+				{
+					long id = 0L;
+					ExtenionUtil.TryGetValue<long>(list[i], "metadataId", ref id);
+					list2.Add(id);
+				}
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(Tag, "creature load: header failed, the game's own load runs: " + e);
+				return true;
+			}
+			_kept = 0;
+			_skipped = 0;
+			_errors = 0;
+			_mods = null;
+			_types = null;
+			for (int i = 0; i < list.Count; i++)
+			{
+				Dictionary<string, object> entry = list[i];
+				long metaId = 0L;
+				string modid = string.Empty;
+				try
+				{
+					GameUtil.TryGetValue<long>(entry, "metadataId", ref metaId);
+					GameUtil.TryGetValue<string>(entry, "modid", ref modid);
+					LcIdLong lcid = new LcIdLong(modid, metaId);
+					if (CreatureTypeList.instance.GetData_Mod(lcid) != null)
+					{
+						LoadOne(__instance, entry, lcid, modid, list2);
+					}
+					else if (modid == string.Empty)
+					{
+						// A vanilla-id entry saved before its mod got a modid: the first mod that defines the id takes it.
+						foreach (ModInfo info in ((Add_On)Add_On.instance).ModList)
+						{
+							ModInfo info2 = info;
+							if (info2.modid != string.Empty)
+							{
+								LcIdLong alt = new LcIdLong(info2.modid, metaId);
+								if (CreatureTypeList.instance.GetData_Mod(alt) != null)
+								{
+									LoadOne(__instance, entry, alt, modid, list2);
+									break;
+								}
+							}
+						}
+					}
+				}
+				catch (Exception e)
+				{
+					Skip(modid, metaId, null, "load error " + e.GetType().Name + ": " + e.Message, e);
+				}
+			}
+			if (_skipped > 0 || _errors > 0)
+			{
+				N.ULog.Warn(Tag, "creature load: kept " + _kept + ", skipped " + _skipped + ", loaded with errors " + _errors + " (mods: " + (_mods == null ? "-" : string.Join(", ", _mods.ToArray())) + ")");
+			}
+			return false;
+		}
+
+		// One saved creature. savedModid = the modid stored in the save (vanilla checks it, not the resolved one, for the
+		// 300109 -> 100104 remap).
+		private static void LoadOne(CreatureManager mgr, Dictionary<string, object> entry, LcIdLong lcid, string savedModid, List<long> list2)
+		{
+			CreatureTypeInfo info = CreatureTypeList.instance.GetData_Mod(lcid);
+			string why = CheckScript(info);
+			if (why != null)
+			{
+				Skip(lcid.packageId, lcid.id, info, why, null);
+				return;
+			}
+			long instId = 0L;
+			GameUtil.TryGetValue<long>(entry, "instanceId", ref instId);
+			CreatureModel model = new CreatureModel(instId);
+			model.LoadData(entry);
+			if (savedModid == string.Empty && model.metadataId == 300109L && !list2.Contains(100104L))
+			{
+				new List<long>(CreatureGenerateInfo.GetAll(false));
+				model.metadataId = 100104L;
+				list2.Add(100104L);
+			}
+			Sefira sefira = SefiraManager.instance.GetSefira(model.sefiraNum);
+			try
+			{
+				model.isolateRoomData = sefira.isolateManagement.GenIsolateByCreatureByNodeId(model.metadataId, model.entryNodeId);
+			}
+			catch (SefiraIsolateException ex)
+			{
+				Debug.LogError("Emergency Load " + ex.nodeId);
+				Sefira sefira2 = null;
+				if (!SefiraManager.instance.GetSefiraByGenNodeId(ex.nodeId, out sefira2))
+				{
+					Debug.LogError(string.Concat(new object[] { "Failed to gen sefira creature + ", ex.nodeId, "   Creature ID : ", instId }));
+					return;
+				}
+				model.isolateRoomData = sefira2.isolateManagement.GenIsolateByCreatureByNodeId(model.metadataId, model.entryNodeId);
+			}
+			string step = "BuildCreatureModel_Mod";
+			CreatureBase before = model.script;
+			try
+			{
+				try
+				{
+					mgr.BuildCreatureModel_Mod(model, lcid, model.isolateRoomData, model.sefiraNum);
+				}
+				catch (Exception e0)
+				{
+					// Not registered either way, so it is a skip. Script constructor threw (script not replaced yet): nothing was built.
+					// Later in the build: map nodes or doors may be half built (R1); its room stays reserved.
+					Exception inner = e0.InnerException != null ? e0.InnerException : e0;
+					string why0 = object.ReferenceEquals(model.script, before) ? "script '" + info.script + "' constructor threw " : "building the room threw ";
+					Skip(lcid.packageId, lcid.id, info, why0 + inner.GetType().Name + ": " + inner.Message, e0);
+					return;
+				}
+				step = "RegisterCreature";
+				mgr.RegisterCreature(model);
+				step = "AddCreatureInSefira";
+				mgr.AddCreatureInSefira(model, model.sefiraNum);
+				step = "OnInit";
+				model.script.OnInit();
+				_kept++;
+			}
+			catch (Exception e)
+			{
+				_errors++;
+				AddMod(lcid.packageId, lcid.id);
+				string name = NameOf(info, lcid);
+				N.ULog.Error(Tag, "creature " + name + " of mod " + ModText(lcid.packageId, lcid.id) + " loaded with an error in " + step + ": " + e);
+				LoadAlerts.AddKeySafe(1, ModText(lcid.packageId, lcid.id), "AlertCreatureError", "abnormality {0} loaded with an error in {1}; it may misbehave. The game goes on.", new object[] { name, step });
+			}
+		}
+
+		// Null when the script resolves the way BuildCreatureModel_Mod resolves it (AssemList walk, last match wins; then
+		// Type.GetType as called from Assembly-CSharp) to a CreatureBase; else the reason. Nothing is instantiated here: a
+		// throwing constructor is caught around BuildCreatureModel_Mod, which runs the constructors before any side effect.
+		private static string CheckScript(CreatureTypeInfo info)
+		{
+			string name = info.script;
+			if (string.IsNullOrEmpty(name))
+			{
+				return "no script name";
+			}
+			if (_types == null)
+			{
+				_types = BuildTypes();
+			}
+			Type found;
+			if (!_types.TryGetValue(name, out found))
+			{
+				found = name.IndexOf(',') < 0 ? _gameAsm.GetType(name, false) : Type.GetType(name, false);
+				if (object.ReferenceEquals(found, null) && name.IndexOf(',') < 0)
+				{
+					found = typeof(object).Assembly.GetType(name, false);
+				}
+			}
+			if (object.ReferenceEquals(found, null))
+			{
+				return "no script class '" + name + "'";
+			}
+			if (!typeof(CreatureBase).IsAssignableFrom(found))
+			{
+				return "script '" + name + "' is not a CreatureBase";
+			}
+			return null;
+		}
+
+		private static Dictionary<string, Type> BuildTypes()
+		{
+			Dictionary<string, Type> map = new Dictionary<string, Type>(StringComparer.Ordinal);
+			List<Assembly> asms = Add_On.instance.AssemList;
+			for (int i = 0; i < asms.Count; i++)
+			{
+				Type[] types;
+				try
+				{
+					types = asms[i].GetTypes();
+				}
+				catch (ReflectionTypeLoadException e)
+				{
+					types = e.Types;
+				}
+				catch (Exception)
+				{
+					continue;
+				}
+				if (object.ReferenceEquals(types, null))
+				{
+					continue;
+				}
+				for (int k = 0; k < types.Length; k++)
+				{
+					if (!object.ReferenceEquals(types[k], null))
+					{
+						map[types[k].Name] = types[k];
+					}
+				}
+			}
+			return map;
+		}
+
+		private static void Skip(string modid, long id, CreatureTypeInfo info, string why, Exception e)
+		{
+			_skipped++;
+			AddMod(modid, id);
+			string name = info != null ? NameOf(info, new LcIdLong(modid, id)) : id.ToString();
+			N.ULog.Error(Tag, "creature " + name + " of mod " + ModText(modid, id) + " skipped: " + why + (e != null ? " " + e : string.Empty));
+			LoadAlerts.AddKeySafe(2, ModText(modid, id), "AlertCreatureSkipped", "abnormality {0} not loaded: {1}. The day goes on without it; SaveGuard keeps the old save.", new object[] { name, why });
+		}
+
+		private static string NameOf(CreatureTypeInfo info, LcIdLong lcid)
+		{
+			string n = null;
+			try
+			{
+				n = info.collectionName;
+			}
+			catch (Exception)
+			{
+			}
+			return string.IsNullOrEmpty(n) ? lcid.id.ToString() : n + " (" + lcid.id + ")";
+		}
+
+		// Mod folder name of a modid (LoadAlerts groups by folder); the modid itself when no folder matches.
+		private static string ModText(string modid, long id)
+		{
+			string folder;
+			if (_folders.TryGetValue(FolderKey(modid, id), out folder))
+			{
+				return folder;
+			}
+			if (string.IsNullOrEmpty(modid))
+			{
+				return "game";
+			}
+			try
+			{
+				List<ModInfo> mods = Add_On.instance.ModList;
+				for (int i = 0; i < mods.Count; i++)
+				{
+					ModInfo m = mods[i];
+					if (m != null && string.Equals(m.modid, modid, StringComparison.Ordinal) && m.modpath != null)
+					{
+						return m.modpath.Name;
+					}
+				}
+			}
+			catch (Exception)
+			{
+			}
+			return modid;
+		}
+
+		private static void AddMod(string modid, long id)
+		{
+			if (_mods == null)
+			{
+				_mods = new List<string>();
+			}
+			string m = ModText(modid, id);
+			if (!_mods.Contains(m))
+			{
+				_mods.Add(m);
+			}
+		}
+	}
+
+	// LoadGuard.TypeLoad: mod DLLs whose types cannot all load (missing or later-loaded dependency). Vanilla Add_On.Init calls
+	// Assembly.LoadFile(dll).GetTypes() without a try of its own (game/Add_On.cs 99): a ReflectionTypeLoadException ends
+	// the loop and every later mod gets no code. Two parts, both installed from LoadGuard Init (inside Add_On.Init, so only
+	// mods after NailOptimization in the load order benefit):
+	//   AssemblyResolve: a missing assembly is looked up by simple name among the loaded assemblies, then as <name>.dll in
+	//   the top level of the BaseMods and workshop mod folders (log only).
+	//   Prefix on Assembly.GetTypes: for an assembly inside a mod folder the original runs in a try; on
+	//   ReflectionTypeLoadException the loadable types are returned instead (logged and listed once per assembly), so the
+	//   loop goes on and later GetTypes callers (creature, weapon, gift scripts) see the same partial list.
+	public static class TypeLoad
+	{
+		private const string Tag = "loadguard";
+		[ThreadStatic]
+		private static bool _inside;
+		private static bool _fired;
+		private static int _mainThread;
+		// Copy-on-write: read without locks from any thread, replaced as a whole on a new broken assembly.
+		private static volatile Dictionary<string, Type[]> _broken = new Dictionary<string, Type[]>(StringComparer.OrdinalIgnoreCase);
+		private static List<string> _roots;
+		[ThreadStatic]
+		private static bool _resolving;
+		// Copy-on-write like _broken: simple names no mod folder holds.
+		private static volatile HashSet<string> _miss = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+		internal static N.Flag Flag;
+
+		internal static int Install(HarmonyInstance harmony)
+		{
+			_mainThread = System.Threading.Thread.CurrentThread.ManagedThreadId;
+			Roots();
+			try
+			{
+				AppDomain.CurrentDomain.AssemblyResolve += new ResolveEventHandler(OnResolve);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Tag, "AssemblyResolve not registered: " + e.Message);
+			}
+			MethodBase target = typeof(Assembly).GetMethod("GetTypes", BindingFlags.Instance | BindingFlags.Public, null, Type.EmptyTypes, null);
+			MethodInfo pre = typeof(TypeLoad).GetMethod("PrefixGetTypes", BindingFlags.Public | BindingFlags.Static);
+			if (object.ReferenceEquals(target, null) || object.ReferenceEquals(pre, null))
+			{
+				N.ULog.Error(Tag, "Assembly.GetTypes or prefix not found, type loads not guarded");
+				return 0;
+			}
+			// First: the guard decides before any other prefix; it only adds a try around the original.
+			HarmonyMethod hm = N.PatchUtil.WithPriority(pre, Priority.First);
+			return N.PatchUtil.Install(harmony, Tag, target, hm, null) ? 1 : 0;
+		}
+
+		public static bool PrefixGetTypes(Assembly __instance, ref Type[] __result)
+		{
+			if (_inside || Flag == null || !Flag.On)
+			{
+				return true;
+			}
+			string path;
+			try
+			{
+				if (__instance is System.Reflection.Emit.AssemblyBuilder)
+				{
+					return true;
+				}
+				path = __instance.Location;
+			}
+			catch (Exception)
+			{
+				return true;
+			}
+			if (string.IsNullOrEmpty(path) || LoadAlerts.ModOf(path) == "-")
+			{
+				return true;
+			}
+			CrashTrail.ModDll(path);
+			if (!_fired)
+			{
+				_fired = true;
+				N.ULog.Info(Tag, "type load guard active (first mod GetTypes: " + Path.GetFileName(path) + ")");
+			}
+			Type[] partial;
+			if (_broken.TryGetValue(path, out partial))
+			{
+				__result = (Type[])partial.Clone();
+				return false;
+			}
+			_inside = true;
+			try
+			{
+				__result = __instance.GetTypes();
+				return false;
+			}
+			catch (ReflectionTypeLoadException e)
+			{
+				__result = Loadable(e.Types);
+				Remember(path, __result, e);
+				return false;
+			}
+			catch (Exception)
+			{
+				// Anything else: the original runs again and throws as vanilla.
+				return true;
+			}
+			finally
+			{
+				_inside = false;
+			}
+		}
+
+		private static Type[] Loadable(Type[] types)
+		{
+			if (object.ReferenceEquals(types, null))
+			{
+				return new Type[0];
+			}
+			List<Type> ok = new List<Type>(types.Length);
+			for (int i = 0; i < types.Length; i++)
+			{
+				if (!object.ReferenceEquals(types[i], null))
+				{
+					ok.Add(types[i]);
+				}
+			}
+			return ok.ToArray();
+		}
+
+		private static void Remember(string path, Type[] types, ReflectionTypeLoadException e)
+		{
+			Dictionary<string, Type[]> old = _broken;
+			if (old.ContainsKey(path))
+			{
+				return;
+			}
+			Dictionary<string, Type[]> next = new Dictionary<string, Type[]>(old, StringComparer.OrdinalIgnoreCase);
+			next[path] = (Type[])types.Clone();
+			_broken = next;
+			try
+			{
+				Report(path, types, e);
+			}
+			catch (Exception x)
+			{
+				N.ULog.Warn(Tag, "partial load report failed: " + x.Message);
+			}
+		}
+
+		private static void Report(string path, Type[] types, ReflectionTypeLoadException e)
+		{
+			string missing = Missing(e);
+			string dll = Path.GetFileName(path);
+			string mod = LoadAlerts.ModOf(path);
+			int all = object.ReferenceEquals(e.Types, null) ? 0 : e.Types.Length;
+			N.ULog.Error(Tag, "mod " + mod + " dll " + dll + " loaded partially (" + types.Length + " of " + all + " types): " + missing);
+			if (System.Threading.Thread.CurrentThread.ManagedThreadId == _mainThread)
+			{
+				LoadAlerts.AddKeySafe(2, mod, "AlertDllPartial", "{0} loaded partially: {1}. Parts of this mod may not work; the other mods loaded normally.", new object[] { dll, missing });
+			}
+		}
+
+		// Distinct loader messages, at most three.
+		private static string Missing(ReflectionTypeLoadException e)
+		{
+			List<string> seen = new List<string>();
+			Exception[] list = e.LoaderExceptions;
+			if (list != null)
+			{
+				for (int i = 0; i < list.Length && seen.Count < 3; i++)
+				{
+					if (list[i] == null)
+					{
+						continue;
+					}
+					FileNotFoundException f = list[i] as FileNotFoundException;
+					string m = f != null && !string.IsNullOrEmpty(f.FileName) ? "missing assembly " + f.FileName : list[i].Message;
+					if (!seen.Contains(m))
+					{
+						seen.Add(m);
+					}
+				}
+			}
+			return seen.Count == 0 ? "unknown loader error" : string.Join("; ", seen.ToArray());
+		}
+
+		private static Assembly OnResolve(object sender, ResolveEventArgs args)
+		{
+			if (_resolving)
+			{
+				return null;
+			}
+			_resolving = true;
+			try
+			{
+				string name = new AssemblyName(args.Name).Name;
+				if (_miss.Contains(name))
+				{
+					return null;
+				}
+				Assembly[] loaded = AppDomain.CurrentDomain.GetAssemblies();
+				for (int i = 0; i < loaded.Length; i++)
+				{
+					if (string.Equals(loaded[i].GetName().Name, name, StringComparison.OrdinalIgnoreCase))
+					{
+						N.ULog.Info(Tag, "resolved " + args.Name + " to the loaded " + loaded[i].GetName().Name);
+						return loaded[i];
+					}
+				}
+				string file = FindDll(name);
+				if (file != null)
+				{
+					N.ULog.Info(Tag, "resolved " + args.Name + " from mod " + LoadAlerts.ModOf(file));
+					return Assembly.LoadFile(file);
+				}
+				HashSet<string> next = new HashSet<string>(_miss, StringComparer.OrdinalIgnoreCase);
+				next.Add(name);
+				_miss = next;
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Tag, "resolve " + args.Name + " failed: " + e.Message);
+			}
+			finally
+			{
+				_resolving = false;
+			}
+			return null;
+		}
+
+		// <name>.dll in the top level of a mod folder: the load order first (Add_On.DirList), then any folder of the roots.
+		private static string FindDll(string name)
+		{
+			Add_On a = Add_On.instance;
+			if (a != null && a.DirList != null)
+			{
+				for (int d = 0; d < a.DirList.Count; d++)
+				{
+					DirectoryInfo dir = a.DirList[d];
+					if (dir == null)
+					{
+						continue;
+					}
+					string file = Path.Combine(dir.FullName, name + ".dll");
+					if (File.Exists(file))
+					{
+						return file;
+					}
+				}
+			}
+			List<string> roots = _roots;
+			if (roots == null)
+			{
+				return null;
+			}
+			for (int r = 0; r < roots.Count; r++)
+			{
+				string[] dirs = Directory.GetDirectories(roots[r]);
+				for (int d = 0; d < dirs.Length; d++)
+				{
+					string file = Path.Combine(dirs[d], name + ".dll");
+					if (File.Exists(file))
+					{
+						N.ULog.Warn(Tag, "dll " + name + " found only in a mod folder outside the load list: " + LoadAlerts.ModOf(file));
+						return file;
+					}
+				}
+			}
+			return null;
+		}
+
+		// BaseMods and the Steam workshop folder of the game (2531580), when present.
+		private static List<string> Roots()
+		{
+			if (_roots == null)
+			{
+				List<string> roots = new List<string>();
+				string baseMods = Application.dataPath + "/BaseMods";
+				if (Directory.Exists(baseMods))
+				{
+					roots.Add(baseMods);
+				}
+				try
+				{
+					DirectoryInfo common = Directory.GetParent(Application.dataPath).Parent;
+					if (common != null && common.Parent != null)
+					{
+						string ws = Path.Combine(common.Parent.FullName, "workshop/content/2531580");
+						if (Directory.Exists(ws))
+						{
+							roots.Add(ws);
+						}
+					}
+				}
+				catch (Exception)
+				{
+				}
+				_roots = roots;
+			}
+			return _roots;
+		}
+	}
+
+	// LoadGuard.CrashTrail: a native crash ("Lobotomy has encountered an error and must close": Mono abort, stack overflow)
+	// cannot be caught from managed code. A small file Logs/LastSession.txt is rewritten on phase changes only (each mod DLL
+	// while Add_On.init loads it, scenes, day start and end, the last distinct exception at most once per second); a clean
+	// quit writes "clean". At the next start a file without "clean" becomes a LoadAlerts error naming the last phase, mod
+	// and exception. Mods loaded before NailOptimization are not covered.
+	public static class CrashTrail
+	{
+		private const string Tag = "loadguard";
+		internal static N.Flag Flag;
+		internal static bool Booting;
+		private static string _file;
+		private static string _phase = "start";
+		private static string _mod = string.Empty;
+		private static string _err = string.Empty;
+		private static float _errAt = -10f;
+		private static string _phaseClock = string.Empty;
+		private static string _errClock = string.Empty;
+		private static bool _on;
+
+		// LoadGuard Init (main thread, inside Add_On.init): reads the trail of the previous session, then starts a new one.
+		internal static void Start()
+		{
+			try
+			{
+				string dir = Path.Combine(N.UiHost.RootDir, "Logs");
+				Directory.CreateDirectory(dir);
+				_file = Path.Combine(dir, "LastSession.txt");
+				string prev = File.Exists(_file) ? File.ReadAllText(_file) : null;
+				_on = true;
+				Booting = true;
+				Mark("loading mods", string.Empty);
+				if (prev != null && !prev.StartsWith("clean", StringComparison.Ordinal))
+				{
+					Report(prev);
+				}
+				Application.logMessageReceived += new Application.LogCallback(OnLog);
+				UnityEngine.SceneManagement.SceneManager.sceneLoaded += new UnityEngine.Events.UnityAction<UnityEngine.SceneManagement.Scene, UnityEngine.SceneManagement.LoadSceneMode>(OnScene);
+				N.Events.On(NoticeName.OnStageStart, new Action(OnDayStart), Tag);
+				N.Events.On(NoticeName.OnStageEnd, new Action(OnDayEnd), Tag);
+				GameObject go = new GameObject("NailOptimization.CrashTrail");
+				UnityEngine.Object.DontDestroyOnLoad(go);
+				go.AddComponent<CrashTrailDriver>();
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Tag, "crash trail not started: " + e.Message);
+			}
+		}
+
+		// TypeLoad prefix during Add_On.init: the mod whose DLL is being loaded (its Harmony_Patch runs right after).
+		internal static void ModDll(string path)
+		{
+			if (!_on || !Booting)
+			{
+				return;
+			}
+			string mod = LoadAlerts.ModOf(path) + " / " + Path.GetFileName(path);
+			if (!string.Equals(mod, _mod, StringComparison.Ordinal))
+			{
+				Mark("loading mods", mod);
+			}
+		}
+
+		internal static void FirstFrame()
+		{
+			Booting = false;
+			Mark("first frame (mods loaded)", string.Empty);
+		}
+
+		private static void OnScene(UnityEngine.SceneManagement.Scene scene, UnityEngine.SceneManagement.LoadSceneMode mode)
+		{
+			Mark("scene " + scene.name, string.Empty);
+		}
+
+		private static void OnDayStart()
+		{
+			Mark("day " + Day() + " running", string.Empty);
+		}
+
+		private static void OnDayEnd()
+		{
+			Mark("day " + Day() + " ending", string.Empty);
+		}
+
+		private static string Day()
+		{
+			try
+			{
+				return (PlayerModel.instance.GetDay() + 1).ToString();
+			}
+			catch (Exception)
+			{
+				return "?";
+			}
+		}
+
+		private static void OnLog(string condition, string stackTrace, LogType type)
+		{
+			if (type != LogType.Exception || !_on)
+			{
+				return;
+			}
+			float now = Time.realtimeSinceStartup;
+			if (now - _errAt < 1f)
+			{
+				return;
+			}
+			string err = FirstLine(condition, 160);
+			string at = FirstLine(stackTrace, 160);
+			if (at.Length > 0)
+			{
+				err = err + " at " + at;
+			}
+			if (string.Equals(err, _err, StringComparison.Ordinal))
+			{
+				return;
+			}
+			_errAt = now;
+			_err = err;
+			_errClock = DateTime.Now.ToString("HH:mm:ss");
+			Write("running");
+		}
+
+		private static string FirstLine(string s, int max)
+		{
+			if (string.IsNullOrEmpty(s))
+			{
+				return string.Empty;
+			}
+			int n = s.IndexOf('\n');
+			string line = (n >= 0 ? s.Substring(0, n) : s).Trim();
+			return line.Length > max ? line.Substring(0, max) : line;
+		}
+
+		private static void Mark(string phase, string mod)
+		{
+			_phase = phase;
+			_mod = mod;
+			_phaseClock = DateTime.Now.ToString("HH:mm:ss");
+			Write("running");
+		}
+
+		internal static void Clean()
+		{
+			if (_on)
+			{
+				Write("clean");
+				_on = false;
+			}
+		}
+
+		private static void Write(string state)
+		{
+			if (_file == null)
+			{
+				return;
+			}
+			try
+			{
+				File.WriteAllText(_file, state + "\r\nphase=" + _phase + "\r\nphaseat=" + _phaseClock + "\r\nmod=" + _mod + "\r\nerror=" + _err + "\r\nerrorat=" + _errClock + "\r\ntime=" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "\r\n");
+			}
+			catch (Exception)
+			{
+			}
+		}
+
+		private static void Report(string prev)
+		{
+			string phase = Field(prev, "phase=");
+			string mod = Field(prev, "mod=");
+			string err = Field(prev, "error=");
+			string time = Field(prev, "time=");
+			string phaseAt = Field(prev, "phaseat=");
+			string errAt = Field(prev, "errorat=");
+			N.ULog.Error(Tag, "the last session (last record " + time + ") closed unexpectedly: phase=" + phase + " (since " + phaseAt + ") mod=" + mod + " error=" + err + " (at " + errAt + ")");
+			string where = mod.Length > 0 ? phase + " (" + mod + ")" : phase;
+			int slash = mod.IndexOf(" / ", StringComparison.Ordinal);
+			string owner = slash > 0 ? mod.Substring(0, slash) : "Game";
+			// The last error can be older than the last step and unrelated to the exit: both times are shown.
+			LoadAlerts.AddKeySafe(2, owner, "AlertLastCrash", "The last session closed unexpectedly (last record {0}) during: {1}, since {4}. Last error at {3}: {2}.", new object[] { time, where, err.Length > 0 ? err : "-", errAt.Length > 0 ? errAt : "-", phaseAt.Length > 0 ? phaseAt : "?" });
+			LoadAlerts.OpenOnTitle = true;
+		}
+
+		private static string Field(string text, string key)
+		{
+			int i = text.IndexOf(key, StringComparison.Ordinal);
+			if (i < 0)
+			{
+				return string.Empty;
+			}
+			i += key.Length;
+			int e = text.IndexOf('\n', i);
+			return (e < 0 ? text.Substring(i) : text.Substring(i, e - i)).Trim();
+		}
+	}
+
+	public class CrashTrailDriver : MonoBehaviour
+	{
+		private void OnApplicationQuit()
+		{
+			CrashTrail.Clean();
+		}
+	}
+
+	// LoadGuard.BaseModCheck: NailOptimization is built and tested on BaseMod (LMM) 1.3.9, which writes Add_On.version at
+	// the end of Add_On.init (game/Add_On.cs 154, 165; the title shows it as "BaseMod <version>"). Read at the first frame.
+	public static class BaseModCheck
+	{
+		internal const string Supported = "1.3.9";
+		internal static N.Flag Flag;
+
+		internal static void FirstFrame()
+		{
+			string v = "unknown";
+			try
+			{
+				FieldInfo f = typeof(Add_On).GetField("version", BindingFlags.Public | BindingFlags.Static);
+				object o = object.ReferenceEquals(f, null) ? null : f.GetValue(null);
+				if (o is string)
+				{
+					v = (string)o;
+				}
+			}
+			catch (Exception)
+			{
+			}
+			if (string.Equals(v, Supported, StringComparison.Ordinal))
+			{
+				N.ULog.Info(Guard.Tag, "basemod version " + v + " ok");
+				return;
+			}
+			N.ULog.Warn(Guard.Tag, "basemod version " + v + " is not the supported " + Supported);
+			LoadAlerts.AddKeySafe(2, "BaseMod", "AlertBaseModVersion", "BaseMod (LMM) {0} is not supported: NailOptimization is made for BaseMod {1}. Stable work cannot be guaranteed.", new object[] { v, Supported });
+			LoadAlerts.OpenOnTitle = true;
+		}
+	}
+
 	// Load alerts (LoadGuard.Alerts, default on): critical mod load problems with the mod that caused them, shown as a warning
 	// button on the title (UiActions badge) that opens NailUI.AlertBox. Sources, all observed without patching BaseMod:
 	//   code    first frame: a top-level *.dll of a ModList folder missing from Add_On.AssemList -> Add_On.init stopped there
@@ -1735,7 +2646,13 @@ namespace LoadGuard
 			internal string Mod;
 			internal string Text;
 			internal int Count;
+			// Localized entry: NailUI.xml <ui><s id=Key>, string.Format with Args when the window opens; Text = en fallback.
+			internal string Key;
+			internal object[] Args;
 		}
+
+		private static MethodInfo _uiText;
+		private static bool _uiTextTried;
 
 		private static readonly List<Item> _items = new List<Item>();
 		private static readonly object _gate = new object();
@@ -1745,7 +2662,11 @@ namespace LoadGuard
 		private static int _warn;
 		private static int _err;
 		private static MethodInfo _show;
+		private static PropertyInfo _openTitle;
 		internal static bool On;
+		// Set by BaseModCheck and CrashTrail: the list opens by itself once, 3 s after a title scene is active.
+		internal static bool OpenOnTitle;
+		private static int _titleFrames;
 
 		internal static void Start()
 		{
@@ -1753,6 +2674,14 @@ namespace LoadGuard
 			GameObject go = new GameObject("NailOptimization.LoadAlerts");
 			UnityEngine.Object.DontDestroyOnLoad(go);
 			go.AddComponent<LoadAlertsDriver>();
+			N.Alerts.Sink = new N.AlertSink(FromCore);
+		}
+
+		// N.Alerts sink: run-time mod problems (guard blocks, GuardLate trips). Path inside a mod folder -> folder name.
+		private static void FromCore(int level, string path, string text)
+		{
+			string mod = ModOf(path);
+			Add(level, mod == "-" && !string.IsNullOrEmpty(path) && path.IndexOf('/') < 0 && path.IndexOf('\\') < 0 ? path : mod, text);
 		}
 
 		// Main thread only. Warnings of one mod are grouped into one line with a count.
@@ -1767,9 +2696,10 @@ namespace LoadGuard
 				for (int i = 0; i < _items.Count; i++)
 				{
 					Item x = _items[i];
-					if (x.Level < 2 && string.Equals(x.Mod, mod, StringComparison.Ordinal))
+					if (x.Level < 2 && x.Key == null && string.Equals(x.Mod, mod, StringComparison.Ordinal))
 					{
 						x.Count++;
+						Refresh();
 						return;
 					}
 				}
@@ -1790,6 +2720,141 @@ namespace LoadGuard
 			}
 			N.ULog.Warn(Guard.Tag, "alert " + (level >= 2 ? "error" : "warn") + " mod=" + mod + " " + text);
 			Publish();
+		}
+
+		// Main thread only. Same mod + same key = one line with a count. fallbackEn is a string.Format pattern over args.
+		internal static void AddKey(int level, string mod, string key, string fallbackEn, object[] args)
+		{
+			if (!On)
+			{
+				return;
+			}
+			for (int i = 0; i < _items.Count; i++)
+			{
+				Item x = _items[i];
+				if (string.Equals(x.Key, key, StringComparison.Ordinal) && string.Equals(x.Mod, mod, StringComparison.Ordinal))
+				{
+					x.Count++;
+					Refresh();
+					return;
+				}
+			}
+			Item it = new Item();
+			it.Level = level;
+			it.Mod = mod;
+			it.Key = key;
+			it.Args = args;
+			it.Text = SafeFormat(fallbackEn, args);
+			it.Count = 1;
+			_items.Add(it);
+			if (level >= 2)
+			{
+				_err++;
+			}
+			else
+			{
+				_warn++;
+			}
+			N.ULog.Warn(Guard.Tag, "alert " + (level >= 2 ? "error" : "warn") + " mod=" + mod + " " + it.Text);
+			Publish();
+		}
+
+		// AddKey for callers inside a load path (Add_On.Init, day load): an alert failure is logged, never thrown.
+		internal static void AddKeySafe(int level, string mod, string key, string fallbackEn, object[] args)
+		{
+			try
+			{
+				AddKey(level, mod, key, fallbackEn, args);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Guard.Tag, "alert " + key + " not added: " + e.Message);
+			}
+		}
+
+		private static string SafeFormat(string pattern, object[] args)
+		{
+			if (args == null || args.Length == 0)
+			{
+				return pattern;
+			}
+			try
+			{
+				return string.Format(pattern, args);
+			}
+			catch (FormatException)
+			{
+				return pattern;
+			}
+		}
+
+		// Localized text of an item; the en text when NailUI is absent or has no such id.
+		private static string TextOf(Item x)
+		{
+			if (x.Key == null)
+			{
+				return x.Text;
+			}
+			try
+			{
+				if (!_uiTextTried)
+				{
+					_uiTextTried = true;
+					Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
+					for (int i = 0; i < all.Length && object.ReferenceEquals(_uiText, null); i++)
+					{
+						Type t = all[i].GetType("NailUI.UiText", false);
+						if (!object.ReferenceEquals(t, null))
+						{
+							_uiText = t.GetMethod("Get", BindingFlags.Public | BindingFlags.Static, null, new Type[] { typeof(string), typeof(string) }, null);
+						}
+					}
+				}
+				if (object.ReferenceEquals(_uiText, null))
+				{
+					return x.Text;
+				}
+				string pattern = _uiText.Invoke(null, new object[] { x.Key, null }) as string;
+				return string.IsNullOrEmpty(pattern) ? x.Text : SafeFormat(pattern, x.Args);
+			}
+			catch (Exception)
+			{
+				return x.Text;
+			}
+		}
+
+		// Driver, every frame until it returns false: true while an open-on-title request waits. Scene check every 30 frames.
+		internal static bool TitleTick()
+		{
+			if (!OpenOnTitle)
+			{
+				return false;
+			}
+			if (Time.frameCount % 30 != 0)
+			{
+				return true;
+			}
+			string s = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+			if (s == null || s.IndexOf("Title", StringComparison.Ordinal) < 0)
+			{
+				_titleFrames = 0;
+				return true;
+			}
+			_titleFrames += 30;
+			if (_titleFrames < 180)
+			{
+				return true;
+			}
+			OpenOnTitle = false;
+			try
+			{
+				OnClick();
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Guard.Tag, "alerts: open on title failed: " + e.Message);
+			}
+			return false;
 		}
 
 		internal static void AddSkip(string path, string what)
@@ -1826,9 +2891,88 @@ namespace LoadGuard
 		{
 			if (!_registered)
 			{
-				_registered = N.UiActions.Add(ActionId, "Load problems", "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0438", Icon, new UnityEngine.Events.UnityAction(OnClick), null);
+				_registered = N.UiActions.Add(ActionId, "Mod problems", "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u043C\u043E\u0434\u043E\u0432", Icon, new UnityEngine.Events.UnityAction(OnClick), null);
 			}
 			N.UiActions.SetBadges(ActionId, _warn, _err);
+			Refresh();
+		}
+
+		// A new entry while our list is open: show it at once (NailUI.AlertBox.OpenTitle; older NailUI: no refresh).
+		private static void Refresh()
+		{
+			try
+			{
+				if (object.ReferenceEquals(_openTitle, null))
+				{
+					return;
+				}
+				string open = _openTitle.GetValue(null, null) as string;
+				if (open == null || (open != "Mod problems" && open != "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u043C\u043E\u0434\u043E\u0432"))
+				{
+					return;
+				}
+				bool ru = Ru();
+				ShowBox(Title(ru), Body(ru));
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Guard.Tag, "alerts: refresh failed: " + e.Message);
+			}
+		}
+
+		private static string Title(bool ru)
+		{
+			return ru ? "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u043C\u043E\u0434\u043E\u0432" : "Mod problems";
+		}
+
+		// One block per mod in order of the first entry: the mod name once (red if any error), then each entry.
+		private static string Body(bool ru)
+		{
+			System.Text.StringBuilder sb = new System.Text.StringBuilder();
+			List<string> mods = new List<string>();
+			for (int i = 0; i < _items.Count; i++)
+			{
+				if (mods.IndexOf(_items[i].Mod) < 0)
+				{
+					mods.Add(_items[i].Mod);
+				}
+			}
+			int shown = 0;
+			for (int m = 0; m < mods.Count && shown < MaxShown; m++)
+			{
+				string mod = mods[m];
+				int n = 0;
+				bool err = false;
+				for (int i = 0; i < _items.Count; i++)
+				{
+					if (string.Equals(_items[i].Mod, mod, StringComparison.Ordinal))
+					{
+						n++;
+						err = err || _items[i].Level >= 2;
+					}
+				}
+				sb.Append(err ? "<color=#ff5c4d>" : "<color=#ffd24d>").Append(mod).Append("</color>:");
+				for (int i = 0; i < _items.Count && shown < MaxShown; i++)
+				{
+					Item x = _items[i];
+					if (!string.Equals(x.Mod, mod, StringComparison.Ordinal))
+					{
+						continue;
+					}
+					sb.Append(n > 1 ? "\n  - " : " ").Append(TextOf(x));
+					if (x.Count > 1)
+					{
+						sb.Append(ru ? " (\u0438 \u0435\u0449\u0451 " : " (and ").Append(x.Count - 1).Append(ru ? ")" : " more)");
+					}
+					shown++;
+				}
+				sb.Append('\n');
+			}
+			if (_items.Count > shown)
+			{
+				sb.Append(ru ? "\u0418 \u0435\u0449\u0451 " : "And ").Append(_items.Count - shown).Append(ru ? ", \u0441\u043C. NailOptimization.log" : " more, see NailOptimization.log");
+			}
+			return sb.ToString();
 		}
 
 		private static bool Ru()
@@ -1847,27 +2991,10 @@ namespace LoadGuard
 		private static void OnClick()
 		{
 			bool ru = Ru();
-			System.Text.StringBuilder sb = new System.Text.StringBuilder();
-			for (int i = 0; i < _items.Count && i < MaxShown; i++)
-			{
-				Item x = _items[i];
-				sb.Append(x.Level >= 2 ? "<color=#ff5c4d>" : "<color=#ffd24d>");
-				sb.Append(x.Mod).Append("</color>: ").Append(x.Text);
-				if (x.Count > 1)
-				{
-					sb.Append(ru ? " (\u0438 \u0435\u0449\u0451 " : " (and ").Append(x.Count - 1).Append(ru ? ")" : " more)");
-				}
-				sb.Append('\n');
-			}
-			if (_items.Count > MaxShown)
-			{
-				sb.Append(ru ? "\u0418 \u0435\u0449\u0451 " : "And ").Append(_items.Count - MaxShown).Append(ru ? ", \u0441\u043C. NailOptimization.log" : " more, see NailOptimization.log");
-			}
-			string title = ru ? "\u041F\u0440\u043E\u0431\u043B\u0435\u043C\u044B \u0437\u0430\u0433\u0440\u0443\u0437\u043A\u0438 \u043C\u043E\u0434\u043E\u0432" : "Mod load problems";
 			N.ULog.Info(Guard.Tag, "alerts shown errors=" + _err + " warnings=" + _warn);
 			try
 			{
-				if (!ShowBox(title, sb.ToString()))
+				if (!ShowBox(Title(ru), Body(ru)))
 				{
 					N.ULog.Warn(Guard.Tag, "alerts: NailUI.AlertBox not available; see the alert lines above");
 				}
@@ -1889,6 +3016,7 @@ namespace LoadGuard
 					if (!object.ReferenceEquals(t, null))
 					{
 						_show = t.GetMethod("Show", BindingFlags.Public | BindingFlags.Static, null, new Type[] { typeof(string), typeof(string) }, null);
+						_openTitle = t.GetProperty("OpenTitle", BindingFlags.Public | BindingFlags.Static);
 					}
 				}
 				if (object.ReferenceEquals(_show, null))
@@ -1903,6 +3031,14 @@ namespace LoadGuard
 		// First frame: Add_On.init has finished. Mod code check on the main thread (file names only), log scan on a worker.
 		internal static void FirstFrame()
 		{
+			if (CrashTrail.Flag != null && CrashTrail.Flag.On)
+			{
+				CrashTrail.FirstFrame();
+			}
+			if (BaseModCheck.Flag != null && BaseModCheck.Flag.On)
+			{
+				BaseModCheck.FirstFrame();
+			}
 			try
 			{
 				CheckCode();
@@ -3354,6 +4490,7 @@ namespace LoadGuard
 	public class LoadAlertsDriver : MonoBehaviour
 	{
 		private bool _started;
+		private bool _scanned;
 
 		private void Update()
 		{
@@ -3363,7 +4500,11 @@ namespace LoadGuard
 				LoadAlerts.FirstFrame();
 				return;
 			}
-			if (LoadAlerts.TakeScan())
+			if (!_scanned && LoadAlerts.TakeScan())
+			{
+				_scanned = true;
+			}
+			if (!LoadAlerts.TitleTick() && _scanned)
 			{
 				enabled = false;
 			}

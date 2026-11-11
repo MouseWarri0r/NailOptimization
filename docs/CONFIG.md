@@ -53,6 +53,7 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `PerfPack.SoundPrewarmBudgetMs` | `6` | no | **Sound preload: ms per frame**. Most ms per frame spent preloading sounds. Range 1..50. |
 | `PerfPack.SoundKeepMax` | `600` | no | **Sound preload: sounds kept**. Most sounds kept loaded; more use more memory. Range 0..5000. |
 | `PerfPack.ScriptTypes` | `true` | yes | **Mod weapon and gift scripts found through one list**. Weapons and gifts find their mod script through a list built once instead of scanning the types of every mod each time. |
+| `PerfPack.WeaponModScript` | `true` | no | **Mod weapon scripts without a game namesake**. With the script list on: a mod weapon whose script class has no game class of the same name gets its script. The game gives it none, so its special effect never runs. |
 | `PerfPack.FastScale` | `true` | no | **Custom sprite scaling**. Custom agent sprites are scaled on the video card at start; full-size copies are freed. |
 | `PerfPack.AttachMiss` | `true` | yes | **Missing gift sprite looked up once**. A gift sprite that no mod provides is looked up once instead of in every mod folder on each appearance update. |
 | `PerfPack.PortraitCache` | `true` | yes | **Portraits looked up once**. Vanilla abnormality portraits and missing custom portraits are looked up once per scene instead of on every call. |
@@ -80,7 +81,7 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `PerfPack.SlotCull` | `true` | yes | **Inventory: update visible slots only**. With the inventory open, slots out of view skip their update. |
 | `PerfPack.RequireCache` | `true` | yes | **E.G.O list opening speed**. The EGO list keeps its requirement plates between openings. |
 | `PerfPack.InventoryDefer` | `true` | no | **EGO list build**. The EGO list builds gradually on the preparation screen; the day loads up to twice as fast. |
-| `PerfPack.InventoryZayinFirst` | `true` | no | **EGO list opens on ZAYIN**. The EGO list opens on ZAYIN each day; click ZAYIN again for all grades. |
+| `PerfPack.InventoryZayinFirst` | `false` | no | **EGO list opens on ZAYIN**. The EGO list opens on ZAYIN each day; click ZAYIN again for all grades. |
 | `PerfPack.InventoryTabs` | `true` | no | **Fast EGO tabs**. EGO tabs switch without toggling every slot. |
 | `PerfPack.DescReuse` | `true` | no | **Info window lines**. The abnormality info window reuses its description lines. |
 | `PerfPack.FontWarm` | `true` | no | **Font warm-up**. Info window text sizes are prepared at day start. |
@@ -198,7 +199,11 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 |---|---|---|---|
 | `LoadGuard.Enabled` | `true` | yes | **Mod data load guard**. A broken mod data file is skipped and logged instead of breaking the whole load. A missing mod language falls back to English. |
 | `LoadGuard.Repair` | `false` | yes | **Repair broken mod data**. Instead of skipping, fixes common errors in memory (a non-number level becomes 0, a gift without a position gets an empty one). Files on disk stay unchanged. Needs the load guard. |
-| `LoadGuard.Alerts` | `true` | yes | **Mod load problem warnings**. A warning button on the title lists mods that broke loading: code that failed to load or start, data files that had to be skipped. Shows the mod folder. |
+| `LoadGuard.TypeLoad` | `true` | yes | **Partial loading of broken mod code**. A mod DLL that needs a missing or later-loaded library loads what it can instead of stopping the code of every later mod. The mod is named in the warning list. Works for mods loaded after NailOptimization. |
+| `LoadGuard.CreatureLoad` | `true` | yes | **Day load survives broken abnormalities**. An abnormality whose mod script is missing or crashes is skipped (or kept with an error) at day load instead of stopping the load. The mod and abnormality are named in the warning list. |
+| `LoadGuard.BaseModCheck` | `true` | yes | **Warn about an unsupported BaseMod version**. If BaseMod (LMM) is not version 1.3.9, the warning list names it and opens once on the title screen. |
+| `LoadGuard.CrashTrail` | `true` | yes | **Name the cause of the last crash**. The last step before the game closed with an error (mod being loaded, scene, day, last error) is kept in `Logs/LastSession.txt`. At the next start it is named in the warning list, which opens once on the title screen. |
+| `LoadGuard.Alerts` | `true` | yes | **Mod problem warnings**. A warning button on the title and in the day lists mod problems: code that failed to load or start, data files that had to be skipped, mod patches or methods that PatchGuard/LoopGuard skipped for the session, and fixes switched off because another mod's patch runs after them. Shows the mod folder. |
 | `SaveGuard.Enabled` | `true` | yes | **Save guard**. Save files are copied to SaveBackups before they are overwritten; a save that failed to load is not overwritten. The log names missing mods. |
 | `SaveGuard.Protect` | `true` | yes | **No overwrite after a failed load**. After a failed load the save file is not written until it loads again; progress of that session is not saved. Needs the save guard. |
 | `SaveGuard.SafeLoad` | `false` | yes | **Load without removed mods**. Data of removed mods is taken out on load, so the rest of the save loads. The original stays in SaveStash; the data returns with the mod. Needs the save guard. |
@@ -221,10 +226,13 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 |---|---|---|---|
 | `FastFix.PanicStuck` | `true` | yes | **Panicking agent stuck on the way**. A panicking agent sent to open a containment unit walks on after an interrupted walk. |
 | `FastFix.TrainRestart` | `true` | yes | **Day restart during the Hell Train kills employees**. Restarting the day while Express Train to Hell departs no longer kills employees of the reloaded day: they no longer start dead with their EGO lost. |
+| `FastFix.TwilightArmorNull` | `true` | yes | **Twilight suit error before day setup**. The Twilight suit's damage bonus no longer throws an error when it is asked before the day set the suit up (a suit given during the day by a mod). |
+| `FastFix.IronMaidenExit` | `true` | yes | **We Can Change Anything: agent invisible after work**. An agent who leaves We Can Change Anything alive is visible again and is no longer killed at the end of the day; the machine closes as after a death. |
 | `FastFix.VoidDream` | `true` | yes | **Void Dream: employees stay asleep or frozen**. Each employee put to sleep by Void Dream is released by his own wake-up animation, or after 8 s if it never plays, instead of staying frozen and invincible until he dies at day end. The cry hits every unit in the hallway, not only those before the first downed one. |
 | `FastFix.OrdealReset` | `true` | yes | **Ordeal does not carry over to the next day**. An ordeal still running when the day ends (retry, return to title) no longer continues in the next day. |
 | `FastFix.ExpandOnce` | `true` | yes | **Department expanded twice in one day**. Cancel pressed after confirming a department expansion no longer lets the same expansion be confirmed again. |
 | `FastFix.SelectClick` | `true` | yes | **Clicks taken for a drag**. A click that moved the mouse a little still selects or gives the move order instead of being taken for a drag. A drag cut off by switching windows no longer blocks later clicks. |
+| `FastFix.AgentHoverJitter` | `true` | yes | **Agent plate flicker on hover**. The agent name plate no longer flickers when the mouse is over an agent and the enlarged plate covers the cursor. |
 | `FastFix.CameraDrag` | `true` | yes | **Map drag freezes during camera shake**. Dragging the map with the right or middle mouse button keeps following the mouse while the camera shakes from hits, instead of freezing and jumping. |
 | `FastFix.BlackSwanReflect` | `true` | yes | **Black Swan reflection**. Black Swan no longer reflects damage to herself endlessly (a stack overflow). |
 | `FastFix.FixerWhiteReflect` | `true` | yes | **White fixer reflection**. The White fixer no longer reflects damage endlessly while praying (a game freeze). |
@@ -232,6 +240,16 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `FastFix.ChildDeleteTwice` | `true` | yes | **Child creature removed twice**. A child creature that is suppressed twice (some mods do it) no longer throws the second time. |
 | `FastFix.WeaponReskin` | `true` | no | **Riot stick look after unequip**. After a weapon is unequipped the agent shows and swings the default weapon as it should, instead of keeping the old weapon's look and attacks. |
 | `FastFix.ChildElevatorStuck` | `true` | yes | **Child creature stuck at an elevator**. A child creature whose path ends on an elevator no longer throws out of its update; it is handled as for other creatures. |
+
+### Rule fixes (change the game)
+
+Module GameFix. Every option changes a rule of the game and is off by default.
+
+| Key | Default | Restart | Description |
+|---|---|---|---|
+| `GameFix.TeddyDayEnd` | `false` | yes | **Happy Teddy: agent dies if the day ends during the hug**. Rule change. An agent caught in Happy Teddy's hug when the day ends dies, as the hug would have ended. In the game he survives. Restart and return to title are not affected. |
+| `GameFix.TipherethLower` | `false` | yes | **Lower Central Command: continued-service bonus**. Rule change. Agents of the lower Central Command team get the continued-service stat bonus that the upper team gets. |
+| `GameFix.ApostleDragon` | `false` | yes | **Yin and Yang dragon passes the apostles**. Rule change. The Yin and Yang dragon no longer flips the health of WhiteNight's apostles, as it already spares WhiteNight. |
 
 ## Mod fixes
 

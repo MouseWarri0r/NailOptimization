@@ -8,6 +8,7 @@
 // Api level 7: split badge, warn and error counts (SetBadges/GetBadges/BadgeText).
 // Api level 8: BadgeView (UiActions.CreateBadge), warn sign drawn from Images/warn_sign.png.
 // Api level 9: PatchUtil.Foreign*, PatchUtil.GuardLate, ModHooks.WhenLoaded, Events.On, DepthBuffers<T>.
+// Api level 10: Alerts (on-screen list of mod problems; the sink is set by LoadGuard.LoadAlerts).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -399,6 +400,60 @@ namespace NailOptimization
 
 	// Api level 5: true = the Escape press of this frame belongs to the caller's window (open now, or closed by this press).
 	public delegate bool EscapeQuery();
+
+	// Api level 10: level 1 = warning, 2 = error; path = a file inside the mod folder (mod name is taken from it), or a plain name.
+	public delegate void AlertSink(int level, string path, string text);
+
+	// Api level 10: rare mod problems found at run time (guard blocks, GuardLate trips) for the on-screen list. Main thread only.
+	// No sink (LoadGuard.Alerts off) = no-op; the caller logs the event itself.
+	public static class Alerts
+	{
+		public static AlertSink Sink;
+		private static bool _errorLogged;
+
+		public static void Add(int level, string path, string text)
+		{
+			AlertSink s = Sink;
+			if (s == null)
+			{
+				return;
+			}
+			try
+			{
+				s(level, path, text);
+			}
+			catch (Exception e)
+			{
+				if (!_errorLogged)
+				{
+					_errorLogged = true;
+					ULog.Error("alerts", "alert sink failed (logged once): " + e);
+				}
+			}
+		}
+
+		// Assembly file of a method, or its assembly name when it has no file.
+		public static string PathOf(MethodBase m)
+		{
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(m.DeclaringType, null))
+			{
+				return "-";
+			}
+			Assembly a = m.DeclaringType.Assembly;
+			try
+			{
+				string loc = a.Location;
+				if (!string.IsNullOrEmpty(loc))
+				{
+					return loc;
+				}
+			}
+			catch (Exception)
+			{
+			}
+			return a.GetName().Name;
+		}
+	}
 
 	// Api level 5: extra UI entry points of other modules (e.g. a log window). Core builds one title button per action left of
 	// its own; the UI host may add one in-day slot per action. Register once, from Init. A callback that throws three times is dropped.
@@ -2206,6 +2261,7 @@ namespace NailOptimization
 					Type dt = g.Target.DeclaringType;
 					string target = (object.ReferenceEquals(dt, null) ? "?" : dt.FullName) + "." + g.Target.Name;
 					ULog.Error(g.Module, g.Feature + " off (" + when + "): " + owner + " runs after our prefix on " + target);
+					Alerts.Add(1, "NailOptimization", g.Feature + " switched off: " + owner + " runs after it on " + target);
 				}
 				catch (Exception e)
 				{
@@ -4342,6 +4398,9 @@ namespace NailOptimization
 		private static int _badgeVer = -1;
 		private static int _badgeErrors;
 		private static int _soundLogged;
+		// FitOnScreen waits until the gadget panel stops moving (the Alter title slides it in from above after isShow).
+		private static bool _fitPending;
+		private static Vector3 _fitLastPos;
 
 		internal static void Poll()
 		{
@@ -4372,6 +4431,19 @@ namespace NailOptimization
 				if (_stage == 2 && UiActions.BadgeVersion != _badgeVer)
 				{
 					SyncBadges();
+				}
+				if (_stage == 2 && _fitPending && Time.frameCount % OverlapEvery == 0)
+				{
+					try
+					{
+						TryFit();
+					}
+					catch (Exception e)
+					{
+						_fitPending = false;
+						ULog.Error("title", "fit on screen failed, stopped for this screen: " + e);
+					}
+					return;
 				}
 				if (_stage == 2 && _button != null && _moves < MaxMoves && Time.frameCount % OverlapEvery == 0)
 				{
@@ -4408,6 +4480,7 @@ namespace NailOptimization
 			_button = null;
 			_moves = 0;
 			_soundLogged = 0;
+			_fitPending = false;
 			_vanilla.Clear();
 			_moved.Clear();
 			_movedT.Clear();
@@ -4622,7 +4695,7 @@ namespace NailOptimization
 			if (_kind == 2 && BuildClone(leftLocal))
 			{
 				BuildActions(leftLocal.y);
-				FitOnScreen();
+				ArmFit();
 				return;
 			}
 			try
@@ -4644,6 +4717,30 @@ namespace NailOptimization
 				return;
 			}
 			BuildActions(leftLocal.y);
+			ArmFit();
+		}
+
+		private static void ArmFit()
+		{
+			_fitPending = true;
+			_fitLastPos = _anchor.position;
+		}
+
+		// Runs every OverlapEvery frames: fits once the anchor kept its world position since the previous check.
+		private static void TryFit()
+		{
+			if (_anchor == null)
+			{
+				_fitPending = false;
+				return;
+			}
+			Vector3 p = _anchor.position;
+			if ((p - _fitLastPos).sqrMagnitude > Eps * Eps)
+			{
+				_fitLastPos = p;
+				return;
+			}
+			_fitPending = false;
 			FitOnScreen();
 		}
 

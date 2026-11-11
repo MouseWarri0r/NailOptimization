@@ -50,7 +50,7 @@ namespace NailUI
 		{
 			get
 			{
-				return "1.14";
+				return "1.15";
 			}
 		}
 
@@ -2695,6 +2695,15 @@ namespace NailUI
 		}
 	}
 
+	// Localized <ui><s id> text for other modules, called by reflection: NailUI.UiText.Get(id, fallback).
+	public static class UiText
+	{
+		public static string Get(string id, string fallback)
+		{
+			return Gui.Str(id, fallback);
+		}
+	}
+
 	// Message window for other modules (LoadGuard load alerts), called by reflection: NailUI.AlertBox.Show(title, body).
 	// Own overlay canvas above the settings panel; styled like the restart notice. OK or Escape closes it.
 	public static class AlertBox
@@ -2728,6 +2737,15 @@ namespace NailUI
 			get
 			{
 				return _go != null && _go.activeSelf;
+			}
+		}
+
+		// Title of the open box, null when closed (LoadGuard refreshes its own list only).
+		public static string OpenTitle
+		{
+			get
+			{
+				return _go != null && _go.activeSelf && _title != null ? _title.text : null;
 			}
 		}
 

@@ -34,7 +34,7 @@ Common safety rules of all modules:
 | Animations | `AnimatorParams`, `ModSkeletonCache`, `SkeletonPrewarm`, `SkinCache`, `ArmorAtlas`, `MeshRelease`, `CursorScale`, `BufNameCache`, `LcIdCache` | Animator parameter names are cached per controller (`AnimatorUtil.HasParameter`). Mod Spine skeletons are parsed once. One texture and material per armor sprite is shared. Meshes dropped by `MeshRendererBuffers.Initialize` are destroyed. |
 | Movement and logic | `FastSearch`, `PathCheck`, `FastFindCreature`, `IdleSpeed`, `RoomScan`, `BonusPool`, `SefiraLookup`, `AgentStats`, `UnitLoops`, `NoticePool`, `OrchestraWorkers`, `HpTrackerLoop`, `OrdealIdle`, `CameraCache`, `UiRefresh` | `GraphAstar.SearchPath` runs over reused arrays with the same heap order; `MovableObjectNode.CheckConnectedInPassage` is answered without a full A*. Several per-tick allocations are replaced by reused objects. |
 | Mass events | `PanicThrottle`, `WitnessSpread`, `DeathBubbleCap`, `BossTextSpread` | `PanicReady.StartPanicAction` gets a per-frame time budget; skipped calls are retried by `PanicReady.Execute` on the next tick. Reactions of witnesses to a death are spread over ticks under a time budget with the same inputs. |
-| Interface and EGO list | `InventoryZayinFirst`, `InventoryDefer`, `InventoryTabs`, `SlotCull`, `RequireCache`, `DescReuse`, `FontWarm`, `MouseLists`, `OptionSave`, `AttachMiss`, `PortraitCache` | The EGO list opens on ZAYIN. Requirement plates and description rows are reused. |
+| Interface and EGO list | `InventoryZayinFirst`, `InventoryDefer`, `InventoryTabs`, `SlotCull`, `RequireCache`, `DescReuse`, `FontWarm`, `MouseLists`, `OptionSave`, `AttachMiss`, `PortraitCache` | The EGO list can open on ZAYIN (off by default; faster first opening). Requirement plates and description rows are reused. |
 | Loading | `ScriptTypes`, `FastScale`, `SoundPrewarm`, `SkipIntroLogos`, `ReadAheadExperimental` | Script types of mod weapons and gifts are listed once. Custom sprites are resized on the video card and the full-size copies are freed. |
 | Memory | `EffectTextures`, `AgentTexturesExperimental`, `AgentLazyExperimental`, `CreatureTexturesExperimental`, `EffectLazyExperimental`, `CatLazyExperimental` | Readable CPU copies of mod pictures are dropped, identical files are stored once, and some pictures load on first use. |
 | Garbage collection | `GcQuiet`, `GcQuietGrowMb` | No Harmony patch. A 10 Hz driver runs a collection while the game is paused, an abnormality window is open or the day ends, and only after the heap grew by the configured amount. |
@@ -88,6 +88,14 @@ Common safety rules of all modules:
 **Harmony targets named in the source.** `BlackSwanSister.CanTakeDamage`, `FixerWhite.CanTakeDamage`, `HellTrainDeparture.CollisionCheck`, `ExpandUI.OnClickCancel`, `UnitMouseEventManager.OnPointerClick`, `CameraMover.LateUpdate`, `MecanimTranslator.Apply`, `WorkerUnit.EndAttack` (special attack stuck), `SefiraPanel.Start` (risk-level portraits), `StoryStandingCGUI`, and methods of the listed mods (for example `CSArmor.CollisionCheck`, `CSCreature.MakeMovement`, `KingOfGreedWeapon.OnTakeDamage`, `FreischutzBullet.CollisionCheck`).
 
 **Safety rules.** 0Harmony 1.0.9.1 has no Unpatch, so a foreign patch method is turned off by patching it with a Prefix that skips it. Fixes that replace a method do so only when no other mod touches it.
+
+## GameFix
+
+**Purpose.** Opt-in fixes of game rules that the game gets wrong. They change gameplay, so every option is off by default and is read at game start; a patch is installed only when its option is on.
+
+**Features.** `GameFix.TeddyDayEnd`: an agent caught in Happy Teddy's hug when the day ends dies, as the hug would have ended (only on a normal day end; restart and return to title are not affected). `GameFix.TipherethLower`: the lower Central Command team gets the continued-service stat bonus of the upper team. `GameFix.ApostleDragon`: the Yin and Yang dragon passes WhiteNight's apostles.
+
+**Harmony targets.** `GameManager.ExitStage` (Prefix, frame mark), `HappyTeddy.OnStageRelease` (Prefix), `AgentModel.Get{Fortitude,Prudence,Temperance,Justice}StatBySefiraAbility` (Postfix), `YinAndYangDragonCollider.OnTriggerEnter2D` (Prefix).
 
 ## LogViewer
 
