@@ -129,7 +129,7 @@ namespace PerfPack
 		{
 			get
 			{
-				return "1.59";
+				return "1.60";
 			}
 		}
 
@@ -512,6 +512,11 @@ namespace PerfPack
 			GcQuiet.GrowMb = N.Config.BindInt("PerfPack.GcQuietGrowMb", 48, 8, 256, 8, "Megabytes of memory growth since the last cleaning before a quiet moment cleans.");
 			want++;
 			ok += GcQuiet.Install();
+			if (N.Config.BindFlag("PerfPack.TimerNoGc", true, "Some abnormalities (1.76 MHz, Snow Queen, Queen Bee and others) force a full memory cleaning when their timer ends, a pause at day end, restart and during play. The forced cleaning is skipped; memory is cleaned as usual. Read at game start.").On)
+			{
+				want++;
+				ok += TimerNoGc.Install(harmony);
+			}
 			N.ULog.Info(Id, "PerfPack 1.10 installed " + ok + "/" + want + " features");
 		}
 	}
@@ -2171,6 +2176,51 @@ namespace PerfPack
 				}
 			}
 			return list;
+		}
+	}
+
+	// ---------- TimerNoGc ----------
+	// AutoTimer.Destroy(timer) is only GC.Collect(): the timer is not touched, so skipping the body changes nothing but the forced collection.
+	public static class TimerNoGc
+	{
+		private static bool _logged;
+
+		[MethodImpl(MethodImplOptions.NoInlining)]
+		internal static int Install(HarmonyInstance harmony)
+		{
+			try
+			{
+				MethodInfo m = typeof(AutoTimer).GetMethod("Destroy", BindingFlags.Public | BindingFlags.Static, null, new Type[] { typeof(AutoTimer) }, null);
+				if (object.ReferenceEquals(m, null))
+				{
+					N.ULog.Warn(PerfPackModule.Id, "TimerNoGc not applied: AutoTimer.Destroy not found");
+					return 0;
+				}
+				string owner = Owners.ForeignAny(m);
+				if (owner != null)
+				{
+					N.ULog.Warn(PerfPackModule.Id, "TimerNoGc not applied: AutoTimer.Destroy is patched by " + owner);
+					return 0;
+				}
+				harmony.Patch(m, new HarmonyMethod(typeof(TimerNoGc).GetMethod("Prefix", BindingFlags.Public | BindingFlags.Static)), null, null);
+				N.ULog.Info(PerfPackModule.Id, "TimerNoGc installed");
+				return 1;
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(PerfPackModule.Id, "TimerNoGc install failed: " + e);
+				return 0;
+			}
+		}
+
+		public static bool Prefix()
+		{
+			if (!_logged)
+			{
+				_logged = true;
+				N.ULog.Info(PerfPackModule.Id, "TimerNoGc: forced collection of AutoTimer.Destroy skipped (logged once)");
+			}
+			return false;
 		}
 	}
 

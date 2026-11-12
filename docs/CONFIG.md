@@ -129,6 +129,7 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `PerfPack.NoticePool` | `true` | no | **Notice pool**. Game notices no longer copy the listener list on each send. |
 | `PerfPack.BufNameCache` | `true` | yes | **Buff name cache**. Buff search by name without allocations. |
 | `PerfPack.LcIdCache` | `true` | yes | **Equipment id cache**. Equipment ids are not created again on each request. |
+| `PerfPack.TimerNoGc` | `true` | yes | **No full memory cleaning at timer end**. Some abnormalities (1.76 MHz, Snow Queen, Queen Bee and others) forced a full memory cleaning each time one of their timers ended, a short freeze. The cleaning is skipped. |
 
 ## Memory
 
@@ -239,6 +240,7 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `FastFix.StandingCG` | `true` | yes | **Story character pictures**. A story picture with duplicate face names loads instead of breaking. |
 | `FastFix.ChildDeleteTwice` | `true` | yes | **Child creature removed twice**. A child creature that is suppressed twice (some mods do it) no longer throws the second time. |
 | `FastFix.WeaponReskin` | `true` | no | **Riot stick look after unequip**. After a weapon is unequipped the agent shows and swings the default weapon as it should, instead of keeping the old weapon's look and attacks. |
+| `FastFix.CensoredVictimRelease` | `true` | yes | **CENSORED: sacrifice stays out of control**. The employee chosen as CENSORED's sacrifice gets control back when CENSORED escapes before he arrives, instead of standing out of control until the day ends. |
 | `FastFix.ChildElevatorStuck` | `true` | yes | **Child creature stuck at an elevator**. A child creature whose path ends on an elevator no longer throws out of its update; it is handled as for other creatures. |
 
 ### Rule fixes (change the game)
@@ -307,6 +309,7 @@ Module GameFix. Every option changes a rule of the game and is off by default.
 | `FastFix.CandeloroRibbon` | `true` | yes | **Candeloro: ribbons**. A ribbon whose end was destroyed no longer throws every frame; it stays where it was until removed. |
 | `FastFix.Cloud9Panic` | `true` | yes | **Cloud9: panic outside rooms**. An agent panicking while the escaped cloud is between rooms no longer throws. |
 | `FastFix.YaZiEscapeUI` | `true` | yes | **YaZi: breach without request window**. A breach before its request window was ever opened no longer throws. |
+| `FastFix.YaZiOnDie` | `true` | yes | **YaZi**. Agent deaths while WhiteNight is in the facility no longer log an error (only with YaZi loaded). |
 | `FastFix.GrunglyLure` | `true` | yes | **Grungly: lure**. A lure whose target no longer qualifies, or with no agent left to lure, no longer throws every tick; the lure stops. |
 | `FastFix.BlackBirdPassageHit` | `true` | yes | **Black Bird: hallway hit**. Its hit on the hallway no longer stops when it kills someone there. Needs 12Harmony. |
 
@@ -324,7 +327,7 @@ Module GameFix. Every option changes a rule of the game and is off by default.
 | `FastFix.ForeignLeaks` | `true` | no | **Old days in mod lists**. At day start, entries of earlier days are removed from mod lists that never clear them. |
 | `FastFix.EffectNames` | `true` | yes | **Same effect names**. Two mods with the same effect folder name each show their own effect. |
 | `FastFix.StartTooltip` | `true` | no | **Tooltip at the start of the day**. A tooltip shown at day start is closed. |
-| `FastFix.Covariance` | `true` | yes | **List type crash**. A mod built for a newer .NET that passes a list of one unit type where a list of another is expected no longer closes the game without an error. Such places are found in the mod code at start and listed in the log. |
+| `FastFix.Covariance` | `false` | yes | **List type crash (experimental)**. Off by default since 0.9.4: some mod lists closed the game at start with it on. Mod DLLs built for .NET Core, .NET 5 or .NET Standard are not read. A mod built for a newer .NET that passes a list of one unit type where a list of another is expected no longer closes the game without an error. Such places are found in the mod code at start and listed in the log. |
 | `FastFix.CovarianceHandlers` | `true` | yes | **List type crash: all methods**. Also fixes such places inside a method with foreach, using or try (for example Krau Deluge). This loads 12Harmony, which then builds the patches of all mods. Needs 12Harmony.dll in the game Managed folder; without it these places stay unfixed. On by default; it also lets the ToyFactory log and Invalidum sound fixes apply. |
 | `FastFix.Hint12Harmony` | `true` | no | **12Harmony hint on the title**. Once on the title screen: lists the fixes that are off because 12Harmony is not loaded. Switched off after it was shown. |
 | `FastFix.StageEndGuard` | `true` | yes | **Day end guard**. A creature that throws at the end of the day (for example Invalidum with an escaped creature outside the hallways) no longer stops the day end: the result screen still opens and the error is logged once. |

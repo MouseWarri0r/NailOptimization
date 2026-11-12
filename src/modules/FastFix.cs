@@ -519,7 +519,7 @@ namespace FastFix
 		{
 			get
 			{
-				return "1.33";
+				return "1.34";
 			}
 		}
 
@@ -593,6 +593,8 @@ namespace FastFix
 			NothingWorkerNoModel.Install(Harmony, N.Config.BindFlag("FastFix.NothingWorkerNoModel", true, "A NothingWorker object that a mod created without initializing it (It Goes By The Name of Dream) no longer throws an error every frame."));
 			TwilightArmorNull.Install(Harmony, N.Config.BindFlag("FastFix.TwilightArmorNull", true, "The Twilight suit's damage bonus no longer throws an error when it is asked before the day set the suit up (a suit given during the day by a mod). Read at game start."));
 			IronMaidenExit.Install(Harmony, N.Config.BindFlag("FastFix.IronMaidenExit", true, "An agent who leaves We Can Change Anything alive is visible again and is no longer killed at the end of the day; the machine closes as after a death. Read at game start."));
+			CensoredVictimRelease.Install(Harmony, N.Config.BindFlag("FastFix.CensoredVictimRelease", true, "The employee chosen as CENSORED's sacrifice gets control back when CENSORED escapes before he arrives, instead of standing out of control until the day ends. Read at game start."));
+			FastFixDriver.YaZiPending = true;
 			GameObject go = new GameObject("NailOptimization.FastFix");
 			UnityEngine.Object.DontDestroyOnLoad(go);
 			go.AddComponent<FastFixDriver>();
@@ -746,6 +748,7 @@ namespace FastFix
 		internal static bool AcaciaPending;
 		internal static bool CovariancePending;
 		internal static bool ModNrePending;
+		internal static bool YaZiPending;
 
 		// Checks every N frames while waiting: all mod DLLs load in one pass before the first frame.
 		private const int PollFrames = 30;
@@ -760,7 +763,7 @@ namespace FastFix
 			SpecialAttackStuck.Tick();
 			CensoredChildren.Tick();
 			H12Hint.Tick();
-			if (WhiteRabbitPending || RiskPortraitPending || StarflarePending || HellTrainPending || EffectNamesPending || BambooPending || CauldronPending || ChaofengPending || ColoredFixerPending || BossBirdPending || AddRoomPending || PinelPending || KingGreedPending || ElysiaUnitPending || AcaciaPending || CovariancePending || ModNrePending)
+			if (WhiteRabbitPending || RiskPortraitPending || StarflarePending || HellTrainPending || EffectNamesPending || BambooPending || CauldronPending || ChaofengPending || ColoredFixerPending || BossBirdPending || AddRoomPending || PinelPending || KingGreedPending || ElysiaUnitPending || AcaciaPending || CovariancePending || ModNrePending || YaZiPending)
 			{
 				_frames++;
 				if (_frames == 1 || _frames % PollFrames == 0 || _frames >= GiveUpFrames)
@@ -848,6 +851,18 @@ namespace FastFix
 					{
 						ColoredFixerPending = false;
 						N.ULog.Error(FastFixModule.Tag, "colored fixer install failed: " + e);
+					}
+					try
+					{
+						if (YaZiPending && YaZiOnDieFix.TryInstall(_frames >= GiveUpFrames))
+						{
+							YaZiPending = false;
+						}
+					}
+					catch (Exception e)
+					{
+						YaZiPending = false;
+						N.ULog.Error(FastFixModule.Tag, "yazi install failed: " + e);
 					}
 					try
 					{
@@ -1178,7 +1193,7 @@ namespace FastFix
 		{
 			if (_flag == null)
 			{
-				_flag = N.Config.BindFlag("FastFix.Covariance", true, "A mod built for a newer .NET that passes a list of one unit type where a list of another is expected (List<AgentModel> as IEnumerable<UnitModel>) no longer crashes the game without an error: such places are found in the mod code at start and get a compatible list. Read at game start.");
+				_flag = N.Config.BindFlag("FastFix.Covariance", false, "EXPERIMENTAL, off by default (reports of a crash at start with it on). A mod built for a newer .NET that passes a list of one unit type where a list of another is expected (List<AgentModel> as IEnumerable<UnitModel>) no longer crashes the game without an error: such places are found in the mod code at start and get a compatible list. Read at game start.");
 				if (!_flag.On)
 				{
 					return true;
@@ -1194,11 +1209,25 @@ namespace FastFix
 				return true;
 			}
 			System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+			long heap0 = GC.GetTotalMemory(false);
+			long priv0 = PrivateBytes();
 			Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
 			int read = 0;
 			int methods = 0;
 			int skipped = 0;
+			int noRef = 0;
 			List<MethodBase> targets = new List<MethodBase>();
+			Dictionary<string, bool> loaded = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+			for (int a = 0; a < all.Length; a++)
+			{
+				try
+				{
+					loaded[all[a].GetName().Name] = true;
+				}
+				catch (Exception)
+				{
+				}
+			}
 			for (int a = 0; a < all.Length; a++)
 			{
 				if (Seen.ContainsKey(all[a]))
@@ -1216,8 +1245,15 @@ namespace FastFix
 					N.ULog.Warn(FastFixModule.Tag, "covariance: " + key + " not read: the game closed while reading it at an earlier start");
 					continue;
 				}
-				read++;
 				Step("asm", key);
+				string missing = MissingRef(all[a], loaded);
+				if (missing != null)
+				{
+					noRef++;
+					N.ULog.Warn(FastFixModule.Tag, "covariance: " + key + " not read: its reference " + missing + " cannot be loaded");
+					continue;
+				}
+				read++;
 				ScanAssembly(all[a], targets, ref methods, ref skipped);
 			}
 			for (int i = 0; i < targets.Count; i++)
@@ -1225,11 +1261,57 @@ namespace FastFix
 				Patch(targets[i]);
 			}
 			StepClear();
-			if (read > 0)
+			if (read > 0 || noRef > 0)
 			{
-				N.ULog.Info(FastFixModule.Tag, "covariance: " + read + " assemblies, " + methods + " methods read, " + skipped + " not analyzed, " + targets.Count + " methods to patch, " + _fixed + " places fixed in total, " + sw.ElapsedMilliseconds + " ms");
+				N.ULog.Info(FastFixModule.Tag, "covariance: " + read + " assemblies (" + noRef + " not read for a missing reference), " + methods + " methods read, " + skipped + " not analyzed, " + targets.Count + " methods to patch, " + _fixed + " places fixed in total, " + sw.ElapsedMilliseconds + " ms; memory heap " + Mb(heap0) + " -> " + Mb(GC.GetTotalMemory(false)) + " MB, private " + Mb(priv0) + " -> " + Mb(PrivateBytes()) + " MB");
 			}
 			return last;
+		}
+
+		[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+		private struct MemCounters
+		{
+			public uint cb;
+			public uint PageFaultCount;
+			public UIntPtr PeakWorkingSetSize;
+			public UIntPtr WorkingSetSize;
+			public UIntPtr QuotaPeakPagedPoolUsage;
+			public UIntPtr QuotaPagedPoolUsage;
+			public UIntPtr QuotaPeakNonPagedPoolUsage;
+			public UIntPtr QuotaNonPagedPoolUsage;
+			public UIntPtr PagefileUsage;
+			public UIntPtr PeakPagefileUsage;
+			public UIntPtr PrivateUsage;
+		}
+
+		[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+		private static extern IntPtr GetCurrentProcess();
+
+		[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+		private static extern bool K32GetProcessMemoryInfo(IntPtr process, ref MemCounters counters, uint size);
+
+		// Process private bytes (Mono's Process.PrivateMemorySize64 reads 0 here), or -1 when Windows cannot tell.
+		private static long PrivateBytes()
+		{
+			try
+			{
+				MemCounters c = new MemCounters();
+				c.cb = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(MemCounters));
+				if (!K32GetProcessMemoryInfo(GetCurrentProcess(), ref c, c.cb))
+				{
+					return -1;
+				}
+				return (long)c.PrivateUsage.ToUInt64();
+			}
+			catch (Exception)
+			{
+				return -1;
+			}
+		}
+
+		private static string Mb(long bytes)
+		{
+			return bytes < 0 ? "?" : (bytes / (1024 * 1024)).ToString();
 		}
 
 		// Same items as the source, through the non-generic IEnumerable; null stays null so the callee throws as before.
@@ -1414,6 +1496,38 @@ namespace FastFix
 		private static string Norm(string name)
 		{
 			return name.EndsWith(".s", StringComparison.Ordinal) ? name.Substring(0, name.Length - 2) : name;
+		}
+
+		// A mod whose reference cannot be loaded is not read: loading its types for the scan is where such mods can fail.
+		// Returns the first missing reference, or null. Names already loaded count as present, whatever the version.
+		private static string MissingRef(Assembly asm, Dictionary<string, bool> loaded)
+		{
+			AssemblyName[] refs;
+			try
+			{
+				refs = asm.GetReferencedAssemblies();
+			}
+			catch (Exception)
+			{
+				return "(reference list unreadable)";
+			}
+			for (int i = 0; i < refs.Length; i++)
+			{
+				if (loaded.ContainsKey(refs[i].Name))
+				{
+					continue;
+				}
+				try
+				{
+					Assembly.Load(refs[i]);
+					loaded[refs[i].Name] = true;
+				}
+				catch (Exception)
+				{
+					return refs[i].FullName;
+				}
+			}
+			return null;
 		}
 
 		private static bool IsModNet4(Assembly asm)
@@ -1713,6 +1827,11 @@ namespace FastFix
 						break;
 					case OperandType.InlineSwitch:
 						int n = BitConverter.ToInt32(il, pos);
+						// Junk bytes (obfuscated IL) can read as a switch with a huge count: stop before allocating its table.
+						if (n < 0 || n > (il.Length - pos - 4) / 4)
+						{
+							return false;
+						}
 						int baseAt = pos + 4 + 4 * n;
 						targetsAt = new int[n];
 						for (int k = 0; k < n; k++)
@@ -7729,6 +7848,128 @@ namespace FastFix
 		}
 	}
 
+	// CENSORED (vanilla). The roulette victim walks to the unit under Uncontrollable_Censored; when CENSORED escapes first,
+	// Execute calls the private Destroy(), which clears commands, invincibility and the animator but never returns control:
+	// the victim stays CANNOT_CONTROLL with this action set, and Execute calls Destroy (and OnSacrificeFail) every frame until
+	// the day ends (bug-wiki #71, reproduced 2026-11-11). Fix: a Postfix on Destroy gives control back in the escape case only;
+	// the OnStageEnd call stays vanilla (AgentModel.OnStageRelease returns control itself). No handler in Destroy (GL-53).
+	public static class CensoredVictimRelease
+	{
+		private static N.Flag _flag;
+		private static FieldInfo _model;
+		private static FieldInfo _script;
+		private static bool _errorLogged;
+
+		internal static void Install(HarmonyInstance harmony, N.Flag flag)
+		{
+			_flag = flag;
+			BindingFlags f = BindingFlags.NonPublic | BindingFlags.Instance;
+			_model = typeof(Uncontrollable_Censored).GetField("model", f);
+			_script = typeof(Uncontrollable_Censored).GetField("script", f);
+			MethodBase m = N.PatchUtil.Resolve(FastFixModule.Tag, typeof(Uncontrollable_Censored), "Destroy", Type.EmptyTypes);
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(_model, null) || object.ReferenceEquals(_script, null))
+			{
+				N.ULog.Warn(FastFixModule.Tag, "censored victim fix not applied: members not found");
+				return;
+			}
+			N.PatchUtil.Install(harmony, FastFixModule.Tag, m, null, new HarmonyMethod(typeof(CensoredVictimRelease).GetMethod("Postfix", BindingFlags.Public | BindingFlags.Static)));
+		}
+
+		public static void Postfix(Uncontrollable_Censored __instance)
+		{
+			if (!_flag.On)
+			{
+				return;
+			}
+			try
+			{
+				AgentModel a = _model.GetValue(__instance) as AgentModel;
+				Censored s = _script.GetValue(__instance) as Censored;
+				if (a == null || s == null || s.model == null || !s.model.IsEscaped())
+				{
+					return;
+				}
+				if (a.IsDead() || !a.CannotControll() || !object.ReferenceEquals(a.unconAction, __instance))
+				{
+					return;
+				}
+				a.GetControl();
+				N.ULog.Info(FastFixModule.Tag, "censored victim released: " + a.name + " gets control back after CENSORED escaped");
+			}
+			catch (Exception e)
+			{
+				if (!_errorLogged)
+				{
+					_errorLogged = true;
+					N.ULog.Error(FastFixModule.Tag, "censored victim fix error (logged once): " + e);
+				}
+			}
+		}
+	}
+
+	// YaZi (third-party creature mod). Its Prefix on AgentModel.OnDie looks up creature 100015 and casts its script to YaZi
+	// without a null check, but 100015 is WhiteNight (YaZi is 122107): with WhiteNight in the facility every death of an agent
+	// with a target throws a NullReferenceException; without it the body does nothing. Fix: a Prefix skips that body while
+	// creature 100015 is not a YaZi, so the mod behaves as before minus the exception. No handler in the body (GL-53).
+	public static class YaZiOnDieFix
+	{
+		private static Type _yazi;
+		private static bool _logged;
+
+		internal static bool TryInstall(bool last)
+		{
+			Assembly a = WhiteRabbitFix.FindAssembly("YaZi");
+			if (object.ReferenceEquals(a, null))
+			{
+				if (last)
+				{
+					N.ULog.Info(FastFixModule.Tag, "yazi ondie fix not applied: YaZi not loaded");
+				}
+				return last;
+			}
+			N.Flag flag = N.Config.BindFlag("FastFix.YaZiOnDie", true, "YaZi: agent deaths while WhiteNight is in the facility no longer log a NullReferenceException from AgentModel_OnDie. Read at game start.");
+			if (!flag.On)
+			{
+				return true;
+			}
+			Type t = a.GetType("YaZi.Harmony_Patch");
+			_yazi = a.GetType("YaZi.YaZi");
+			MethodInfo target = object.ReferenceEquals(t, null) ? null : t.GetMethod("AgentModel_OnDie", BindingFlags.Public | BindingFlags.Static);
+			ParameterInfo[] ps = object.ReferenceEquals(target, null) ? null : target.GetParameters();
+			if (object.ReferenceEquals(_yazi, null) || ps == null || ps.Length != 1 || !object.ReferenceEquals(ps[0].ParameterType, typeof(AgentModel)) || !object.ReferenceEquals(target.ReturnType, typeof(void)))
+			{
+				N.ULog.Warn(FastFixModule.Tag, "yazi ondie fix not applied: members not found");
+				return true;
+			}
+			FastFixModule.Harmony.Patch(target, new HarmonyMethod(typeof(YaZiOnDieFix).GetMethod("Prefix", BindingFlags.Public | BindingFlags.Static)), null, null);
+			N.ULog.Info(FastFixModule.Tag, "yazi ondie fix installed");
+			return true;
+		}
+
+		// The original reads only creature 100015, so the decision does not need the dying agent.
+		public static bool Prefix()
+		{
+			try
+			{
+				CreatureModel c = CreatureManager.instance.FindCreature(100015L);
+				if (c == null || _yazi.IsInstanceOfType(c.script))
+				{
+					return true;
+				}
+				if (!_logged)
+				{
+					_logged = true;
+					N.ULog.Info(FastFixModule.Tag, "yazi ondie fix: body skipped, creature 100015 is not YaZi");
+				}
+				return false;
+			}
+			catch (Exception)
+			{
+				return true;
+			}
+		}
+	}
+
 	// Void Dream (vanilla Baku). A sleeping worker is released by an animation event of his wake-up (1000600) or annoyed
 	// (1000601) animation, and Baku.OnWorkerAnimCalled releases the FIRST worker of a shared queue: the event does not say whose
 	// animation fired. A missed event (the WakeUp/Annoyed bool set before the sleep animator is in place: a click right after
@@ -8144,6 +8385,11 @@ namespace FastFix
 			}
 			try
 			{
+				// A dead agent's weapon is released at day end (AgentModel.OnStageRelease); his unit has no weapon region to refresh.
+				if (__instance.IsDead())
+				{
+					return;
+				}
 				AgentUnit unit = __instance.GetUnit();
 				if (unit == null)
 				{

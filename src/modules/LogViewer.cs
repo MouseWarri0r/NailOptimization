@@ -54,7 +54,7 @@ namespace LogViewer
 		{
 			get
 			{
-				return "1.7";
+				return "1.8";
 			}
 		}
 
@@ -2298,6 +2298,8 @@ namespace LogViewer
 		internal static void Load()
 		{
 			Lang = LangCode();
+			_en.Clear();
+			_lang.Clear();
 			string root = Path.Combine(N.UiHost.RootDir, "Localization");
 			Read(Path.Combine(Path.Combine(root, "en"), "LogViewer.xml"), _en);
 			if (!string.Equals(Lang, "en", StringComparison.Ordinal))
@@ -2358,6 +2360,13 @@ namespace LogViewer
 		{
 			try
 			{
+				// The font set's language is "en" for cn, jp, cn_tr, vn and bg (GlobalGameManager.GetLanguageFont): the game's own language comes first.
+				GlobalGameManager g = GlobalGameManager.instance;
+				string gl = object.ReferenceEquals(g, null) ? null : g.GetCurrentLanguage();
+				if (!string.IsNullOrEmpty(gl))
+				{
+					return gl.Trim().ToLowerInvariant();
+				}
 				GlobalGameManager.LanguageFont lf = GlobalGameManager.currentLanguageFont;
 				if (!object.ReferenceEquals(lf, null) && !string.IsNullOrEmpty(lf.language))
 				{
@@ -2671,6 +2680,13 @@ namespace LogViewer
 
 		private static void Open()
 		{
+			// The game language changed since the window was built: build it again with the new texts.
+			if (_root != null && !string.Equals(Loc.LangCode(), Loc.Lang, StringComparison.Ordinal))
+			{
+				N.ULog.Info("logviewer", "language changed " + Loc.Lang + " -> " + Loc.LangCode() + ": window rebuilt");
+				UnityEngine.Object.Destroy(_root);
+				_root = null;
+			}
 			if (_root == null)
 			{
 				try

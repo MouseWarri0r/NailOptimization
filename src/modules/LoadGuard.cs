@@ -55,7 +55,7 @@ namespace LoadGuard
 		{
 			get
 			{
-				return "1.6";
+				return "1.7";
 			}
 		}
 
@@ -1285,7 +1285,8 @@ namespace LoadGuard
 					for (int f = 0; f < files.Length; f++)
 					{
 						FileInfo fileInfo = files[f];
-						if (!fileInfo.Name.Contains(".txt"))
+						// Load reads .txt and .xml; vanilla ReLoad read .txt only and lost the creatures of .xml lists (codex NRE).
+						if (!fileInfo.Name.Contains(".txt") && !fileInfo.Name.Contains(".xml"))
 						{
 							continue;
 						}

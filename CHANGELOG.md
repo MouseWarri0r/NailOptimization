@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.4-beta - 2026-11-12
+
+Start-up crash mitigation, language switch, a vanilla language-change bug, three fixes and one GC fix. FastFix 1.34, LoadGuard 1.7, PerfPack 1.60, NailUI 1.16, LogViewer 1.8, core title localization; the other modules are unchanged.
+
+- FastFix 1.34: `FastFix.Covariance` is off by default and marked experimental (existing config files keep their value). It no longer reads a mod DLL whose reference cannot be loaded (built for .NET Core, .NET 5 or .NET Standard); each one is logged as a warning. A `switch` with an impossible case count is rejected before memory is reserved. The log line shows heap and private memory before and after the pass.
+- FastFix 1.34: `FastFix.CensoredVictimRelease` (on): CENSORED's sacrifice gets control back when CENSORED escapes before the employee arrives. `FastFix.YaZiOnDie` (on, only with YaZi): no error from YaZi's `AgentModel.OnDie` patch when WhiteNight is present. `FastFix.WeaponReskin` skips dead agents at day end (no error).
+- LoadGuard 1.7: `CreatureDataLoader.ReLoad` (language change) reads `.xml` creature lists as the start-up load does. Vanilla read only `.txt`, so abnormalities from such mods vanished after a language change and the abnormality info window threw (`CreatureInfoCodex.Init`).
+- Language: the title button, its menu, the F10 panel and the log window follow a language change without a restart. Japanese, Chinese, Traditional Chinese, Vietnamese and Bulgarian are detected from the game language (the font set reports them as English). Title texts can be translated in `Localization/<language>/NailUI.xml` (`TitleButton`, `Action.<id>`).
+- PerfPack 1.60: `PerfPack.TimerNoGc` (on): `AutoTimer.Destroy` no longer runs a full garbage collection.
+
 ## 0.9.3-beta - 2026-11-11
 
 Broken-mod guards, crash cause report, a self-healing start-up repair, three vanilla fixes and the new opt-in module GameFix. Core API level 10 (Alerts); FastFix 1.33, LoadGuard 1.6, PerfPack 1.59, NailUI 1.15, GameFix 1.0 (new); the other modules are unchanged.

@@ -2,6 +2,9 @@
 <!-- NailUI: русская локализация. Только тексты; разделы, группы и размещение опций берутся из en/NailUI.xml. -->
 <NailUI title="NailOptimization" version="1.0">
   <ui>
+    <s id="TitleButton">Оптимизация</s>
+    <s id="Action.logs">Логи</s>
+    <s id="Action.loadguard.alerts">Проблемы модов</s>
     <s id="QualityHigh">Высокое</s>
     <s id="ModeFullscreen">Полный экран</s>
     <s id="FpsOff">Выкл.</s>
@@ -173,6 +176,10 @@
       <name>Over Armor Twilight</name>
       <desc>Смерти агентов больше не пишут ошибку в лог.</desc>
     </option>
+    <option key="FastFix.YaZiOnDie" section="ModFixes" group="ModFixList" order="91" restart="1">
+      <name>YaZi</name>
+      <desc>Смерти агентов, пока WhiteNight в комплексе, больше не пишут ошибку в лог.</desc>
+    </option>
     <option key="FastFix.AddRoom" section="ModFixes" group="ModFixList" order="91" restart="1">
       <name>kekesi_AddRoom</name>
       <desc>Панель отдела больше не пишет ошибку слоя.</desc>
@@ -208,6 +215,10 @@
     <option key="FastFix.IronMaidenExit" section="Bugfixes" group="Vanilla" order="132" restart="1">
       <name>We Can Change Anything: агент невидим после работы</name>
       <desc>Агент, вышедший из We Can Change Anything живым, снова виден и больше не погибает в конце дня; машина закрывается так же, как после гибели.</desc>
+    </option>
+    <option key="FastFix.CensoredVictimRelease" section="Bugfixes" group="Vanilla" order="133" restart="1">
+      <name>CENSORED: жертва остаётся неуправляемой</name>
+      <desc>Сотрудник, выбранный жертвой CENSORED, снова управляем, если CENSORED сбежала до его прихода, а не стоит без управления до конца дня.</desc>
     </option>
     <option key="GameFix.TeddyDayEnd" section="Bugfixes" group="Gameplay" order="10" restart="1">
       <name>Happy Teddy: агент гибнет, если день закончился во время объятия</name>
@@ -302,8 +313,8 @@
       <desc>Два мода с одинаковой папкой эффекта показывают каждый свой эффект.</desc>
     </option>
     <option key="FastFix.Covariance">
-      <name>Вылет из-за типа списка</name>
-      <desc>Мод, собранный под новый .NET, который передаёт список одного типа юнитов туда, где ждут список другого, больше не закрывает игру без ошибки. Такие места находятся в коде модов при запуске и пишутся в лог.</desc>
+      <name>Вылет из-за типа списка (экспериментально)</name>
+      <desc>Мод, собранный под новый .NET, который передаёт список одного типа юнитов туда, где ждут список другого, больше не закрывает игру без ошибки. Такие места находятся в коде модов при запуске и пишутся в лог. Экспериментально, по умолчанию выключено: с ним некоторые сборки модов закрывали игру при запуске.</desc>
     </option>
     <option key="FastFix.CovarianceHandlers">
       <name>Вылет из-за типа списка: все методы</name>

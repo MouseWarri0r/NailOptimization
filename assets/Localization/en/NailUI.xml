@@ -8,6 +8,9 @@
 -->
 <NailUI title="NailOptimization" version="1.0">
   <ui>
+    <s id="TitleButton">Optimization</s>
+    <s id="Action.logs">Logs</s>
+    <s id="Action.loadguard.alerts">Mod problems</s>
     <s id="QualityHigh">High</s>
     <s id="ModeFullscreen">Fullscreen</s>
     <s id="FpsOff">Off</s>
@@ -179,6 +182,10 @@
       <name>Over Armor Twilight</name>
       <desc>Agent deaths no longer log an error.</desc>
     </option>
+    <option key="FastFix.YaZiOnDie" section="ModFixes" group="ModFixList" order="71" restart="1">
+      <name>YaZi</name>
+      <desc>Agent deaths while WhiteNight is in the facility no longer log an error.</desc>
+    </option>
     <option key="FastFix.AddRoom" section="ModFixes" group="ModFixList" order="80" restart="1">
       <name>kekesi_AddRoom</name>
       <desc>The department panel no longer logs a layer error.</desc>
@@ -214,6 +221,10 @@
     <option key="FastFix.IronMaidenExit" section="Bugfixes" group="Vanilla" order="132" restart="1">
       <name>We Can Change Anything: agent invisible after work</name>
       <desc>An agent who leaves We Can Change Anything alive is visible again and is no longer killed at the end of the day; the machine closes as after a death.</desc>
+    </option>
+    <option key="FastFix.CensoredVictimRelease" section="Bugfixes" group="Vanilla" order="133" restart="1">
+      <name>CENSORED: sacrifice stays out of control</name>
+      <desc>The employee chosen as CENSORED's sacrifice gets control back when CENSORED escapes before he arrives, instead of standing out of control until the day ends.</desc>
     </option>
     <option key="GameFix.TeddyDayEnd" section="Bugfixes" group="Gameplay" order="10" restart="1">
       <name>Happy Teddy: agent dies if the day ends during the hug</name>
@@ -308,8 +319,8 @@
       <desc>Two mods with the same effect folder name each show their own effect.</desc>
     </option>
     <option key="FastFix.Covariance" section="ModFixes" group="ModFixGeneral" order="95" restart="1">
-      <name>List type crash</name>
-      <desc>A mod built for a newer .NET that passes a list of one unit type where a list of another is expected no longer closes the game without an error. Such places are found in the mod code at start and listed in the log.</desc>
+      <name>List type crash (experimental)</name>
+      <desc>A mod built for a newer .NET that passes a list of one unit type where a list of another is expected no longer closes the game without an error. Such places are found in the mod code at start and listed in the log. Experimental, off by default: some mod lists closed the game at start with it on.</desc>
     </option>
     <option key="FastFix.CovarianceHandlers" section="ModFixes" group="ModFixGeneral" order="96" restart="1">
       <name>List type crash: all methods</name>

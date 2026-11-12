@@ -50,7 +50,7 @@ namespace NailUI
 		{
 			get
 			{
-				return "1.15";
+				return "1.16";
 			}
 		}
 
@@ -3495,6 +3495,13 @@ namespace NailUI
 		{
 			try
 			{
+				// The font set's language is "en" for cn, jp, cn_tr, vn and bg (GlobalGameManager.GetLanguageFont): the game's own language comes first.
+				GlobalGameManager g = GlobalGameManager.instance;
+				string gl = object.ReferenceEquals(g, null) ? null : g.GetCurrentLanguage();
+				if (!string.IsNullOrEmpty(gl))
+				{
+					return gl.Trim().ToLowerInvariant();
+				}
 				GlobalGameManager.LanguageFont lf = GlobalGameManager.currentLanguageFont;
 				if (!object.ReferenceEquals(lf, null) && !string.IsNullOrEmpty(lf.language))
 				{

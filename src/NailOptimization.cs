@@ -545,6 +545,11 @@ namespace NailOptimization
 				return string.Empty;
 			}
 			Entry e = _list[i];
+			string x = TitleLoc.Get("Action." + e.Id, lang);
+			if (x != null)
+			{
+				return x;
+			}
 			if (string.Equals(lang, "ru", StringComparison.Ordinal) && !string.IsNullOrEmpty(e.LabelRu))
 			{
 				return e.LabelRu;
@@ -2464,6 +2469,64 @@ namespace NailOptimization
 	}
 
 	// ---------- api 9: game notices without own IObserver classes ----------
+	// Title texts from Localization/<game language code>/NailUI.xml (<ui><s id="...">), read once per language; null when the file or the id is missing.
+	internal static class TitleLoc
+	{
+		private static readonly Dictionary<string, Dictionary<string, string>> _cache = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+
+		internal static string Get(string id, string lang)
+		{
+			if (string.IsNullOrEmpty(lang))
+			{
+				return null;
+			}
+			Dictionary<string, string> d;
+			if (!_cache.TryGetValue(lang, out d))
+			{
+				d = Read(lang);
+				_cache[lang] = d;
+			}
+			string s;
+			if (d != null && d.TryGetValue(id, out s) && s.Length > 0)
+			{
+				return s;
+			}
+			return null;
+		}
+
+		private static Dictionary<string, string> Read(string lang)
+		{
+			string path = Path.Combine(Path.Combine(Path.Combine(UiHost.RootDir, "Localization"), lang), "NailUI.xml");
+			try
+			{
+				if (!File.Exists(path))
+				{
+					ULog.Info("title", "language " + lang + ": Localization/" + lang + "/NailUI.xml not found, English texts used");
+					return null;
+				}
+				System.Xml.XmlDocument doc = new System.Xml.XmlDocument();
+				doc.Load(path);
+				Dictionary<string, string> d = new Dictionary<string, string>(StringComparer.Ordinal);
+				System.Xml.XmlNodeList list = doc.SelectNodes("/NailUI/ui/s");
+				for (int i = 0; i < list.Count; i++)
+				{
+					System.Xml.XmlElement e = list[i] as System.Xml.XmlElement;
+					if (e != null && e.GetAttribute("id").Length > 0)
+					{
+						d[e.GetAttribute("id")] = e.InnerText;
+					}
+				}
+				ULog.Info("title", "language " + lang + ": Localization/" + lang + "/NailUI.xml found, " + d.Count + " interface texts");
+				return d;
+			}
+			catch (Exception e)
+			{
+				ULog.Warn("title", "language " + lang + ": " + path + " unreadable: " + e.Message);
+				return null;
+			}
+		}
+	}
+
 	public static class Events
 	{
 		private sealed class Relay : IObserver
@@ -4376,6 +4439,7 @@ namespace NailOptimization
 		private static RectTransform _anchor;
 		private static UIController _ui;
 		private static GameObject _button;
+		private static bool _langHooked;
 		private static Sprite _sprite;
 		private static bool _spriteTried;
 		private static bool _spriteWasLoaded;
@@ -4493,6 +4557,10 @@ namespace NailOptimization
 
 		private static void Begin(int kind, int id, AlterTitleController a, NewTitleScript n)
 		{
+			if (!_langHooked)
+			{
+				_langHooked = Events.On(NoticeName.LanaguageChange, Relabel, "title");
+			}
 			Reset();
 			_curId = id;
 			_kind = kind;
@@ -5437,27 +5505,73 @@ namespace NailOptimization
 			return true;
 		}
 
-		// en by default; ru only when the game reports it. Any error or other language -> en.
+		// The game switched language (GlobalGameManager.ChangeLanguage): own title buttons get the new labels.
+		private static void Relabel()
+		{
+			if (_button == null)
+			{
+				return;
+			}
+			string lang;
+			SetLabel(_button.transform as RectTransform, TitleLabel(out lang));
+			for (int i = 0; i < _actRt.Count; i++)
+			{
+				SetLabel(_actRt[i], UiActions.GetLabel(i, lang));
+			}
+			ULog.Info("title", "language changed to " + lang + ": button labels updated");
+		}
+
+		private static void SetLabel(RectTransform rt, string label)
+		{
+			if (rt == null)
+			{
+				return;
+			}
+			Transform own = rt.Find("Label");
+			Text t = own != null ? own.GetComponent<Text>() : rt.GetComponentInChildren<Text>(true);
+			if (t != null)
+			{
+				t.text = label;
+			}
+		}
+
+		// Localization/<lang>/NailUI.xml "TitleButton" first; then the built-in ru text; else English.
 		private static string TitleLabel(out string lang)
 		{
 			lang = "en";
 			try
 			{
-				GlobalGameManager.LanguageFont lf = GlobalGameManager.currentLanguageFont;
-				if (!object.ReferenceEquals(lf, null) && !string.IsNullOrEmpty(lf.language))
+				// The font set's language is "en" for cn, jp, cn_tr, vn and bg (GlobalGameManager.GetLanguageFont): the game's own language comes first.
+				GlobalGameManager g = GlobalGameManager.instance;
+				string gl = object.ReferenceEquals(g, null) ? null : g.GetCurrentLanguage();
+				if (!string.IsNullOrEmpty(gl))
 				{
-					lang = lf.language.Trim().ToLowerInvariant();
+					lang = gl.Trim().ToLowerInvariant();
+				}
+				else
+				{
+					GlobalGameManager.LanguageFont lf = GlobalGameManager.currentLanguageFont;
+					if (!object.ReferenceEquals(lf, null) && !string.IsNullOrEmpty(lf.language))
+					{
+						lang = lf.language.Trim().ToLowerInvariant();
+					}
 				}
 			}
 			catch (Exception)
 			{
 				lang = "en";
 			}
+			string x = TitleLoc.Get("TitleButton", lang);
+			if (x != null)
+			{
+				return x;
+			}
 			if (string.Equals(lang, "ru", StringComparison.Ordinal))
 			{
 				return "\u041E\u043F\u0442\u0438\u043C\u0438\u0437\u0430\u0446\u0438\u044F";
 			}
-			return "Optimization";
+			x = TitleLoc.Get("TitleButton", "en");
+			return x != null ? x : "Optimization";
 		}
 
 		// Another mod's button on the same title canvas (any Selectable outside the vanilla gadgets) covering ours: ours stays next to

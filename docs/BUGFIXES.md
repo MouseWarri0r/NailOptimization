@@ -19,6 +19,7 @@ All fixes belong to the FastFix module (plus a few in PerfPack and LoadGuard whe
 | `FastFix.ChildDeleteTwice` | A child creature that is suppressed twice (some mods do it) threw the second time. | No error the second time. |
 | `FastFix.ChildElevatorStuck` | A child creature whose path ends on an elevator threw out of its update. | The error no longer escapes the update; it is handled as for other creatures. |
 | `FastFix.WeaponReskin` | When a weapon was taken off an agent (for example Paulinus released), `AgentModel.OnReleaseWeapon` did not refresh the agent's weapon view, unlike equipping. The agent kept the old weapon's look and attacks; modded special weapons could deal no damage. | Postfix calls `AgentUnit.OnChangeWeapon()`, the same call the game makes on equip. Checked at run time. |
+| `FastFix.CensoredVictimRelease` | When CENSORED escaped while its chosen sacrifice was walking to it, the employee stayed out of control until the day ended and the release ran every frame. | The employee gets control back once. |
 | `FastFix.UnknownEquipCount` | A mod granting equipment that no mod defines stopped the save load and skipped the Sephirah data. | The unknown equipment is counted and ignored, so the load continues. |
 
 ## Specific mods
@@ -79,6 +80,7 @@ Mod names are as shown in the mod list.
 | `FastFix.CandeloroRibbon` | Candeloro | A ribbon whose end was destroyed no longer throws every frame; it stays where it was until removed. |
 | `FastFix.Cloud9Panic` | Cloud9 | An agent panicking while the escaped cloud is between rooms no longer throws. |
 | `FastFix.YaZiEscapeUI` | YaZi | A breach before its request window was ever opened no longer throws. |
+| `FastFix.YaZiOnDie` | YaZi | Agent deaths while WhiteNight is in the facility no longer throw from YaZi's death patch (it looked up WhiteNight's script as YaZi). |
 | `FastFix.GrunglyLure` | Grungly | A lure whose target no longer qualifies, or with no agent left to lure, no longer throws every tick; the lure stops. |
 | `FastFix.BlackBirdPassageHit` | BlackBird_WhiteBird | Its hit on the hallway no longer stops when it kills someone there. Needs 12Harmony. |
 
@@ -96,7 +98,7 @@ Mod names are as shown in the mod list.
 | `FastFix.EffectNames` | Two mods with the same effect folder name showed the same effect. | Each mod shows its own effect. |
 | `FastFix.ExecOrderAttr` | A mod class with an attribute missing from this game logged an exception when added. | The error is avoided and the default order is used. |
 | `FastFix.StartTooltip` | A tooltip left open at day start stayed on screen. | It is closed. |
-| `FastFix.Covariance` | A mod built for a newer .NET passed a list of one unit type where a list of another is expected, and the game closed without an error. | Such places are found in the mod code at start and listed in the log. |
+| `FastFix.Covariance` (experimental, off by default since 0.9.4) | A mod built for a newer .NET passed a list of one unit type where a list of another is expected, and the game closed without an error. | Such places are found in the mod code at start and listed in the log. |
 | `FastFix.CovarianceHandlers` | The same kind of place inside a method with foreach, using or try (for example Krau Deluge) stayed unfixed. | Also fixed. This loads 12Harmony, which then builds the patches of all mods. Needs `12Harmony.dll` in the game Managed folder; without it these places stay unfixed. |
 | `FastFix.Hint12Harmony` | Fixes that are off because 12Harmony is not loaded were not visible to the player. | Once on the title screen they are listed. Switched off after it was shown. |
 | `FastFix.StageEndGuard` | A creature that throws at the end of the day (for example Invalidum with an escaped creature outside the hallways) stopped the day end. | The result screen still opens and the error is logged once. |
