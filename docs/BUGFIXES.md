@@ -21,6 +21,12 @@ All fixes belong to the FastFix module (plus a few in PerfPack and LoadGuard whe
 | `FastFix.WeaponReskin` | When a weapon was taken off an agent (for example Paulinus released), `AgentModel.OnReleaseWeapon` did not refresh the agent's weapon view, unlike equipping. The agent kept the old weapon's look and attacks; modded special weapons could deal no damage. | Postfix calls `AgentUnit.OnChangeWeapon()`, the same call the game makes on equip. Checked at run time. |
 | `FastFix.CensoredVictimRelease` | When CENSORED escaped while its chosen sacrifice was walking to it, the employee stayed out of control until the day ended and the release ran every frame. | The employee gets control back once. |
 | `FastFix.UnknownEquipCount` | A mod granting equipment that no mod defines stopped the save load and skipped the Sephirah data. | The unknown equipment is counted and ignored, so the load continues. |
+| `FastFix.CorpseSelectRing` | An agent who died while selected kept the selection ring under the body (the game never calls the unit's unselect). | The ring is removed on death. |
+| `FastFix.CreatureNoAnimState` | `CreatureUnit.OnChangeState` used the animation script before its own null check: a creature without one (some mods) threw when suppressed or returned. | Without an animation script only the return marker is switched, as the game intends. |
+| `FastFix.DamageFactor` | `UnitModel.GetDamageFactorByEquipment` checked the weapon and then read the armor: a unit with a weapon and no armor threw into an empty catch and lost its gift damage factor. | The armor is checked itself. |
+| `FastFix.BufDamageFactor` (off) | The same method dropped the damage factor of buffs. No vanilla buff uses it; some mod buffs do. | Mod buff factors are applied. Changes the balance of such mods, so it is off by default. |
+| `FastFix.SoundSequenceEmpty` | A sound sequence whose files were all missing threw (`SoundEffectPlayer.DeQueue` went on after closing the player). | The player closes, no error. |
+| `FastFix.BulletWindowNull` | `GlobalBulletManager.UpdateMaxBullet` used the bullet panel without the null check it made a line before. | Without a panel the count is updated and the panel is skipped. |
 
 ## Specific mods
 
@@ -83,6 +89,23 @@ Mod names are as shown in the mod list.
 | `FastFix.YaZiOnDie` | YaZi | Agent deaths while WhiteNight is in the facility no longer throw from YaZi's death patch (it looked up WhiteNight's script as YaZi). |
 | `FastFix.GrunglyLure` | Grungly | A lure whose target no longer qualifies, or with no agent left to lure, no longer throws every tick; the lure stops. |
 | `FastFix.BlackBirdPassageHit` | BlackBird_WhiteBird | Its hit on the hallway no longer stops when it kills someone there. Needs 12Harmony. |
+| `FastFix.FDTick` | FD (Krau Deluge) | A unit in its room no longer closes the game; works without 12Harmony. |
+| `FastFix.CustomRiskChild` | kekesi CustomRisk | Clicking a child creature without its own observation data no longer throws and leaves the command window half-built. |
+| `FastFix.FeatherHardMode` | Bloody Past | Its hard-mode setting is read from disk once instead of every tick (about 0.6 ms per tick while it is out). |
+| `FastFix.BloodShoesFix` | Blood Shoes | An escape of any abnormality no longer throws without vanilla Red Shoes; a normal result no longer lowers the counter; shoes no longer freeze after a hit. |
+| `FastFix.FairyQueenFix` | Fairy Queen | Prepared Meat marks end with the day; after suppression its hunger restarts. |
+| `FastFix.RaspberryWork` | Raspberry Apostle | A work paused by it or its bushes is not paused again and is resumed after 15 s if its animation never ends. |
+| `FastFix.CharmingPond` | Charming Pond | Its internal list is created, so work effects, the recall kill and day-end cleanup run; old hallway ponds are removed at day start. |
+| `FastFix.TurbidityParalyze` | Dream-Devouring Slitcurrent | A unit without a body in the water no longer gets the paralysis that threw every tick and kept the water up. |
+| `FastFix.BurrowingHeavenLure` | Burrowing Heaven | No lure while it is being worked on; clerks are no longer lured. |
+| `FastFix.ScytheClockCount` | Silent Price | Its kill counter no longer reads past its 13 texts. |
+| `FastFix.WhiteRabbitReset` | Celestial Bunny | Restoring normal speed after its slowdown no longer stops at the first door or unit. |
+| `FastFix.BloodRabbitClear` | Gory Bunny | Clearing its blood pools in a hallway no longer stops at the first pool. |
+| `FastFix.EternalFlowerThornCap` | Flower of Eternity 1.0.1 | Its weapon no longer adds rooms to the department hallway list for good; thorns every 4 s are capped (`FastFix.EternalFlowerThorns`, 12). |
+| `FastFix.IntroChain` | IntroAdder + Wonderlab | IntroAdder pictures play first, then the other intro, instead of only one of them. |
+| `FastFix.BaxiaObserve` | Baxia and Fuxi | A reset of observation data no longer empties their shared tables or throws. |
+| `FastFix.TiamatFix` | Tiamat | Stays in its own department after meltdown children (also repairs saves); only servants' works count; meltdown and lure errors no longer break overload or the lure timer. |
+| `FastFix.SignOfRosesTarget` | Sign of Roses | When the marked employee dies of something else, the rose no longer lowers a random abnormality counter every tick. |
 
 ## Errors any mod can have
 

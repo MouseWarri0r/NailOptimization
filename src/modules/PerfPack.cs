@@ -129,7 +129,7 @@ namespace PerfPack
 		{
 			get
 			{
-				return "1.60";
+				return "1.62";
 			}
 		}
 
@@ -305,6 +305,7 @@ namespace PerfPack
 			}
 			N.Flag canvases = N.Config.BindFlag("PerfPack.CanvasCull", true, "World interface canvases outside the view are switched off. Read at game start.");
 			CanvasCull.AgentUiZoom = N.Config.BindFloat("PerfPack.AgentUiHideZoom", 60f, 0f, 90f, 1f, "Camera size from which the bars, grade, title, buffs and speech above employees are hidden (needs CanvasCull). 0 = never.");
+			CanvasCull.CreatureUiZoom = N.Config.BindFloat("PerfPack.CreatureUiHideZoom", 60f, 0f, 90f, 1f, "Camera size from which the bars and labels above escaped abnormalities and their spawns are hidden (needs CanvasCull). 0 = never.");
 			if (canvases.On)
 			{
 				want++;
@@ -516,6 +517,16 @@ namespace PerfPack
 			{
 				want++;
 				ok += TimerNoGc.Install(harmony);
+			}
+			if (N.Config.BindFlag("PerfPack.PassageLookup", true, "Finding the drawn hallway or room of a map passage (lighting, blackout, water and other effects of many mods, every tick) no longer creates garbage on every call. Same result. Read at game start.").On)
+			{
+				want++;
+				ok += PassageLookup.Install(harmony);
+			}
+			if (N.Config.BindFlag("PerfPack.CounterText", true, "The Qliphoth counter of every containment room no longer creates a new text every tick. Same display. Read at game start.").On)
+			{
+				want++;
+				ok += CounterText.Install(harmony);
 			}
 			N.ULog.Info(Id, "PerfPack 1.10 installed " + ok + "/" + want + " features");
 		}
@@ -1291,6 +1302,9 @@ namespace PerfPack
 		// true where _list[i] is an employee's AgentUnit.uiRoot: hidden at camera size >= AgentUiZoom (r203/r204: about 3 ms at size 90)
 		private static bool[] _agentUi = new bool[0];
 		internal static N.FloatParam AgentUiZoom;
+		// true where _list[i] is the root world canvas of a CreatureUnit (escaped or child creature UI): hidden at camera size >= CreatureUiZoom (F16: 1-2.5 ms canvas phase at size 90 under breach)
+		private static bool[] _creatureUi = new bool[0];
+		internal static N.FloatParam CreatureUiZoom;
 		private static readonly HashSet<Canvas> _hidden = new HashSet<Canvas>();
 		private static readonly Vector3[] _corners = new Vector3[4];
 		private static float _nextTick;
@@ -1381,12 +1395,14 @@ namespace PerfPack
 			}
 			_list = list.ToArray();
 			_agentUi = new bool[_list.Length];
+			_creatureUi = new bool[_list.Length];
 			for (int i = 0; i < _list.Length; i++)
 			{
 				if (_list[i] != null)
 				{
 					AgentUnit unit = _list[i].GetComponentInParent<AgentUnit>();
 					_agentUi[i] = unit != null && unit.uiRoot == _list[i];
+					_creatureUi[i] = unit == null && _list[i].GetComponentInParent<CreatureUnit>() != null;
 				}
 			}
 		}
@@ -1397,6 +1413,8 @@ namespace PerfPack
 			float w = size * aspect * MarginView + MarginWorld;
 			float lod = object.ReferenceEquals(AgentUiZoom, null) ? 0f : AgentUiZoom.Value;
 			bool lodHide = lod > 0f && size >= lod;
+			float clod = object.ReferenceEquals(CreatureUiZoom, null) ? 0f : CreatureUiZoom.Value;
+			bool creatureHide = clod > 0f && size >= clod;
 			for (int i = 0; i < _list.Length; i++)
 			{
 				Canvas c = _list[i];
@@ -1407,6 +1425,10 @@ namespace PerfPack
 				((RectTransform)c.transform).GetWorldCorners(_corners);
 				bool visible = _corners[2].x >= pos.x - w && _corners[0].x <= pos.x + w && _corners[2].y >= pos.y - h && _corners[0].y <= pos.y + h;
 				if (lodHide && i < _agentUi.Length && _agentUi[i])
+				{
+					visible = false;
+				}
+				if (creatureHide && i < _creatureUi.Length && _creatureUi[i])
 				{
 					visible = false;
 				}
@@ -2176,6 +2198,156 @@ namespace PerfPack
 				}
 			}
 			return list;
+		}
+	}
+
+	// ---------- PassageLookup ----------
+	// SefiraObject.GetPassageObject(string) walks its private passageList with foreach (~40 B per call on this Mono). Mods call it
+	// through SefiraMapLayer.GetPassageObject every tick for every passage (TurbidityCurrent: 3 KB per tick). Full replacement with
+	// an index loop over the same list, same comparison, same first match; not installed when another mod patches the method.
+	public static class PassageLookup
+	{
+		private const string Tag = "PerfPack";
+		private delegate List<PassageObject> ListGetter(SefiraObject s);
+		private static ListGetter _list;
+
+		[MethodImpl(MethodImplOptions.NoInlining)]
+		internal static int Install(HarmonyInstance harmony)
+		{
+			try
+			{
+				FieldInfo field = typeof(SefiraObject).GetField("passageList", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+				MethodBase target = N.PatchUtil.Resolve(Tag, typeof(SefiraObject), "GetPassageObject", new Type[] { typeof(string) });
+				if (object.ReferenceEquals(field, null) || !object.ReferenceEquals(field.FieldType, typeof(List<PassageObject>)) || object.ReferenceEquals(target, null))
+				{
+					N.ULog.Warn(Tag, "PassageLookup not installed: SefiraObject members not found");
+					return 0;
+				}
+				string owner = Owners.ForeignAny(target);
+				if (owner != null)
+				{
+					N.ULog.Warn(Tag, "PassageLookup not installed: SefiraObject.GetPassageObject is patched by " + owner);
+					return 0;
+				}
+				DynamicMethod get = new DynamicMethod("PassageLookup_passageList", field.FieldType, new Type[] { typeof(SefiraObject) }, typeof(SefiraObject), true);
+				ILGenerator il = get.GetILGenerator();
+				il.Emit(OpCodes.Ldarg_0);
+				il.Emit(OpCodes.Ldfld, field);
+				il.Emit(OpCodes.Ret);
+				_list = (ListGetter)get.CreateDelegate(typeof(ListGetter));
+				if (!N.PatchUtil.Install(harmony, Tag, target, new HarmonyMethod(typeof(PassageLookup).GetMethod("Prefix", BindingFlags.Public | BindingFlags.Static)), null))
+				{
+					return 0;
+				}
+				N.ULog.Info(Tag, "PassageLookup installed");
+				return 1;
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(Tag, "PassageLookup install failed: " + e);
+				return 0;
+			}
+		}
+
+		public static bool Prefix(SefiraObject __instance, string id, ref PassageObject __result)
+		{
+			List<PassageObject> list = _list(__instance);
+			for (int i = 0; i < list.Count; i++)
+			{
+				PassageObject p = list[i];
+				if (p.model.GetId() == id)
+				{
+					__result = p;
+					return false;
+				}
+			}
+			__result = null;
+			return false;
+		}
+	}
+
+	// ---------- CounterText ----------
+	// IsolateRoom.CheckQliphothCounter (FixedUpdate of every room, about 50 rooms) writes qliphothCounter.ToString() each tick:
+	// a new string per room per tick. Full replacement, same writes in the same order; 0..63 come from a cached table.
+	public static class CounterText
+	{
+		private const string Tag = "PerfPack";
+		private delegate bool FlagGetter(IsolateRoom r);
+		private static FlagGetter _observed;
+		private static FlagGetter _enabled;
+		private static readonly string[] _texts = new string[64];
+
+		[MethodImpl(MethodImplOptions.NoInlining)]
+		internal static int Install(HarmonyInstance harmony)
+		{
+			try
+			{
+				BindingFlags f = BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public;
+				FieldInfo observed = typeof(IsolateRoom).GetField("_counterObserved", f);
+				FieldInfo enabled = typeof(IsolateRoom).GetField("_counterEnabled", f);
+				MethodBase target = N.PatchUtil.Resolve(Tag, typeof(IsolateRoom), "CheckQliphothCounter", Type.EmptyTypes);
+				if (object.ReferenceEquals(observed, null) || object.ReferenceEquals(enabled, null) || !object.ReferenceEquals(observed.FieldType, typeof(bool))
+					|| !object.ReferenceEquals(enabled.FieldType, typeof(bool)) || object.ReferenceEquals(target, null))
+				{
+					N.ULog.Warn(Tag, "CounterText not installed: IsolateRoom members not found");
+					return 0;
+				}
+				string owner = Owners.ForeignAny(target);
+				if (owner != null)
+				{
+					N.ULog.Warn(Tag, "CounterText not installed: IsolateRoom.CheckQliphothCounter is patched by " + owner);
+					return 0;
+				}
+				_observed = Getter(observed);
+				_enabled = Getter(enabled);
+				for (int i = 0; i < _texts.Length; i++)
+				{
+					_texts[i] = i.ToString();
+				}
+				if (!N.PatchUtil.Install(harmony, Tag, target, new HarmonyMethod(typeof(CounterText).GetMethod("Prefix", BindingFlags.Public | BindingFlags.Static)), null))
+				{
+					return 0;
+				}
+				N.ULog.Info(Tag, "CounterText installed");
+				return 1;
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(Tag, "CounterText install failed: " + e);
+				return 0;
+			}
+		}
+
+		private static FlagGetter Getter(FieldInfo field)
+		{
+			DynamicMethod get = new DynamicMethod("CounterText_" + field.Name, typeof(bool), new Type[] { typeof(IsolateRoom) }, typeof(IsolateRoom), true);
+			ILGenerator il = get.GetILGenerator();
+			il.Emit(OpCodes.Ldarg_0);
+			il.Emit(OpCodes.Ldfld, field);
+			il.Emit(OpCodes.Ret);
+			return (FlagGetter)get.CreateDelegate(typeof(FlagGetter));
+		}
+
+		// Throws where vanilla throws (TargetUnit or its model null): same exception, nothing written before it.
+		public static bool Prefix(IsolateRoom __instance)
+		{
+			if (!_observed(__instance) || !_enabled(__instance))
+			{
+				return false;
+			}
+			int n = __instance.TargetUnit.model.qliphothCounter;
+			__instance.CounterText.text = n >= 0 && n < _texts.Length ? _texts[n] : n.ToString();
+			if (n == 0)
+			{
+				__instance.CounterText.color = __instance.CounterColor_White;
+				__instance.CounterColor.color = __instance.CounterColor_Red;
+			}
+			else
+			{
+				__instance.CounterText.color = __instance.CounterColor_Normal;
+				__instance.CounterColor.color = __instance.CounterColor_Black;
+			}
+			return false;
 		}
 	}
 
@@ -4143,6 +4315,7 @@ namespace PerfPack
 		private static int _thread;
 		private static int _depth;
 		private static readonly List<IObserver[]> _bufs = new List<IObserver[]>();
+		private static readonly HashSet<string> _failed = new HashSet<string>(StringComparer.Ordinal);
 
 		private delegate Dictionary<string, List<IObserver>> MapFn(Notice n);
 
@@ -4209,12 +4382,32 @@ namespace PerfPack
 				_bufs[_depth] = buf;
 			}
 			list.CopyTo(buf, 0);
+			// FixedUpdate and Update: vanilla lets one throwing observer stop every later one each tick (timers, doors,
+			// RandomEventManager.OnUpdate after the Update send). Here the throw is logged once per observer type and the rest run.
+			bool isolate = string.Equals(notice, NoticeName.FixedUpdate, StringComparison.Ordinal) || string.Equals(notice, NoticeName.Update, StringComparison.Ordinal);
 			_depth++;
 			try
 			{
-				for (int i = 0; i < n; i++)
+				if (isolate)
 				{
-					buf[i].OnNotice(notice, param);
+					for (int i = 0; i < n; i++)
+					{
+						try
+						{
+							buf[i].OnNotice(notice, param);
+						}
+						catch (Exception e)
+						{
+							Failed(buf[i], notice, e);
+						}
+					}
+				}
+				else
+				{
+					for (int i = 0; i < n; i++)
+					{
+						buf[i].OnNotice(notice, param);
+					}
 				}
 			}
 			finally
@@ -4223,6 +4416,25 @@ namespace PerfPack
 				Array.Clear(buf, 0, n);
 			}
 			return false;
+		}
+
+		// Once per observer type and throwing method (all Notice.Observe callbacks share one observer type).
+		private static void Failed(IObserver o, string notice, Exception e)
+		{
+			try
+			{
+				Type t = o == null ? typeof(IObserver) : o.GetType();
+				MethodBase site = e.TargetSite;
+				string key = t.FullName + "|" + (object.ReferenceEquals(site, null) ? "?" : (object.ReferenceEquals(site.DeclaringType, null) ? "" : site.DeclaringType.FullName) + "." + site.Name);
+				if (_failed.Add(key))
+				{
+					N.ULog.Error(Tag, "NoticePool: " + t.FullName + " threw on " + notice + "; later observers still run (logged once per observer type and method): " + e);
+				}
+			}
+			catch (Exception)
+			{
+				// the logger itself failed: nothing left to report to, and the remaining observers must still run
+			}
 		}
 	}
 
@@ -7287,6 +7499,14 @@ namespace PerfPack
 						foreach (DirectoryInfo dir in root.GetDirectories())
 						{
 							LobotomyBaseMod.KeyValuePairSS key = new LobotomyBaseMod.KeyValuePairSS(mod.modid, dir.Name);
+							if (dirs.ContainsKey(key))
+							{
+								// Vanilla Init throws here and loads no agent animation at all; the first folder wins instead.
+								N.ULog.Warn(Tag, "AgentLazy: AgentAnimation folder '" + dir.Name + "' of mod id '" + mod.modid + "' already loaded from " + dirs[key] + "; " + dir.FullName + " skipped");
+								object dropped;
+								TakePrefetched(dir.FullName, out dropped);
+								continue;
+							}
 							object pre;
 							if (TakePrefetched(dir.FullName, out pre))
 							{

@@ -55,7 +55,7 @@ namespace LoadGuard
 		{
 			get
 			{
-				return "1.7";
+				return "1.8";
 			}
 		}
 
@@ -2564,6 +2564,14 @@ namespace LoadGuard
 			string time = Field(prev, "time=");
 			string phaseAt = Field(prev, "phaseat=");
 			string errAt = Field(prev, "errorat=");
+			// FastFix Covariance runs from another driver at the first frames, possibly before FirstFrame marks the trail: its own
+			// step file (read later and deleted by FastFix) names the real step. FastFix adds the alert for it, so none here.
+			string covariance = CovarianceStep();
+			if (covariance.Length > 0)
+			{
+				N.ULog.Error(Tag, "the last session (last record " + time + ") closed while FastFix covariance was " + covariance + " (trail: " + phase + " " + mod + ")");
+				return;
+			}
 			N.ULog.Error(Tag, "the last session (last record " + time + ") closed unexpectedly: phase=" + phase + " (since " + phaseAt + ") mod=" + mod + " error=" + err + " (at " + errAt + ")");
 			string where = mod.Length > 0 ? phase + " (" + mod + ")" : phase;
 			int slash = mod.IndexOf(" / ", StringComparison.Ordinal);
@@ -2571,6 +2579,37 @@ namespace LoadGuard
 			// The last error can be older than the last step and unrelated to the exit: both times are shown.
 			LoadAlerts.AddKeySafe(2, owner, "AlertLastCrash", "The last session closed unexpectedly (last record {0}) during: {1}, since {4}. Last error at {3}: {2}.", new object[] { time, where, err.Length > 0 ? err : "-", errAt.Length > 0 ? errAt : "-", phaseAt.Length > 0 ? phaseAt : "?" });
 			LoadAlerts.OpenOnTitle = true;
+		}
+
+		// Logs/Covariance.step.txt ("asm<TAB>path|ticks" or "method<TAB>path|ticks|Type.Method"), or empty when there is none.
+		private static string CovarianceStep()
+		{
+			try
+			{
+				string step = Path.Combine(Path.GetDirectoryName(_file), "Covariance.step.txt");
+				if (!File.Exists(step))
+				{
+					return string.Empty;
+				}
+				string text = File.ReadAllText(step).Trim();
+				int tab = text.IndexOf('\t');
+				if (tab <= 0)
+				{
+					return string.Empty;
+				}
+				string key = text.Substring(tab + 1);
+				int bar = key.IndexOf('|');
+				string file = Path.GetFileName(bar > 0 ? key.Substring(0, bar) : key);
+				if (text.StartsWith("asm", StringComparison.Ordinal))
+				{
+					return "reading " + file;
+				}
+				return "patching " + key.Substring(key.LastIndexOf('|') + 1) + " (" + file + ")";
+			}
+			catch (Exception)
+			{
+				return string.Empty;
+			}
 		}
 
 		private static string Field(string text, string key)

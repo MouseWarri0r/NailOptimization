@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.5-beta - 2026-11-16
+
+Start-up crash with Many Winged Angel, 17 new fixes for abnormality mods, six vanilla fixes and allocation cuts. FastFix 1.42, PerfPack 1.62, LoadGuard 1.8; the other modules are unchanged.
+
+- FastFix 1.36: `FastFix.Covariance` checks each mod DLL file for references this game's runtime does not have (`System.ValueTuple`, `Array.Empty` and others) before it reads the DLL; such methods are skipped and named in the log instead of closing the game (Many Winged Angel / DIYMOD.dll closed the game at the first start after an update). LoadGuard 1.8: after a crash inside Covariance the crash report names the DLL or method it was working on.
+- Vanilla (FastFix, all on): `CorpseSelectRing` (an agent who dies while selected no longer keeps the selection ring), `CreatureNoAnimState` (a creature without an animation script no longer throws when suppressed or returned), `DamageFactor` (a unit with a weapon and no armor no longer loses its gift damage factor to an error), `SoundSequenceEmpty` (a sound sequence with missing files no longer throws), `BulletWindowNull` (bullet count update before the bullet panel exists no longer throws). `FastFix.BufDamageFactor` (off): applies damage factors of mod buffs, which vanilla drops; changes the balance of such mods.
+- Mod fixes (FastFix, each on and only active with its mod): `FDTick` (Krau Deluge crash in its room, now also without 12Harmony), `CustomRiskChild`, `FeatherHardMode` (Bloody Past read its settings file every tick: 0.6 ms -> 0 per tick), `BloodShoesFix`, `FairyQueenFix`, `RaspberryWork`, `CharmingPond`, `TurbidityParalyze`, `BurrowingHeavenLure`, `ScytheClockCount`, `WhiteRabbitReset`, `BloodRabbitClear`, `EternalFlowerThornCap` (Flower of Eternity 1.0.1; thorns per 4 s in `EternalFlowerThorns`, 12), `IntroChain` (IntroAdder pictures, then the Wonderlab intro), `BaxiaObserve`, `TiamatFix` (also repairs saves), `SignOfRosesTarget`; `KekesiWolfHit` updated.
+- PerfPack 1.61: `CreatureUiHideZoom` (60): from this camera size the bars and labels of escaped abnormalities and their spawns are hidden (measured -5 ms canvas time per frame in a full breach at far zoom).
+- PerfPack 1.62: `PassageLookup` (hallway lookup used by water, light and other mod effects every tick no longer allocates; TurbidityCurrent 3 KB per tick), `CounterText` (room Qliphoth counters no longer create a new text every tick). `NoticePool`: one abnormality or mod that throws in its per-frame update no longer stops every later one in that frame (logged once per type and method). `AgentLazy`: two mods with the same agent animation folder no longer stop all agent animations from loading (the first one wins, a warning names both).
+
 ## 0.9.4-beta - 2026-11-12
 
 Start-up crash mitigation, language switch, a vanilla language-change bug, three fixes and one GC fix. FastFix 1.34, LoadGuard 1.7, PerfPack 1.60, NailUI 1.16, LogViewer 1.8, core title localization; the other modules are unchanged.

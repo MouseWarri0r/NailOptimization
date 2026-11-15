@@ -659,6 +659,26 @@
       <name>Child creature stuck at an elevator</name>
       <desc>A child creature whose path ends on an elevator no longer throws out of its update; it is handled as for other creatures.</desc>
     </option>
+    <option key="FastFix.CreatureNoAnimState" section="Bugfixes" group="Vanilla" order="117" restart="1">
+      <name>Creature without animation script</name>
+      <desc>A creature without an animation script (some mods) no longer throws when it is suppressed or returns; its return marker is still switched.</desc>
+    </option>
+    <option key="FastFix.DamageFactor" section="Bugfixes" group="Vanilla" order="118" restart="1">
+      <name>Equipment damage factor</name>
+      <desc>A unit with a weapon and no armor no longer loses its gift damage factor to an error.</desc>
+    </option>
+    <option key="FastFix.BufDamageFactor" section="Bugfixes" group="Vanilla" order="118" restart="1">
+      <name>Buff damage factor (mods)</name>
+      <desc>Damage factors of mod buffs are applied to outgoing damage (vanilla drops them). Changes balance of such mods. Needs the equipment damage factor fix.</desc>
+    </option>
+    <option key="FastFix.SoundSequenceEmpty" section="Bugfixes" group="Vanilla" order="119" restart="1">
+      <name>Sound sequence without files</name>
+      <desc>A sound sequence whose sound files are missing no longer throws; the sound player just closes.</desc>
+    </option>
+    <option key="FastFix.BulletWindowNull" section="Bugfixes" group="Vanilla" order="119" restart="1">
+      <name>Bullet count without panel</name>
+      <desc>Updating the bullet count before the bullet panel exists no longer throws.</desc>
+    </option>
     <option key="FastFix.WeaponReskin" section="Bugfixes" group="Vanilla" order="120">
       <name>Riot stick look after unequip</name>
       <desc>After a weapon is unequipped the agent shows and swings the Riot stick instead of One Sin's weapon.</desc>
@@ -694,6 +714,10 @@
     <option key="PerfPack.AgentUiHideZoom" section="Performance" group="PerfRender" order="90">
       <name>Hide employee bars from zoom</name>
       <desc>From this camera size the bars, grade, title, buffs and speech of employees are hidden. 0 = never.</desc>
+    </option>
+    <option key="PerfPack.CreatureUiHideZoom" section="Performance" group="PerfRender" order="91">
+      <name>Hide abnormality bars from zoom</name>
+      <desc>From this camera size the bars and labels above escaped abnormalities and their spawns are hidden. 0 = never.</desc>
     </option>
     <option key="PerfPack.CameraCache" section="Performance" group="PerfRender" order="110" restart="1">
       <name>Main camera cache</name>
@@ -734,6 +758,14 @@
     <option key="PerfPack.SefiraLookup" section="Performance" group="PerfLogic" order="60" restart="1">
       <name>Department lookup</name>
       <desc>Department lookup creates no garbage.</desc>
+    </option>
+    <option key="PerfPack.PassageLookup" section="Performance" group="PerfLogic" order="61" restart="1">
+      <name>Hallway lookup</name>
+      <desc>Finding the drawn hallway of a map passage creates no garbage (water, light and other effects of mods, every tick).</desc>
+    </option>
+    <option key="PerfPack.CounterText" section="Performance" group="PerfLogic" order="62" restart="1">
+      <name>Room counter text</name>
+      <desc>The Qliphoth counter of every containment room no longer creates a new text every tick. Same display.</desc>
     </option>
     <option key="PerfPack.AgentAnimLod" section="Performance" group="PerfRender" order="60">
       <name>Agent animation LOD</name>
@@ -938,6 +970,78 @@
     <option key="FastFix.KekesiWolfHit" section="ModFixes" group="ModFixList" order="370" restart="1">
       <name>Alleyway Watchdog: area hit</name>
       <desc>Its area hit no longer stops when it kills someone in the room.</desc>
+    </option>
+    <option key="FastFix.FDTick" section="ModFixes" group="ModFixList" order="375" restart="1">
+      <name>FD (Krau Deluge): crash in its room</name>
+      <desc>A unit in its room no longer closes the game; works without 12Harmony.</desc>
+    </option>
+    <option key="FastFix.CustomRiskChild" section="ModFixes" group="ModFixList" order="377" restart="1">
+      <name>kekesi CustomRisk: child creature click</name>
+      <desc>Clicking a child creature without its own observation data no longer throws and leaves the command window half-built.</desc>
+    </option>
+    <option key="FastFix.FeatherHardMode" section="ModFixes" group="ModFixList" order="378" restart="1">
+      <name>Bloody Past: settings file every tick</name>
+      <desc>Its hard-mode setting is read from disk once instead of every tick (about 0.6 ms per tick while it is out).</desc>
+    </option>
+    <option key="FastFix.BloodShoesFix" section="ModFixes" group="ModFixList" order="379" restart="1">
+      <name>Blood Shoes: escape error, counter, frozen shoes</name>
+      <desc>An escape of any abnormality no longer throws without vanilla Red Shoes; a normal result no longer lowers the counter (a good one may, as its tip says); shoes no longer freeze after a hit.</desc>
+    </option>
+    <option key="FastFix.FairyQueenFix" section="ModFixes" group="ModFixList" order="380" restart="1">
+      <name>Fairy Queen: Prepared Meat and hunger</name>
+      <desc>Prepared Meat marks end with the day; after suppression its hunger restarts instead of holding the counter at 0.</desc>
+    </option>
+    <option key="FastFix.RaspberryWork" section="ModFixes" group="ModFixList" order="381" restart="1">
+      <name>Raspberry Apostle: endless work</name>
+      <desc>A work paused by it or its bushes is no longer paused again and is resumed after 15 s if its animation never ends.</desc>
+    </option>
+    <option key="FastFix.CharmingPond" section="ModFixes" group="ModFixList" order="382" restart="1">
+      <name>Charming Pond: hallway ponds and work effects</name>
+      <desc>Its internal list is created, so work effects, the recall kill and day-end cleanup run; ponds left in hallways from earlier days are removed at day start.</desc>
+    </option>
+    <option key="FastFix.TurbidityParalyze" section="ModFixes" group="ModFixList" order="383" restart="1">
+      <name>Dream-Devouring Slitcurrent: water never recedes</name>
+      <desc>A unit without a body in the water no longer gets the paralysis that threw every tick and kept the water up.</desc>
+    </option>
+    <option key="FastFix.BurrowingHeavenLure" section="ModFixes" group="ModFixList" order="384" restart="1">
+      <name>Burrowing Heaven: lure during work, clerks</name>
+      <desc>No lure while it is being worked on; clerks are no longer lured (their lure broke and blocked the next ones).</desc>
+    </option>
+    <option key="FastFix.ScytheClockCount" section="ModFixes" group="ModFixList" order="385" restart="1">
+      <name>Silent Price: kill counter error</name>
+      <desc>Its kill counter display no longer reads past its 13 texts (an error every tick at 13 kills, and on room setup).</desc>
+    </option>
+    <option key="FastFix.WhiteRabbitReset" section="ModFixes" group="ModFixList" order="386" restart="1">
+      <name>Celestial Bunny: speed restore</name>
+      <desc>Restoring normal speed after its slowdown no longer stops at the first door or unit.</desc>
+    </option>
+    <option key="FastFix.BloodRabbitClear" section="ModFixes" group="ModFixList" order="387" restart="1">
+      <name>Gory Bunny: blood pool clearing</name>
+      <desc>Clearing its blood pools in a hallway no longer stops at the first pool.</desc>
+    </option>
+    <option key="FastFix.EternalFlowerThornCap" section="ModFixes" group="ModFixList" order="388" restart="1">
+      <name>Flower of Eternity 1.0.1: thorn cap</name>
+      <desc>Its weapon no longer adds rooms to the department hallway list for good; thorns every 4 s are capped (own hallway first).</desc>
+    </option>
+    <option key="FastFix.EternalFlowerThorns" section="ModFixes" group="ModFixList" order="389">
+      <name>Flower of Eternity: thorns per 4 s</name>
+      <desc>Most thorns one wielder of its weapon makes every 4 s.</desc>
+    </option>
+    <option key="FastFix.IntroChain" section="ModFixes" group="ModFixList" order="390" restart="1">
+      <name>IntroAdder + intro mods</name>
+      <desc>IntroAdder splash pictures play first, then the intro of another intro mod (Wonderlab) instead of only one of them.</desc>
+    </option>
+    <option key="FastFix.BaxiaObserve" section="ModFixes" group="ModFixList" order="391" restart="1">
+      <name>Baxia and Fuxi: observation data</name>
+      <desc>A reset of observation data no longer empties their shared tables or throws on regions already there.</desc>
+    </option>
+    <option key="FastFix.TiamatFix" section="ModFixes" group="ModFixList" order="392" restart="1">
+      <name>Tiamat: department and counter</name>
+      <desc>Stays in its own department after meltdown children (also repairs saves); only servants' works count; meltdown and lure errors no longer break overload or the lure timer.</desc>
+    </option>
+    <option key="FastFix.SignOfRosesTarget" section="ModFixes" group="ModFixList" order="393" restart="1">
+      <name>Sign of Roses: dead target</name>
+      <desc>When the marked employee dies of something else, the rose no longer lowers a random abnormality counter every tick.</desc>
     </option>
     <option key="FastFix.PuLaoChain" section="ModFixes" group="ModFixList" order="380" restart="1">
       <name>PuLao: endless damage chain</name>

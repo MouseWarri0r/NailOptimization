@@ -1,6 +1,6 @@
 # Configuration reference
 
-This file lists every option shown in the NailUI panel (F10), generated from `assets/Localization/en/NailUI.xml` and the `Bind*` calls in the sources. The panel has 219 options.
+This file lists every option shown in the NailUI panel (F10), generated from `assets/Localization/en/NailUI.xml` and the `Bind*` calls in the sources. The panel has 258 options.
 
 Options are stored in `NailOptimization.cfg.txt` as `Key=value`. Flags use `true`/`false`. A file edited outside the game is applied live after `Config.WatchSeconds` (default 10 s). Options marked **Restart: yes** apply after a game restart.
 
@@ -98,6 +98,8 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `PerfPack.IdleSpeed` | `true` | yes | **No speed calculation for standing agents**. Standing agents skip the speed calculation each tick. |
 | `PerfPack.FastFindCreature` | `true` | no | **Fast abnormality search**. Abnormality search by id without allocations. |
 | `PerfPack.SefiraLookup` | `true` | yes | **Department lookup**. Department lookup creates no garbage. |
+| `PerfPack.PassageLookup` | `true` | yes | **Hallway lookup**. Finding the drawn hallway of a map passage creates no garbage (water, light and other effects of mods, every tick). |
+| `PerfPack.CounterText` | `true` | yes | **Room counter text**. The Qliphoth counter of every containment room no longer creates a new text every tick. Same display. |
 | `PerfPack.OrdealIdle` | `true` | yes | **Skip ordeal update without ordeals**. The ordeal update is skipped while no ordeal is running, instead of creating a list every tick. |
 | `PerfPack.OrchestraWorkers` | `true` | yes | **Silent Orchestra worker list**. The abnormality reuses its employee list while breached. |
 | `PerfPack.FrameStepCap` | `false` | yes | **Cap slow frame step**. A slow frame runs at most 2-3 game ticks instead of about 16. Below 20 FPS the game runs slower than real time. |
@@ -115,6 +117,7 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `PerfPack.PauseSkeletons` | `true` | no | **Skeletons on pause**. On pause, characters refresh their pose rarely. |
 | `PerfPack.DoorAnimCull` | `true` | yes | **Stop off-screen door animators**. Door animators stop out of view. A door changed off-screen plays its old transition when seen. |
 | `PerfPack.AgentUiHideZoom` | `60` | no | **Hide employee bars from zoom**. From this camera size the bars, grade, title, buffs and speech of employees are hidden. 0 = never. Range 0..90. |
+| `PerfPack.CreatureUiHideZoom` | `60` | no | **Hide abnormality bars from zoom**. From this camera size the bars and labels above escaped abnormalities and their spawns are hidden. 0 = never. Range 0..90. |
 | `PerfPack.OrdealUiHideZoom` | `14` | no | **Hide ordeal unit bars from zoom**. From this camera size, bars and names of ordeal units are hidden when 20 or more are out. 0 = never. Range 0..60. |
 | `PerfPack.CameraCache` | `true` | yes | **Main camera cache**. The main camera is found once per frame. |
 | `PerfPack.CameraRange` | `true` | yes | **Camera zoom range read once**. The camera reads its zoom range once instead of rebuilding the list of open departments several times per frame. |
@@ -129,7 +132,6 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `PerfPack.NoticePool` | `true` | no | **Notice pool**. Game notices no longer copy the listener list on each send. |
 | `PerfPack.BufNameCache` | `true` | yes | **Buff name cache**. Buff search by name without allocations. |
 | `PerfPack.LcIdCache` | `true` | yes | **Equipment id cache**. Equipment ids are not created again on each request. |
-| `PerfPack.TimerNoGc` | `true` | yes | **No full memory cleaning at timer end**. Some abnormalities (1.76 MHz, Snow Queen, Queen Bee and others) forced a full memory cleaning each time one of their timers ended, a short freeze. The cleaning is skipped. |
 
 ## Memory
 
@@ -140,7 +142,7 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `PerfPack.EffectTextures` | `true` | yes | **Effect pictures in memory**. Effect pictures keep one copy in memory; identical ones are shared. |
 | `PerfPack.ArmorAtlas` | `true` | yes | **Fast mod armor loading**. Mod armor pictures load once into one texture instead of from disk on every use. |
 | `PerfPack.SkinCache` | `true` | yes | **Shared armor textures**. Agents share armor textures and materials instead of creating new ones on each animation change. |
-| `PerfPack.MeshRelease` | `true` | yes | **Character mesh memory fix**. At each day start, character meshes that nothing uses any more are destroyed; meshes held by any component field are kept. |
+| `PerfPack.MeshRelease` | `true` | yes | **Character mesh memory fix**. At each day start, character meshes that nothing uses any more are destroyed. |
 | `PerfPack.CursorScale` | `true` | yes | **Aiming cursor memory fix**. The aiming cursor frees its old texture. |
 | `PerfPack.GcQuiet` | `true` | no | **Memory cleaning in quiet moments**. Memory is cleaned on pause, in the info window and at day end. |
 | `PerfPack.GcQuietGrowMb` | `48` | no | **Quiet cleaning threshold (MB)**. Memory growth in MB before a quiet cleaning. Range 8..256. |
@@ -203,8 +205,8 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `LoadGuard.TypeLoad` | `true` | yes | **Partial loading of broken mod code**. A mod DLL that needs a missing or later-loaded library loads what it can instead of stopping the code of every later mod. The mod is named in the warning list. Works for mods loaded after NailOptimization. |
 | `LoadGuard.CreatureLoad` | `true` | yes | **Day load survives broken abnormalities**. An abnormality whose mod script is missing or crashes is skipped (or kept with an error) at day load instead of stopping the load. The mod and abnormality are named in the warning list. |
 | `LoadGuard.BaseModCheck` | `true` | yes | **Warn about an unsupported BaseMod version**. If BaseMod (LMM) is not version 1.3.9, the warning list names it and opens once on the title screen. |
-| `LoadGuard.CrashTrail` | `true` | yes | **Name the cause of the last crash**. The last step before the game closed with an error (mod being loaded, scene, day, last error) is kept in `Logs/LastSession.txt`. At the next start it is named in the warning list, which opens once on the title screen. |
-| `LoadGuard.Alerts` | `true` | yes | **Mod problem warnings**. A warning button on the title and in the day lists mod problems: code that failed to load or start, data files that had to be skipped, mod patches or methods that PatchGuard/LoopGuard skipped for the session, and fixes switched off because another mod's patch runs after them. Shows the mod folder. |
+| `LoadGuard.CrashTrail` | `true` | yes | **Name the cause of the last crash**. The last step before the game closed with an error (mod being loaded, scene, day, last error) is kept in Logs/LastSession.txt. At the next start it is named in the warning list, which opens once on the title screen. |
+| `LoadGuard.Alerts` | `true` | yes | **Mod load problem warnings**. A warning button on the title and in the day lists mod problems with the mod folder: code that failed to load or start, data files and abnormalities that had to be skipped, and mod patches the guards switched off. |
 | `SaveGuard.Enabled` | `true` | yes | **Save guard**. Save files are copied to SaveBackups before they are overwritten; a save that failed to load is not overwritten. The log names missing mods. |
 | `SaveGuard.Protect` | `true` | yes | **No overwrite after a failed load**. After a failed load the save file is not written until it loads again; progress of that session is not saved. Needs the save guard. |
 | `SaveGuard.SafeLoad` | `false` | yes | **Load without removed mods**. Data of removed mods is taken out on load, so the rest of the save loads. The original stays in SaveStash; the data returns with the mod. Needs the save guard. |
@@ -216,8 +218,8 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | Key | Default | Restart | Description |
 |---|---|---|---|
 | `FastFix.PatchGuard` | `true` | yes | **Patch guard**. A mod patch that throws the same error many times within 10 s is skipped until the game closes and logged with the mod id. Can turn off a feature of that mod. |
-| `FastFix.GuardCount` | `100` | no | **Patch guard: errors before skip**. Identical errors within 10 s before a patch is skipped. Range 10..1000. |
 | `FastFix.LoopGuard` | `true` | yes | **Loop guard**. A method of another mod (not a patch) that throws the same error many times within 10 s is skipped until the game closes, if it returns nothing, and logged. Can turn off a feature of that mod. |
+| `FastFix.GuardCount` | `100` | no | **Patch guard: errors before skip**. Identical errors within 10 s before a patch is skipped. Range 10..1000. |
 
 ## Bugfixes
 
@@ -227,8 +229,6 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 |---|---|---|---|
 | `FastFix.PanicStuck` | `true` | yes | **Panicking agent stuck on the way**. A panicking agent sent to open a containment unit walks on after an interrupted walk. |
 | `FastFix.TrainRestart` | `true` | yes | **Day restart during the Hell Train kills employees**. Restarting the day while Express Train to Hell departs no longer kills employees of the reloaded day: they no longer start dead with their EGO lost. |
-| `FastFix.TwilightArmorNull` | `true` | yes | **Twilight suit error before day setup**. The Twilight suit's damage bonus no longer throws an error when it is asked before the day set the suit up (a suit given during the day by a mod). |
-| `FastFix.IronMaidenExit` | `true` | yes | **We Can Change Anything: agent invisible after work**. An agent who leaves We Can Change Anything alive is visible again and is no longer killed at the end of the day; the machine closes as after a death. |
 | `FastFix.VoidDream` | `true` | yes | **Void Dream: employees stay asleep or frozen**. Each employee put to sleep by Void Dream is released by his own wake-up animation, or after 8 s if it never plays, instead of staying frozen and invincible until he dies at day end. The cry hits every unit in the hallway, not only those before the first downed one. |
 | `FastFix.OrdealReset` | `true` | yes | **Ordeal does not carry over to the next day**. An ordeal still running when the day ends (retry, return to title) no longer continues in the next day. |
 | `FastFix.ExpandOnce` | `true` | yes | **Department expanded twice in one day**. Cancel pressed after confirming a department expansion no longer lets the same expansion be confirmed again. |
@@ -239,13 +239,18 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `FastFix.FixerWhiteReflect` | `true` | yes | **White fixer reflection**. The White fixer no longer reflects damage endlessly while praying (a game freeze). |
 | `FastFix.StandingCG` | `true` | yes | **Story character pictures**. A story picture with duplicate face names loads instead of breaking. |
 | `FastFix.ChildDeleteTwice` | `true` | yes | **Child creature removed twice**. A child creature that is suppressed twice (some mods do it) no longer throws the second time. |
-| `FastFix.WeaponReskin` | `true` | no | **Riot stick look after unequip**. After a weapon is unequipped the agent shows and swings the default weapon as it should, instead of keeping the old weapon's look and attacks. |
-| `FastFix.CensoredVictimRelease` | `true` | yes | **CENSORED: sacrifice stays out of control**. The employee chosen as CENSORED's sacrifice gets control back when CENSORED escapes before he arrives, instead of standing out of control until the day ends. |
 | `FastFix.ChildElevatorStuck` | `true` | yes | **Child creature stuck at an elevator**. A child creature whose path ends on an elevator no longer throws out of its update; it is handled as for other creatures. |
+| `FastFix.CreatureNoAnimState` | `true` | yes | **Creature without animation script**. A creature without an animation script (some mods) no longer throws when it is suppressed or returns; its return marker is still switched. |
+| `FastFix.DamageFactor` | `true` | yes | **Equipment damage factor**. A unit with a weapon and no armor no longer loses its gift damage factor to an error. |
+| `FastFix.BufDamageFactor` | `false` | yes | **Buff damage factor (mods)**. Damage factors of mod buffs are applied to outgoing damage (vanilla drops them). Changes balance of such mods. Needs the equipment damage factor fix. |
+| `FastFix.SoundSequenceEmpty` | `true` | yes | **Sound sequence without files**. A sound sequence whose sound files are missing no longer throws; the sound player just closes. |
+| `FastFix.BulletWindowNull` | `true` | yes | **Bullet count without panel**. Updating the bullet count before the bullet panel exists no longer throws. |
+| `FastFix.WeaponReskin` | `true` | no | **Riot stick look after unequip**. After a weapon is unequipped the agent shows and swings the Riot stick instead of One Sin's weapon. |
+| `FastFix.TwilightArmorNull` | `true` | yes | **Twilight suit error before day setup**. The Twilight suit's damage bonus no longer throws an error when it is asked before the day set the suit up (a suit given during the day by a mod). |
+| `FastFix.IronMaidenExit` | `true` | yes | **We Can Change Anything: agent invisible after work**. An agent who leaves We Can Change Anything alive is visible again and is no longer killed at the end of the day; the machine closes as after a death. |
+| `FastFix.CensoredVictimRelease` | `true` | yes | **CENSORED: sacrifice stays out of control**. The employee chosen as CENSORED's sacrifice gets control back when CENSORED escapes before he arrives, instead of standing out of control until the day ends. |
 
 ### Rule fixes (change the game)
-
-Module GameFix. Every option changes a rule of the game and is off by default.
 
 | Key | Default | Restart | Description |
 |---|---|---|---|
@@ -266,6 +271,7 @@ Module GameFix. Every option changes a rule of the game and is off by default.
 | `FastFix.Cauldron` | `true` | yes | **Cauldron**. Minion animation events no longer throw errors. |
 | `FastFix.Chaofeng` | `true` | yes | **Chaofeng**. The slowing wind no longer makes units walk backwards; its damage no longer throws on a kill. |
 | `FastFix.OverBossBird` | `true` | yes | **Over Armor Twilight**. Agent deaths no longer log an error. |
+| `FastFix.YaZiOnDie` | `true` | yes | **YaZi**. Agent deaths while WhiteNight is in the facility no longer log an error. |
 | `FastFix.AddRoom` | `true` | yes | **kekesi_AddRoom**. The department panel no longer logs a layer error. |
 | `FastFix.AcaciaBullet` | `true` | yes | **Acacia**. The bullet check no longer throws when the bullet touches something that is not a unit. |
 | `FastFix.ElysiaRiskUnit` | `true` | yes | **Elysia RiskLevel**. The creature check no longer throws every frame for a creature with a missing part. |
@@ -296,8 +302,26 @@ Module GameFix. Every option changes a rule of the game and is off by default.
 | `FastFix.WhaleTailPull` | `true` | yes | **Rotten Whale Fall: tail pull**. Its tail skips the pull while the target is between rooms instead of throwing every frame. |
 | `FastFix.CharlotteDamage` | `true` | yes | **Charlotte: damage between rooms**. Taking damage between rooms no longer throws. |
 | `FastFix.KekesiWolfHit` | `true` | yes | **Alleyway Watchdog: area hit**. Its area hit no longer stops when it kills someone in the room. |
+| `FastFix.FDTick` | `true` | yes | **FD (Krau Deluge): crash in its room**. A unit in its room no longer closes the game; works without 12Harmony. |
+| `FastFix.CustomRiskChild` | `true` | yes | **kekesi CustomRisk: child creature click**. Clicking a child creature without its own observation data no longer throws and leaves the command window half-built. |
+| `FastFix.FeatherHardMode` | `true` | yes | **Bloody Past: settings file every tick**. Its hard-mode setting is read from disk once instead of every tick (about 0.6 ms per tick while it is out). |
+| `FastFix.BloodShoesFix` | `true` | yes | **Blood Shoes: escape error, counter, frozen shoes**. An escape of any abnormality no longer throws without vanilla Red Shoes; a normal result no longer lowers the counter (a good one may, as its tip says); shoes no longer freeze after a hit. |
+| `FastFix.FairyQueenFix` | `true` | yes | **Fairy Queen: Prepared Meat and hunger**. Prepared Meat marks end with the day; after suppression its hunger restarts instead of holding the counter at 0. |
 | `FastFix.PuLaoChain` | `true` | yes | **PuLao: endless damage chain**. Its attack near a music creature no longer repeats itself without end and closes the game; each creature joins the chain once. |
+| `FastFix.RaspberryWork` | `true` | yes | **Raspberry Apostle: endless work**. A work paused by it or its bushes is no longer paused again and is resumed after 15 s if its animation never ends. |
+| `FastFix.CharmingPond` | `true` | yes | **Charming Pond: hallway ponds and work effects**. Its internal list is created, so work effects, the recall kill and day-end cleanup run; ponds left in hallways from earlier days are removed at day start. |
+| `FastFix.TurbidityParalyze` | `true` | yes | **Dream-Devouring Slitcurrent: water never recedes**. A unit without a body in the water no longer gets the paralysis that threw every tick and kept the water up. |
+| `FastFix.BurrowingHeavenLure` | `true` | yes | **Burrowing Heaven: lure during work, clerks**. No lure while it is being worked on; clerks are no longer lured (their lure broke and blocked the next ones). |
+| `FastFix.ScytheClockCount` | `true` | yes | **Silent Price: kill counter error**. Its kill counter display no longer reads past its 13 texts (an error every tick at 13 kills, and on room setup). |
+| `FastFix.WhiteRabbitReset` | `true` | yes | **Celestial Bunny: speed restore**. Restoring normal speed after its slowdown no longer stops at the first door or unit. |
+| `FastFix.BloodRabbitClear` | `true` | yes | **Gory Bunny: blood pool clearing**. Clearing its blood pools in a hallway no longer stops at the first pool. |
+| `FastFix.EternalFlowerThornCap` | `true` | yes | **Flower of Eternity 1.0.1: thorn cap**. Its weapon no longer adds rooms to the department hallway list for good; thorns every 4 s are capped (own hallway first). |
+| `FastFix.EternalFlowerThorns` | `12` | no | **Flower of Eternity: thorns per 4 s**. Most thorns one wielder of its weapon makes every 4 s. Range 1..100. |
+| `FastFix.IntroChain` | `true` | yes | **IntroAdder + intro mods**. IntroAdder splash pictures play first, then the intro of another intro mod (Wonderlab) instead of only one of them. |
 | `FastFix.NothingWorkerNoModel` | `true` | yes | **It Goes By The Name of Dream: empty worker**. A NothingWorker object that the mod created without initializing it no longer throws an error every frame. |
+| `FastFix.BaxiaObserve` | `true` | yes | **Baxia and Fuxi: observation data**. A reset of observation data no longer empties their shared tables or throws on regions already there. |
+| `FastFix.TiamatFix` | `true` | yes | **Tiamat: department and counter**. Stays in its own department after meltdown children (also repairs saves); only servants' works count; meltdown and lure errors no longer break overload or the lure timer. |
+| `FastFix.SignOfRosesTarget` | `true` | yes | **Sign of Roses: dead target**. When the marked employee dies of something else, the rose no longer lowers a random abnormality counter every tick. |
 | `FastFix.PinocchioEscape` | `true` | yes | **LCPD Pinocchio: escape tick**. Picking its defence target and chasing a target that just died no longer throw every tick. |
 | `FastFix.InvalidumFlood` | `true` | yes | **Invalidum: flooded passage**. The flooded passage no longer stops when a unit in it dies or leaves during the check. |
 | `FastFix.HomelessBeastHit` | `true` | yes | **Homeless Beast: department hit**. Its hit on the whole department no longer stops when it kills someone. |
@@ -309,7 +333,6 @@ Module GameFix. Every option changes a rule of the game and is off by default.
 | `FastFix.CandeloroRibbon` | `true` | yes | **Candeloro: ribbons**. A ribbon whose end was destroyed no longer throws every frame; it stays where it was until removed. |
 | `FastFix.Cloud9Panic` | `true` | yes | **Cloud9: panic outside rooms**. An agent panicking while the escaped cloud is between rooms no longer throws. |
 | `FastFix.YaZiEscapeUI` | `true` | yes | **YaZi: breach without request window**. A breach before its request window was ever opened no longer throws. |
-| `FastFix.YaZiOnDie` | `true` | yes | **YaZi**. Agent deaths while WhiteNight is in the facility no longer log an error (only with YaZi loaded). |
 | `FastFix.GrunglyLure` | `true` | yes | **Grungly: lure**. A lure whose target no longer qualifies, or with no agent left to lure, no longer throws every tick; the lure stops. |
 | `FastFix.BlackBirdPassageHit` | `true` | yes | **Black Bird: hallway hit**. Its hit on the hallway no longer stops when it kills someone there. Needs 12Harmony. |
 
@@ -326,11 +349,11 @@ Module GameFix. Every option changes a rule of the game and is off by default.
 | `FastFix.NoticeLeaks` | `true` | no | **Old days in game events**. Timers and scripts of earlier days are unsubscribed at day start, so they no longer stay in memory or run every tick. |
 | `FastFix.ForeignLeaks` | `true` | no | **Old days in mod lists**. At day start, entries of earlier days are removed from mod lists that never clear them. |
 | `FastFix.EffectNames` | `true` | yes | **Same effect names**. Two mods with the same effect folder name each show their own effect. |
-| `FastFix.StartTooltip` | `true` | no | **Tooltip at the start of the day**. A tooltip shown at day start is closed. |
-| `FastFix.Covariance` | `false` | yes | **List type crash (experimental)**. Off by default since 0.9.4: some mod lists closed the game at start with it on. Mod DLLs built for .NET Core, .NET 5 or .NET Standard are not read. A mod built for a newer .NET that passes a list of one unit type where a list of another is expected no longer closes the game without an error. Such places are found in the mod code at start and listed in the log. |
+| `FastFix.Covariance` | `false` | yes | **List type crash (experimental)**. A mod built for a newer .NET that passes a list of one unit type where a list of another is expected no longer closes the game without an error. Such places are found in the mod code at start and listed in the log. Experimental, off by default: some mod lists closed the game at start with it on. |
 | `FastFix.CovarianceHandlers` | `true` | yes | **List type crash: all methods**. Also fixes such places inside a method with foreach, using or try (for example Krau Deluge). This loads 12Harmony, which then builds the patches of all mods. Needs 12Harmony.dll in the game Managed folder; without it these places stay unfixed. On by default; it also lets the ToyFactory log and Invalidum sound fixes apply. |
 | `FastFix.Hint12Harmony` | `true` | no | **12Harmony hint on the title**. Once on the title screen: lists the fixes that are off because 12Harmony is not loaded. Switched off after it was shown. |
 | `FastFix.StageEndGuard` | `true` | yes | **Day end guard**. A creature that throws at the end of the day (for example Invalidum with an escaped creature outside the hallways) no longer stops the day end: the result screen still opens and the error is logged once. |
+| `FastFix.StartTooltip` | `true` | no | **Tooltip at the start of the day**. A tooltip shown at day start is closed. |
 
 ### Module
 
@@ -456,6 +479,8 @@ Keys that exist in the sources but have no entry in the panel layout. They are s
 
 | Key | Default | Range |
 |---|---|---|
+| `FastFix.CorpseSelectRing` | `true` | flag |
+| `PerfPack.TimerNoGc` | `true` | flag |
 
 ## Core keys (not in the panel)
 

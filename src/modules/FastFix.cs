@@ -519,7 +519,7 @@ namespace FastFix
 		{
 			get
 			{
-				return "1.34";
+				return "1.42";
 			}
 		}
 
@@ -594,6 +594,7 @@ namespace FastFix
 			TwilightArmorNull.Install(Harmony, N.Config.BindFlag("FastFix.TwilightArmorNull", true, "The Twilight suit's damage bonus no longer throws an error when it is asked before the day set the suit up (a suit given during the day by a mod). Read at game start."));
 			IronMaidenExit.Install(Harmony, N.Config.BindFlag("FastFix.IronMaidenExit", true, "An agent who leaves We Can Change Anything alive is visible again and is no longer killed at the end of the day; the machine closes as after a death. Read at game start."));
 			CensoredVictimRelease.Install(Harmony, N.Config.BindFlag("FastFix.CensoredVictimRelease", true, "The employee chosen as CENSORED's sacrifice gets control back when CENSORED escapes before he arrives, instead of standing out of control until the day ends. Read at game start."));
+			CorpseSelectRing.Install(Harmony, N.Config.BindFlag("FastFix.CorpseSelectRing", true, "An agent who dies while selected no longer keeps the selection ring under the body."));
 			FastFixDriver.YaZiPending = true;
 			GameObject go = new GameObject("NailOptimization.FastFix");
 			UnityEngine.Object.DontDestroyOnLoad(go);
@@ -1187,6 +1188,7 @@ namespace FastFix
 		private static string _skipFile;
 		private static bool _stepOpen;
 		private static readonly Dictionary<string, bool> SkipKeys = new Dictionary<string, bool>();
+		private const string SkipV2 = "v2|";
 
 		// True when the attempt is finished. Runs on each driver poll until the give-up frame: assemblies a mod loads late are read then.
 		internal static bool TryInstall(bool last)
@@ -1196,6 +1198,15 @@ namespace FastFix
 				_flag = N.Config.BindFlag("FastFix.Covariance", false, "EXPERIMENTAL, off by default (reports of a crash at start with it on). A mod built for a newer .NET that passes a list of one unit type where a list of another is expected (List<AgentModel> as IEnumerable<UnitModel>) no longer crashes the game without an error: such places are found in the mod code at start and get a compatible list. Read at game start.");
 				if (!_flag.On)
 				{
+					// A step file left by a crash before Covariance was turned off would make LoadGuard blame Covariance for later
+					// crashes (LoadGuard reads it at init, before this runs).
+					try
+					{
+						System.IO.File.Delete(System.IO.Path.Combine(System.IO.Path.Combine(N.UiHost.RootDir, "Logs"), "Covariance.step.txt"));
+					}
+					catch (Exception)
+					{
+					}
 					return true;
 				}
 				_handlers = N.Config.BindFlag("FastFix.CovarianceHandlers", true, "Such places inside a method with foreach, using or try are fixed too, if 12Harmony.dll is in Managed. This loads 12Harmony, which then builds the patches of all mods (changes how other mods' patches are applied). Read at game start.");
@@ -1216,6 +1227,7 @@ namespace FastFix
 			int methods = 0;
 			int skipped = 0;
 			int noRef = 0;
+			int notRead = 0;
 			List<MethodBase> targets = new List<MethodBase>();
 			Dictionary<string, bool> loaded = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 			for (int a = 0; a < all.Length; a++)
@@ -1253,8 +1265,22 @@ namespace FastFix
 					N.ULog.Warn(FastFixModule.Tag, "covariance: " + key + " not read: its reference " + missing + " cannot be loaded");
 					continue;
 				}
+				Dictionary<int, bool> unsafeMethods = new Dictionary<int, bool>();
+				List<string> absent = new List<string>();
+				string metaError = CovarianceMeta.Check(all[a], _one, _two, _hasOne, _hasTwo, unsafeMethods, absent);
+				if (metaError != null)
+				{
+					noRef++;
+					N.ULog.Warn(FastFixModule.Tag, "covariance: " + key + " not read: metadata check failed: " + metaError);
+					continue;
+				}
 				read++;
-				ScanAssembly(all[a], targets, ref methods, ref skipped);
+				int before = notRead;
+				ScanAssembly(all[a], targets, unsafeMethods, ref methods, ref skipped, ref notRead);
+				if (notRead > before)
+				{
+					N.ULog.Info(FastFixModule.Tag, "covariance: " + System.IO.Path.GetFileName(all[a].Location) + ": " + (notRead - before) + " methods not read: they use " + (absent.Count > 0 ? string.Join(", ", absent.GetRange(0, Math.Min(3, absent.Count)).ToArray()) : "(unreadable IL or signature)") + " missing in this game's runtime");
+				}
 			}
 			for (int i = 0; i < targets.Count; i++)
 			{
@@ -1263,7 +1289,7 @@ namespace FastFix
 			StepClear();
 			if (read > 0 || noRef > 0)
 			{
-				N.ULog.Info(FastFixModule.Tag, "covariance: " + read + " assemblies (" + noRef + " not read for a missing reference), " + methods + " methods read, " + skipped + " not analyzed, " + targets.Count + " methods to patch, " + _fixed + " places fixed in total, " + sw.ElapsedMilliseconds + " ms; memory heap " + Mb(heap0) + " -> " + Mb(GC.GetTotalMemory(false)) + " MB, private " + Mb(priv0) + " -> " + Mb(PrivateBytes()) + " MB");
+				N.ULog.Info(FastFixModule.Tag, "covariance: " + read + " assemblies (" + noRef + " not read for a missing reference or a failed metadata check), " + methods + " methods read, " + skipped + " not analyzed, " + notRead + " not read (missing runtime members), " + targets.Count + " methods to patch, " + _fixed + " places fixed in total, " + sw.ElapsedMilliseconds + " ms; memory heap " + Mb(heap0) + " -> " + Mb(GC.GetTotalMemory(false)) + " MB, private " + Mb(priv0) + " -> " + Mb(PrivateBytes()) + " MB");
 			}
 			return last;
 		}
@@ -1400,14 +1426,34 @@ namespace FastFix
 				_skipFile = System.IO.Path.Combine(dir, "Covariance.skip.txt");
 				if (System.IO.File.Exists(_skipFile))
 				{
+					// Only "v2|" entries count: older ones were written before the metadata check (FastFix 1.36), which may make them
+					// safe now, so they are read again once; if the game closes again, the entry comes back as v2.
 					string[] lines = System.IO.File.ReadAllLines(_skipFile);
+					int old = 0;
 					for (int i = 0; i < lines.Length; i++)
 					{
 						string l = lines[i].Trim();
-						if (l.Length > 0)
+						if (l.StartsWith(SkipV2, StringComparison.Ordinal))
 						{
-							SkipKeys[l] = true;
+							SkipKeys[l.Substring(SkipV2.Length)] = true;
 						}
+						else if (l.Length > 0)
+						{
+							old++;
+						}
+					}
+					if (old > 0)
+					{
+						System.Text.StringBuilder keep = new System.Text.StringBuilder();
+						foreach (KeyValuePair<string, bool> k in SkipKeys)
+						{
+							keep.Append(SkipV2).Append(k.Key).Append("\r\n");
+						}
+						string tmp = _skipFile + ".tmp";
+						System.IO.File.WriteAllText(tmp, keep.ToString());
+						System.IO.File.Delete(_skipFile);
+						System.IO.File.Move(tmp, _skipFile);
+						N.ULog.Info(FastFixModule.Tag, "covariance: " + old + " entries of " + _skipFile + " from before FastFix 1.36 removed: read again with the metadata check");
 					}
 				}
 				if (!System.IO.File.Exists(_stepFile))
@@ -1426,7 +1472,7 @@ namespace FastFix
 				if (!SkipKeys.ContainsKey(key))
 				{
 					SkipKeys[key] = true;
-					System.IO.File.AppendAllText(_skipFile, key + "\r\n");
+					System.IO.File.AppendAllText(_skipFile, SkipV2 + key + "\r\n");
 				}
 				int bar = key.IndexOf('|');
 				string path = bar > 0 ? key.Substring(0, bar) : key;
@@ -1632,7 +1678,7 @@ namespace FastFix
 			return c;
 		}
 
-		private static void ScanAssembly(Assembly asm, List<MethodBase> targets, ref int methods, ref int skipped)
+		private static void ScanAssembly(Assembly asm, List<MethodBase> targets, Dictionary<int, bool> unsafeMethods, ref int methods, ref int skipped, ref int notRead)
 		{
 			Type[] types;
 			try
@@ -1670,6 +1716,12 @@ namespace FastFix
 					byte[] il;
 					try
 					{
+						// Before any other reflection on the method: reading one that reaches a missing runtime member can close the game.
+						if (unsafeMethods.ContainsKey(list[m].MetadataToken))
+						{
+							notRead++;
+							continue;
+						}
 						if (list[m].ContainsGenericParameters || list[m].IsAbstract || (list[m].IsConstructor && list[m].IsStatic))
 						{
 							continue;
@@ -2462,6 +2514,1153 @@ namespace FastFix
 		}
 	}
 
+	// ---------- Covariance reference pre-check ----------
+	// Reads the metadata tables of a mod DLL from its file (no reflection on the mod): every TypeRef into a loaded game or
+	// runtime assembly that has no such type, and every MemberRef to such a type that has no member of that name and parameter
+	// count (a mod built for .NET 4: System.ValueTuple`2, Array.Empty<T> are not in this game's mscorlib 2.0). Reflection over a
+	// method that reaches one of them (its signature, locals or an IL operand) can close the game inside Mono (Many Winged Angel
+	// DIYMOD.dll IniFileHelper), so Covariance does not read those methods. References into other mod assemblies are not
+	// checked (resolving their types would load them). Any doubt counts as unsafe.
+	internal static class CovarianceMeta
+	{
+		// Returns null when the file was read; unsafeMethods gets the MethodDef tokens not to read, missing the names found.
+		internal static string Check(Assembly asm, OpCode[] one, OpCode[] two, bool[] hasOne, bool[] hasTwo, Dictionary<int, bool> unsafeMethods, List<string> missing)
+		{
+			Reader r;
+			try
+			{
+				r = new Reader(System.IO.File.ReadAllBytes(asm.Location), one, two, hasOne, hasTwo, missing);
+			}
+			catch (Exception e)
+			{
+				return e.GetType().Name + ": " + e.Message;
+			}
+			int n = r.Rows(0x06);
+			bool failed = false;
+			for (int i = 1; i <= n; i++)
+			{
+				bool bad;
+				try
+				{
+					bad = r.MethodUnsafe(i);
+				}
+				catch (Exception e)
+				{
+					bad = true;
+					if (!failed)
+					{
+						failed = true;
+						missing.Add("(unreadable method 0x" + (0x06000000 | i).ToString("X8") + ": " + e.GetType().Name + ")");
+					}
+				}
+				if (bad)
+				{
+					unsafeMethods[0x06000000 | i] = true;
+				}
+			}
+			return null;
+		}
+
+		private sealed class Reader
+		{
+			private const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
+
+			// Column codes: 1 u16, 2 u32, 3 string, 4 guid, 5 blob, 100 + table = table index, 200 + n = coded index n.
+			private static readonly int[][] Schema = new int[][]
+			{
+				new int[] { 1, 3, 4, 4, 4 },
+				new int[] { 211, 3, 3 },
+				new int[] { 2, 3, 3, 200, 104, 106 },
+				new int[] { 104 },
+				new int[] { 1, 3, 5 },
+				new int[] { 106 },
+				new int[] { 2, 1, 1, 3, 5, 108 },
+				new int[] { 108 },
+				new int[] { 1, 1, 3 },
+				new int[] { 102, 200 },
+				new int[] { 205, 3, 5 },
+				new int[] { 1, 201, 5 },
+				new int[] { 202, 210, 5 },
+				new int[] { 203, 5 },
+				new int[] { 1, 204, 5 },
+				new int[] { 1, 2, 102 },
+				new int[] { 2, 104 },
+				new int[] { 5 },
+				new int[] { 102, 120 },
+				new int[] { 120 },
+				new int[] { 1, 3, 200 },
+				new int[] { 102, 123 },
+				new int[] { 123 },
+				new int[] { 1, 3, 5 },
+				new int[] { 1, 106, 206 },
+				new int[] { 102, 207, 207 },
+				new int[] { 3 },
+				new int[] { 5 },
+				new int[] { 1, 208, 3, 126 },
+				new int[] { 2, 104 },
+				new int[] { 2, 2 },
+				new int[] { 2 },
+				new int[] { 2, 1, 1, 1, 1, 2, 5, 3, 3 },
+				new int[] { 2 },
+				new int[] { 2, 2, 2 },
+				new int[] { 1, 1, 1, 1, 2, 5, 3, 3, 5 },
+				new int[] { 2, 135 },
+				new int[] { 2, 2, 2, 135 },
+				new int[] { 2, 3, 5 },
+				new int[] { 2, 2, 3, 3, 209 },
+				new int[] { 2, 2, 3, 209 },
+				new int[] { 102, 102 },
+				new int[] { 1, 1, 212, 3 },
+				new int[] { 207, 5 },
+				new int[] { 142, 200 }
+			};
+
+			// ECMA-335 II.24.2.6: TypeDefOrRef, HasConstant, HasCustomAttribute, HasFieldMarshal, HasDeclSecurity, MemberRefParent,
+			// HasSemantics, MethodDefOrRef, MemberForwarded, Implementation, CustomAttributeType, ResolutionScope, TypeOrMethodDef.
+			private static readonly int[][] Coded = new int[][]
+			{
+				new int[] { 0x02, 0x01, 0x1B },
+				new int[] { 0x04, 0x08, 0x17 },
+				new int[] { 0x06, 0x04, 0x01, 0x02, 0x08, 0x09, 0x0A, 0x00, 0x0E, 0x17, 0x14, 0x11, 0x1A, 0x1B, 0x20, 0x23, 0x26, 0x27, 0x28, 0x2A, 0x2C, 0x2B },
+				new int[] { 0x04, 0x08 },
+				new int[] { 0x02, 0x06, 0x20 },
+				new int[] { 0x02, 0x01, 0x1A, 0x06, 0x1B },
+				new int[] { 0x14, 0x17 },
+				new int[] { 0x06, 0x0A },
+				new int[] { 0x04, 0x06 },
+				new int[] { 0x26, 0x23, 0x27 },
+				new int[] { -1, -1, 0x06, 0x0A, -1 },
+				new int[] { 0x00, 0x1A, 0x23, 0x01 },
+				new int[] { 0x02, 0x06 }
+			};
+
+			private static readonly int[] CodedBits = new int[] { 2, 2, 5, 1, 2, 3, 1, 1, 1, 2, 3, 2, 1 };
+
+			private readonly byte[] _d;
+			private readonly OpCode[] _one;
+			private readonly OpCode[] _two;
+			private readonly bool[] _hasOne;
+			private readonly bool[] _hasTwo;
+			private readonly List<string> _missing;
+			private readonly int[] _rows = new int[64];
+			private readonly int[] _tableAt = new int[64];
+			private readonly int[] _rowSize = new int[64];
+			private readonly int[][] _colAt = new int[64][];
+			private readonly int[][] _colSize = new int[64][];
+			private int[] _secVa;
+			private int[] _secSize;
+			private int[] _secRaw;
+			private int _strings;
+			private int _blob;
+			private int _strSize;
+			private int _guidSize;
+			private int _blobSize;
+			// 0 unknown, 1 safe, 2 unsafe, 3 being checked.
+			private int[] _typeRef;
+			private Type[] _typeRefType;
+			private int[] _typeSpec;
+			private int[] _memberRef;
+			private readonly Dictionary<int, bool> _blobBad = new Dictionary<int, bool>();
+			private readonly Dictionary<string, Assembly> _game = new Dictionary<string, Assembly>(StringComparer.OrdinalIgnoreCase);
+			private readonly Dictionary<string, bool> _mods = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+			private readonly Dictionary<Type, MethodBase[]> _methods = new Dictionary<Type, MethodBase[]>();
+
+			internal Reader(byte[] d, OpCode[] one, OpCode[] two, bool[] hasOne, bool[] hasTwo, List<string> missing)
+			{
+				_d = d;
+				_one = one;
+				_two = two;
+				_hasOne = hasOne;
+				_hasTwo = hasTwo;
+				_missing = missing;
+				ReadPe();
+				_typeRef = new int[_rows[0x01] + 1];
+				_typeRefType = new Type[_rows[0x01] + 1];
+				_typeSpec = new int[_rows[0x1B] + 1];
+				_memberRef = new int[_rows[0x0A] + 1];
+				Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
+				for (int i = 0; i < all.Length; i++)
+				{
+					string name;
+					string location;
+					try
+					{
+						if (all[i] is AssemblyBuilder)
+						{
+							continue;
+						}
+						name = all[i].GetName().Name;
+						location = all[i].Location;
+					}
+					catch (Exception)
+					{
+						continue;
+					}
+					// No location = loaded from bytes, most likely by a mod: never reflected over here.
+					if (string.IsNullOrEmpty(location) || location.Replace('/', '\\').IndexOf("\\BaseMods\\", StringComparison.OrdinalIgnoreCase) >= 0)
+					{
+						_mods[name] = true;
+					}
+					else if (!_game.ContainsKey(name))
+					{
+						_game[name] = all[i];
+					}
+				}
+			}
+
+			internal int Rows(int table)
+			{
+				return _rows[table];
+			}
+
+			private int U16(int o)
+			{
+				return _d[o] | (_d[o + 1] << 8);
+			}
+
+			private int U32(int o)
+			{
+				return _d[o] | (_d[o + 1] << 8) | (_d[o + 2] << 16) | (_d[o + 3] << 24);
+			}
+
+			private int Offset(int rva)
+			{
+				for (int i = 0; i < _secVa.Length; i++)
+				{
+					if (rva >= _secVa[i] && rva < _secVa[i] + _secSize[i])
+					{
+						return rva - _secVa[i] + _secRaw[i];
+					}
+				}
+				throw new FormatException("rva 0x" + rva.ToString("X") + " outside the sections");
+			}
+
+			private void ReadPe()
+			{
+				if (U16(0) != 0x5A4D)
+				{
+					throw new FormatException("no MZ header");
+				}
+				int pe = U32(0x3C);
+				if (U32(pe) != 0x4550)
+				{
+					throw new FormatException("no PE header");
+				}
+				int sections = U16(pe + 6);
+				int optSize = U16(pe + 20);
+				int opt = pe + 24;
+				int magic = U16(opt);
+				int dirs = magic == 0x20B ? opt + 112 : opt + 96;
+				if (magic != 0x10B && magic != 0x20B)
+				{
+					throw new FormatException("unknown optional header 0x" + magic.ToString("X"));
+				}
+				_secVa = new int[sections];
+				_secSize = new int[sections];
+				_secRaw = new int[sections];
+				int sec = opt + optSize;
+				for (int i = 0; i < sections; i++)
+				{
+					int s = sec + i * 40;
+					_secVa[i] = U32(s + 12);
+					_secSize[i] = U32(s + 16);
+					_secRaw[i] = U32(s + 20);
+				}
+				int cli = U32(dirs + 14 * 8);
+				if (cli == 0)
+				{
+					throw new FormatException("no CLI header");
+				}
+				int meta = Offset(U32(Offset(cli) + 8));
+				if (U32(meta) != 0x424A5342)
+				{
+					throw new FormatException("no metadata signature");
+				}
+				int verLen = U32(meta + 12);
+				int p = meta + 16 + verLen;
+				int streams = U16(p + 2);
+				p += 4;
+				int tables = -1;
+				for (int i = 0; i < streams; i++)
+				{
+					int off = U32(p);
+					int start = p + 8;
+					int end = start;
+					while (_d[end] != 0)
+					{
+						end++;
+					}
+					string name = System.Text.Encoding.ASCII.GetString(_d, start, end - start);
+					p = start + ((end - start + 4) & ~3);
+					if (name == "#~" || name == "#-")
+					{
+						tables = meta + off;
+					}
+					else if (name == "#Strings")
+					{
+						_strings = meta + off;
+					}
+					else if (name == "#Blob")
+					{
+						_blob = meta + off;
+					}
+				}
+				if (tables < 0 || _strings == 0 || _blob == 0)
+				{
+					throw new FormatException("metadata streams missing");
+				}
+				int heaps = _d[tables + 6];
+				_strSize = (heaps & 1) != 0 ? 4 : 2;
+				_guidSize = (heaps & 2) != 0 ? 4 : 2;
+				_blobSize = (heaps & 4) != 0 ? 4 : 2;
+				long valid = (uint)U32(tables + 8) | ((long)(uint)U32(tables + 12) << 32);
+				p = tables + 24;
+				for (int t = 0; t < 64; t++)
+				{
+					if ((valid & (1L << t)) != 0)
+					{
+						if (t >= Schema.Length)
+						{
+							throw new FormatException("unknown metadata table 0x" + t.ToString("X"));
+						}
+						_rows[t] = U32(p);
+						p += 4;
+					}
+				}
+				if ((heaps & 0x40) != 0)
+				{
+					p += 4;
+				}
+				for (int t = 0; t < Schema.Length; t++)
+				{
+					int[] cols = Schema[t];
+					_colAt[t] = new int[cols.Length];
+					_colSize[t] = new int[cols.Length];
+					int size = 0;
+					for (int c = 0; c < cols.Length; c++)
+					{
+						_colAt[t][c] = size;
+						_colSize[t][c] = ColSize(cols[c]);
+						size += _colSize[t][c];
+					}
+					_rowSize[t] = size;
+					_tableAt[t] = p;
+					p += size * _rows[t];
+				}
+				if (p > _d.Length)
+				{
+					throw new FormatException("metadata tables past the end of the file");
+				}
+			}
+
+			private int ColSize(int code)
+			{
+				if (code == 1)
+				{
+					return 2;
+				}
+				if (code == 2)
+				{
+					return 4;
+				}
+				if (code == 3)
+				{
+					return _strSize;
+				}
+				if (code == 4)
+				{
+					return _guidSize;
+				}
+				if (code == 5)
+				{
+					return _blobSize;
+				}
+				if (code < 200)
+				{
+					return _rows[code - 100] < 0x10000 ? 2 : 4;
+				}
+				int[] tables = Coded[code - 200];
+				int max = 0;
+				for (int i = 0; i < tables.Length; i++)
+				{
+					if (tables[i] >= 0 && _rows[tables[i]] > max)
+					{
+						max = _rows[tables[i]];
+					}
+				}
+				return max < (1 << (16 - CodedBits[code - 200])) ? 2 : 4;
+			}
+
+			private int Col(int table, int row, int col)
+			{
+				int o = _tableAt[table] + (row - 1) * _rowSize[table] + _colAt[table][col];
+				return _colSize[table][col] == 2 ? U16(o) : U32(o);
+			}
+
+			private string Str(int index)
+			{
+				int start = _strings + index;
+				int end = start;
+				while (_d[end] != 0)
+				{
+					end++;
+				}
+				return System.Text.Encoding.UTF8.GetString(_d, start, end - start);
+			}
+
+			private int Comp(ref int p)
+			{
+				int b = _d[p];
+				if ((b & 0x80) == 0)
+				{
+					p += 1;
+					return b;
+				}
+				if ((b & 0xC0) == 0x80)
+				{
+					int v2 = ((b & 0x3F) << 8) | _d[p + 1];
+					p += 2;
+					return v2;
+				}
+				int v4 = ((b & 0x1F) << 24) | (_d[p + 1] << 16) | (_d[p + 2] << 8) | _d[p + 3];
+				p += 4;
+				return v4;
+			}
+
+			// Start of the blob data; len = its length.
+			private int Blob(int index, out int len)
+			{
+				int p = _blob + index;
+				len = Comp(ref p);
+				if (p + len > _d.Length)
+				{
+					throw new FormatException("blob past the end of the file");
+				}
+				return p;
+			}
+
+			private bool InRange(int table, int row)
+			{
+				return row >= 1 && row <= _rows[table];
+			}
+
+			private void Missing(string name)
+			{
+				if (_missing.Count < 16 && !_missing.Contains(name))
+				{
+					_missing.Add(name);
+				}
+			}
+
+			internal bool MethodUnsafe(int row)
+			{
+				if (BlobBad(Col(0x06, row, 4)))
+				{
+					return true;
+				}
+				int rva = Col(0x06, row, 0);
+				if (rva == 0)
+				{
+					return false;
+				}
+				int o = Offset(rva);
+				int head = _d[o];
+				int start;
+				int size;
+				bool sections = false;
+				if ((head & 3) == 2)
+				{
+					size = head >> 2;
+					start = o + 1;
+				}
+				else if ((head & 3) == 3)
+				{
+					size = U32(o + 4);
+					int locals = U32(o + 8);
+					start = o + ((U16(o) >> 12) * 4);
+					sections = (U16(o) & 0x08) != 0;
+					if (locals != 0 && TokenBad(locals))
+					{
+						return true;
+					}
+				}
+				else
+				{
+					return true;
+				}
+				if (size < 0 || start + size > _d.Length)
+				{
+					return true;
+				}
+				int i = start;
+				int end = start + size;
+				while (i < end)
+				{
+					int b = _d[i++];
+					OpCode op;
+					if (b == 0xFE)
+					{
+						if (i >= end || !_hasTwo[_d[i]])
+						{
+							return true;
+						}
+						op = _two[_d[i++]];
+					}
+					else
+					{
+						if (!_hasOne[b])
+						{
+							return true;
+						}
+						op = _one[b];
+					}
+					switch (op.OperandType)
+					{
+						case OperandType.InlineNone:
+							break;
+						case OperandType.ShortInlineBrTarget:
+						case OperandType.ShortInlineI:
+						case OperandType.ShortInlineVar:
+							i += 1;
+							break;
+						case OperandType.InlineVar:
+							i += 2;
+							break;
+						case OperandType.InlineI:
+						case OperandType.InlineBrTarget:
+						case OperandType.InlineString:
+						case OperandType.ShortInlineR:
+							i += 4;
+							break;
+						case OperandType.InlineI8:
+						case OperandType.InlineR:
+							i += 8;
+							break;
+						case OperandType.InlineSwitch:
+							if (i + 4 > end)
+							{
+								return true;
+							}
+							long count = (uint)U32(i);
+							i += 4;
+							if (count > (end - i) / 4)
+							{
+								return true;
+							}
+							i += (int)count * 4;
+							break;
+						case OperandType.InlineField:
+						case OperandType.InlineMethod:
+						case OperandType.InlineSig:
+						case OperandType.InlineTok:
+						case OperandType.InlineType:
+							if (i + 4 > end || TokenBad(U32(i)))
+							{
+								return true;
+							}
+							i += 4;
+							break;
+						default:
+							return true;
+					}
+				}
+				if (i != end)
+				{
+					return true;
+				}
+				return sections && HandlersBad(end);
+			}
+
+			// Exception sections after a fat body (II.25.4.5): Mono loads every catch class when it reads the method header.
+			private bool HandlersBad(int end)
+			{
+				int p = (end + 3) & ~3;
+				while (true)
+				{
+					int kind = _d[p];
+					bool fat = (kind & 0x40) != 0;
+					int size = fat ? (_d[p + 1] | (_d[p + 2] << 8) | (_d[p + 3] << 16)) : _d[p + 1];
+					if ((kind & 0x01) == 0 || size < 4 || p + size > _d.Length)
+					{
+						return true;
+					}
+					int clause = fat ? 24 : 12;
+					for (int c = p + 4; c + clause <= p + size; c += clause)
+					{
+						int flags = fat ? U32(c) : U16(c);
+						if (flags == 0 && TokenBad(U32(c + clause - 4)))
+						{
+							return true;
+						}
+					}
+					if ((kind & 0x80) == 0)
+					{
+						return false;
+					}
+					p = (p + size + 3) & ~3;
+				}
+			}
+
+			private bool TokenBad(int token)
+			{
+				int table = (int)((uint)token >> 24);
+				int row = token & 0xFFFFFF;
+				switch (table)
+				{
+					case 0x01:
+						return TypeRefBad(row);
+					case 0x02:
+						return !InRange(0x02, row);
+					case 0x04:
+						return !InRange(0x04, row) || BlobBad(Col(0x04, row, 2));
+					case 0x06:
+						return !InRange(0x06, row) || BlobBad(Col(0x06, row, 4));
+					case 0x0A:
+						return MemberRefBad(row);
+					case 0x11:
+						return !InRange(0x11, row) || BlobBad(Col(0x11, row, 0));
+					case 0x1B:
+						return TypeSpecBad(row);
+					case 0x2B:
+						if (!InRange(0x2B, row))
+						{
+							return true;
+						}
+						int method = Col(0x2B, row, 0);
+						if ((method & 1) == 0 ? TokenBad(0x06000000 | (method >> 1)) : MemberRefBad(method >> 1))
+						{
+							return true;
+						}
+						return BlobBad(Col(0x2B, row, 1));
+					case 0x70:
+						return false;
+					default:
+						return true;
+				}
+			}
+
+			private bool TypeRefBad(int row)
+			{
+				if (!InRange(0x01, row))
+				{
+					return true;
+				}
+				int state = _typeRef[row];
+				if (state != 0)
+				{
+					return state != 1;
+				}
+				_typeRef[row] = 3;
+				bool bad;
+				try
+				{
+					bad = ResolveTypeRef(row);
+				}
+				catch (Exception)
+				{
+					bad = true;
+				}
+				_typeRef[row] = bad ? 2 : 1;
+				return bad;
+			}
+
+			// Sets _typeRefType[row] for a game or runtime type; null = a type of this module or of another mod (not checked).
+			private bool ResolveTypeRef(int row)
+			{
+				int scope = Col(0x01, row, 0);
+				string name = Str(Col(0x01, row, 1));
+				string ns = Str(Col(0x01, row, 2));
+				string full = ns.Length > 0 ? ns + "." + name : name;
+				int index = scope >> 2;
+				switch (scope & 3)
+				{
+					case 2:
+						if (!InRange(0x23, index))
+						{
+							return true;
+						}
+						string asmName = Str(Col(0x23, index, 6));
+						Assembly a;
+						if (!_game.TryGetValue(asmName, out a))
+						{
+							if (_mods.ContainsKey(asmName))
+							{
+								return false;
+							}
+							Missing("[" + asmName + "] " + full);
+							return true;
+						}
+						Type t = a.GetType(full, false);
+						if (object.ReferenceEquals(t, null))
+						{
+							Missing(full);
+							return true;
+						}
+						_typeRefType[row] = t;
+						return false;
+					case 3:
+						if (TypeRefBad(index))
+						{
+							return true;
+						}
+						Type outer = _typeRefType[index];
+						if (object.ReferenceEquals(outer, null))
+						{
+							return false;
+						}
+						Type nested = outer.GetNestedType(name, BindingFlags.Public | BindingFlags.NonPublic);
+						if (object.ReferenceEquals(nested, null))
+						{
+							Missing(outer.FullName + "+" + name);
+							return true;
+						}
+						_typeRefType[row] = nested;
+						return false;
+					default:
+						return false;
+				}
+			}
+
+			private bool TypeSpecBad(int row)
+			{
+				if (!InRange(0x1B, row))
+				{
+					return true;
+				}
+				int state = _typeSpec[row];
+				if (state != 0)
+				{
+					return state != 1;
+				}
+				_typeSpec[row] = 3;
+				bool bad;
+				try
+				{
+					int len;
+					int p = Blob(Col(0x1B, row, 0), out len);
+					bad = TypeBad(ref p, p + len);
+				}
+				catch (Exception)
+				{
+					bad = true;
+				}
+				_typeSpec[row] = bad ? 2 : 1;
+				return bad;
+			}
+
+			// The game type a generic instance TypeSpec is made of (List`1 for List<T>), or null.
+			private Type SpecType(int row)
+			{
+				int len;
+				int p = Blob(Col(0x1B, row, 0), out len);
+				if (len < 2 || _d[p] != 0x15)
+				{
+					return null;
+				}
+				p += 2;
+				int coded = Comp(ref p);
+				return (coded & 3) == 1 ? _typeRefType[coded >> 2] : null;
+			}
+
+			private bool MemberRefBad(int row)
+			{
+				if (!InRange(0x0A, row))
+				{
+					return true;
+				}
+				int state = _memberRef[row];
+				if (state != 0)
+				{
+					return state != 1;
+				}
+				_memberRef[row] = 3;
+				bool bad;
+				try
+				{
+					bad = ResolveMemberRef(row);
+				}
+				catch (Exception)
+				{
+					bad = true;
+				}
+				_memberRef[row] = bad ? 2 : 1;
+				return bad;
+			}
+
+			private bool ResolveMemberRef(int row)
+			{
+				int parent = Col(0x0A, row, 0);
+				int sig = Col(0x0A, row, 2);
+				if (BlobBad(sig))
+				{
+					return true;
+				}
+				int index = parent >> 3;
+				Type owner = null;
+				switch (parent & 7)
+				{
+					case 1:
+						if (TypeRefBad(index))
+						{
+							return true;
+						}
+						owner = _typeRefType[index];
+						break;
+					case 4:
+						if (TypeSpecBad(index))
+						{
+							return true;
+						}
+						owner = SpecType(index);
+						break;
+					case 0:
+					case 2:
+					case 3:
+						return false;
+					default:
+						return true;
+				}
+				if (object.ReferenceEquals(owner, null))
+				{
+					return false;
+				}
+				string name = Str(Col(0x0A, row, 1));
+				if (HasMember(owner, name, sig))
+				{
+					return false;
+				}
+				Missing(owner.FullName + "::" + name);
+				return true;
+			}
+
+			private bool HasMember(Type owner, string name, int sig)
+			{
+				int len;
+				int p = Blob(sig, out len);
+				if (len == 0)
+				{
+					return false;
+				}
+				int end = p + len;
+				int cc = _d[p++];
+				if (cc == 0x06)
+				{
+					for (Type t = owner; !object.ReferenceEquals(t, null); t = t.BaseType)
+					{
+						if (!object.ReferenceEquals(t.GetField(name, All), null))
+						{
+							return true;
+						}
+					}
+					return false;
+				}
+				if ((cc & 0x10) != 0)
+				{
+					Comp(ref p);
+				}
+				int count = Comp(ref p);
+				// Parameter types as far as they are known here (null = any): a .NET 4 overload with the same count as an old one
+				// (String.Join(string, IEnumerable<string>) next to Join(string, string[])) must not count as present.
+				ParamShape(ref p, end);
+				Type[] want = new Type[count];
+				bool[] generic = new bool[count];
+				for (int k = 0; k < count; k++)
+				{
+					want[k] = ParamShape(ref p, end);
+					generic[k] = _lastGeneric;
+				}
+				bool ctor = name == ".ctor" || name == ".cctor";
+				for (Type t = owner; !object.ReferenceEquals(t, null); t = ctor ? null : t.BaseType)
+				{
+					MethodBase[] ms;
+					if (!_methods.TryGetValue(t, out ms))
+					{
+						List<MethodBase> list = new List<MethodBase>();
+						list.AddRange(t.GetMethods(All));
+						list.AddRange(t.GetConstructors(All));
+						ms = list.ToArray();
+						_methods[t] = ms;
+					}
+					for (int i = 0; i < ms.Length; i++)
+					{
+						if (ms[i].Name == name && ParamsMatch(ms[i].GetParameters(), want, generic))
+						{
+							return true;
+						}
+					}
+				}
+				return false;
+			}
+
+			private static bool ParamsMatch(ParameterInfo[] ps, Type[] want, bool[] generic)
+			{
+				int need = want.Length;
+				if (ps.Length != need)
+				{
+					return false;
+				}
+				for (int k = 0; k < ps.Length; k++)
+				{
+					if (object.ReferenceEquals(want[k], null))
+					{
+						continue;
+					}
+					Type pt = ps[k].ParameterType;
+					if (generic[k])
+					{
+						if (!pt.IsGenericType || !object.ReferenceEquals(pt.GetGenericTypeDefinition(), want[k]))
+						{
+							return false;
+						}
+					}
+					else if (!object.ReferenceEquals(pt, want[k]))
+					{
+						return false;
+					}
+				}
+				return true;
+			}
+
+			private bool _lastGeneric;
+
+			// One type of a signature: the game type it names, its generic definition (_lastGeneric = true) or null when it
+			// cannot be compared here (mod types, generic parameters, by-ref, pointers, arrays of those). Advances p past it.
+			private Type ParamShape(ref int p, int end)
+			{
+				_lastGeneric = false;
+				int at = p;
+				int b = _d[p];
+				Type simple = Primitive(b);
+				if (!object.ReferenceEquals(simple, null))
+				{
+					p++;
+					return simple;
+				}
+				if (b == 0x11 || b == 0x12)
+				{
+					p++;
+					int coded = Comp(ref p);
+					return (coded & 3) == 1 && InRange(0x01, coded >> 2) ? _typeRefType[coded >> 2] : null;
+				}
+				if (b == 0x1D)
+				{
+					p++;
+					Type inner = ParamShape(ref p, end);
+					bool innerGeneric = _lastGeneric;
+					_lastGeneric = false;
+					return object.ReferenceEquals(inner, null) || innerGeneric ? null : inner.MakeArrayType();
+				}
+				if (b == 0x15)
+				{
+					p += 2;
+					int coded = Comp(ref p);
+					int args = Comp(ref p);
+					for (int i = 0; i < args; i++)
+					{
+						ParamShape(ref p, end);
+					}
+					Type def = (coded & 3) == 1 && InRange(0x01, coded >> 2) ? _typeRefType[coded >> 2] : null;
+					_lastGeneric = !object.ReferenceEquals(def, null);
+					return def;
+				}
+				p = at;
+				TypeBad(ref p, end);
+				_lastGeneric = false;
+				return null;
+			}
+
+			private static Type Primitive(int b)
+			{
+				switch (b)
+				{
+					case 0x01:
+						return typeof(void);
+					case 0x02:
+						return typeof(bool);
+					case 0x03:
+						return typeof(char);
+					case 0x04:
+						return typeof(sbyte);
+					case 0x05:
+						return typeof(byte);
+					case 0x06:
+						return typeof(short);
+					case 0x07:
+						return typeof(ushort);
+					case 0x08:
+						return typeof(int);
+					case 0x09:
+						return typeof(uint);
+					case 0x0A:
+						return typeof(long);
+					case 0x0B:
+						return typeof(ulong);
+					case 0x0C:
+						return typeof(float);
+					case 0x0D:
+						return typeof(double);
+					case 0x0E:
+						return typeof(string);
+					case 0x18:
+						return typeof(IntPtr);
+					case 0x19:
+						return typeof(UIntPtr);
+					case 0x1C:
+						return typeof(object);
+					default:
+						return null;
+				}
+			}
+
+			private bool BlobBad(int index)
+			{
+				bool bad;
+				if (_blobBad.TryGetValue(index, out bad))
+				{
+					return bad;
+				}
+				_blobBad[index] = true;
+				try
+				{
+					int len;
+					int p = Blob(index, out len);
+					bad = SigBad(ref p, p + len);
+				}
+				catch (Exception)
+				{
+					bad = true;
+				}
+				_blobBad[index] = bad;
+				return bad;
+			}
+
+			// A field, method, property, local or method-instance signature (II.23.2).
+			private bool SigBad(ref int p, int end)
+			{
+				if (p >= end)
+				{
+					return false;
+				}
+				int cc = _d[p++];
+				int count;
+				if (cc == 0x06)
+				{
+					return TypeBad(ref p, end);
+				}
+				if (cc == 0x07 || cc == 0x0A)
+				{
+					count = Comp(ref p);
+				}
+				else
+				{
+					if ((cc & 0x10) != 0)
+					{
+						Comp(ref p);
+					}
+					count = Comp(ref p) + 1;
+				}
+				for (int i = 0; i < count; i++)
+				{
+					if (TypeBad(ref p, end))
+					{
+						return true;
+					}
+				}
+				return false;
+			}
+
+			private bool TypeBad(ref int p, int end)
+			{
+				while (true)
+				{
+					if (p >= end)
+					{
+						throw new FormatException("signature ends early");
+					}
+					int b = _d[p++];
+					switch (b)
+					{
+						case 0x1F:
+						case 0x20:
+							if (TypeDefOrRefBad(Comp(ref p)))
+							{
+								return true;
+							}
+							continue;
+						case 0x0F:
+						case 0x10:
+						case 0x1D:
+						case 0x41:
+						case 0x45:
+							continue;
+						case 0x11:
+						case 0x12:
+							return TypeDefOrRefBad(Comp(ref p));
+						case 0x13:
+						case 0x1E:
+							Comp(ref p);
+							return false;
+						case 0x14:
+							if (TypeBad(ref p, end))
+							{
+								return true;
+							}
+							Comp(ref p);
+							int sizes = Comp(ref p);
+							for (int i = 0; i < sizes; i++)
+							{
+								Comp(ref p);
+							}
+							int bounds = Comp(ref p);
+							for (int i = 0; i < bounds; i++)
+							{
+								Comp(ref p);
+							}
+							return false;
+						case 0x15:
+							p++;
+							if (TypeDefOrRefBad(Comp(ref p)))
+							{
+								return true;
+							}
+							int args = Comp(ref p);
+							for (int i = 0; i < args; i++)
+							{
+								if (TypeBad(ref p, end))
+								{
+									return true;
+								}
+							}
+							return false;
+						case 0x1B:
+							return SigBad(ref p, end);
+						default:
+							if ((b >= 0x01 && b <= 0x0E) || b == 0x16 || b == 0x18 || b == 0x19 || b == 0x1C)
+							{
+								return false;
+							}
+							throw new FormatException("unknown element type 0x" + b.ToString("X"));
+					}
+				}
+			}
+
+			private bool TypeDefOrRefBad(int coded)
+			{
+				switch (coded & 3)
+				{
+					case 0:
+						return !InRange(0x02, coded >> 2);
+					case 1:
+						return TypeRefBad(coded >> 2);
+					case 2:
+						return TypeSpecBad(coded >> 2);
+					default:
+						return true;
+				}
+			}
+		}
+	}
+
 	// ---------- 12Harmony hint ----------
 	// Once, on the title screen after the installs finished: if fixes were skipped for lack of 12Harmony, NailUI.H12Hint.Show
 	// (by reflection) lists them in the alert box; then FastFix.Hint12Harmony is saved false and it is never shown again.
@@ -2566,6 +3765,9 @@ namespace FastFix
 		private static bool _whaleDone;
 		private static bool _charlotteDone;
 		private static bool _kekesiDone;
+		private static bool _fdDone;
+		private static bool _riskDone;
+		private static bool _featherDone;
 		private static bool _puLaoDone;
 		private static bool _pinoEscDone;
 		private static bool _floodDone;
@@ -2601,6 +3803,10 @@ namespace FastFix
 				_childDone = true;
 				InstallChild();
 				InstallChildElevator();
+				InstallCreatureNoAnim();
+				InstallDamageFactor();
+				InstallSoundDeQueue();
+				InstallBulletMax();
 			}
 			if (!_blackBirdDone)
 			{
@@ -2670,6 +3876,18 @@ namespace FastFix
 			{
 				_kekesiDone = Mod("KekesiWolf", "FastFix.KekesiWolfHit", "Alleyway Watchdog: its area hit no longer stops when it kills someone in the room. Read at game start.", last, InstallKekesi);
 			}
+			if (!_riskDone)
+			{
+				_riskDone = Mod("kekesi_CustomRisk", "FastFix.CustomRiskChild", "kekesi CustomRisk: clicking a child creature without its own observation data no longer throws and breaks the command window. Read at game start.", last, InstallCustomRisk);
+			}
+			if (!_featherDone)
+			{
+				_featherDone = Mod("FeatherMemories", "FastFix.FeatherHardMode", "Bloody Past (FeatherMemories): its hard-mode setting is read from disk once instead of every tick. Read at game start.", last, InstallFeatherHardMode);
+			}
+			if (!_fdDone)
+			{
+				_fdDone = Mod("FD", "FastFix.FDTick", "FD (Harikjay Krau Deluge): a unit in its room no longer closes the game (List<AgentModel> read as IEnumerable<UnitModel>), also without 12Harmony. Read at game start.", last, InstallFdTick);
+			}
 			if (!_puLaoDone)
 			{
 				_puLaoDone = Mod("PuLao", "FastFix.PuLaoChain", "PuLao: its attack near a music creature no longer recurses without end and closes the game. Read at game start.", last, InstallPuLao);
@@ -2726,11 +3944,12 @@ namespace FastFix
 			{
 				_bbPassageDone = Mod("BlackBird_WhiteBird", "FastFix.BlackBirdPassageHit", "Black Bird: its hit on the hallway no longer stops when it kills someone there. Needs 12Harmony. Read at game start.", last, InstallBlackBirdPassageHit);
 			}
+			bool batch = InstallBatch(last);
 			return _blackBirdDone && _pinoDone && _boneFishDone && _dragonDone && _flowerDone && _isomerDone
 				&& _toyDone && _invSefiraDone && _invPathDone && _pinoRangeDone && _rainDone && _qiuDone && _niuDone && _hookahDone
-				&& _whaleDone && _charlotteDone && _kekesiDone && _puLaoDone
+				&& _whaleDone && _charlotteDone && _kekesiDone && _fdDone && _riskDone && _featherDone && _puLaoDone
 				&& _pinoEscDone && _floodDone && _beastDone && _yaziDone && _bbDeathDone && _whaleRoamDone
-				&& _qianRuDone && _cauldronDone && _ribbonDone && _cloudDone && _yaziEscDone && _grunglyDone && _bbPassageDone;
+				&& _qianRuDone && _cauldronDone && _ribbonDone && _cloudDone && _yaziEscDone && _grunglyDone && _bbPassageDone && batch;
 		}
 
 		private delegate void Installer(Assembly asm);
@@ -2786,6 +4005,1652 @@ namespace FastFix
 			N.ULog.Warn(FastFixModule.Tag, key + " not applied: " + what + " not found");
 		}
 
+		// ----- mod batch 2026-11-15: Blood Shoes, Fairy Queen, Raspberry Apostle, Charming Pond, TurbidityCurrent, Burrowing Heaven -----
+
+		private static bool _shoesDone;
+		private static bool _queenDone;
+		private static bool _raspDone;
+		private static bool _pondDone;
+		private static bool _turbDone;
+		private static bool _heavenDone;
+		private static bool _scytheDone;
+		private static bool _wrResetDone;
+		private static bool _brClearDone;
+		private static bool _efDone;
+		private static bool _introDone;
+		private static bool _bxDone;
+		private static bool _tmDone;
+		private static bool _roseDone;
+
+		private static bool InstallBatch(bool last)
+		{
+			if (!_shoesDone)
+			{
+				_shoesDone = ModByType("BloodShoesCreature.BloodShoes", "FastFix.BloodShoesFix", "Blood Shoes: an escape of any abnormality no longer throws when vanilla Red Shoes is absent; a normal work result no longer lowers the counter (a good one may, as its tip says); the shoes no longer freeze after a hit. Read at game start.", last, InstallBloodShoes);
+			}
+			if (!_queenDone)
+			{
+				_queenDone = ModByType("FairyQueen", "FastFix.FairyQueenFix", "Fairy Queen: Prepared Meat marks end with the day; after suppression its hunger restarts instead of holding the counter at 0. Read at game start.", last, InstallFairyQueen);
+			}
+			if (!_raspDone)
+			{
+				_raspDone = ModByType("Raspberry_Apostle.Raspberry_Apostle", "FastFix.RaspberryWork", "Raspberry Apostle: a work it or its bushes paused can no longer stay paused forever. Read at game start.", last, InstallRaspberry);
+			}
+			if (!_pondDone)
+			{
+				_pondDone = ModByType("Charming.Charming", "FastFix.CharmingPond", "Charming Pond: its internal list is created, so its work effects, recall kill and day-end cleanup run; ponds left in hallways from earlier days are removed. Read at game start.", last, InstallCharmingPond);
+			}
+			if (!_turbDone)
+			{
+				_turbDone = ModByType("TurbidityCurrent.BufAdder", "FastFix.TurbidityParalyze", "Dream-Devouring Slitcurrent: a unit without a body in the water no longer gets the paralysis that throws every tick (water that never recedes). Read at game start.", last, InstallTurbidity);
+			}
+			if (!_heavenDone)
+			{
+				_heavenDone = ModByType("Permeate_heaven", "FastFix.BurrowingHeavenLure", "Burrowing Heaven: no lure while it is being worked on; clerks are no longer lured (their lure broke and blocked the next ones). Read at game start.", last, InstallHeaven);
+			}
+			if (!_scytheDone)
+			{
+				_scytheDone = ModByType("SilentPriceReboot.ScytheClockReboot", "FastFix.ScytheClockCount", "Silent Price (Scythe Clock Reboot): its kill counter display no longer reads past its 13 texts (an error every tick at 13 kills, and on room setup). Read at game start.", last, InstallScythe);
+			}
+			if (!_wrResetDone)
+			{
+				_wrResetDone = ModByType("WhiteRabbit.Harmony_Patch", "FastFix.WhiteRabbitReset", "Celestial Bunny: restoring normal speed after its slowdown no longer stops at the first door or unit (collection changed while read). Read at game start.", last, InstallRabbitReset);
+			}
+			if (!_brClearDone)
+			{
+				_brClearDone = ModByType("BloodRabbit_Mod.BloodPassageMaker", "FastFix.BloodRabbitClear", "Gory Bunny: clearing its blood pools in a hallway no longer stops at the first pool (collection changed while read). Read at game start.", last, InstallBloodRabbit);
+			}
+			if (!_efDone)
+			{
+				_efDone = ModByType("EternalFlower.EternalFlowerWeapon", "FastFix.EternalFlowerThornCap", "Flower of Eternity Remake 1.0.1: its weapon no longer adds rooms to the department hallway list for good and makes at most FastFix.EternalFlowerThorns thorns every 4 s (own hallway first). Read at game start.", last, InstallEternalFlower);
+			}
+			if (!_introDone)
+			{
+				_introDone = ModByType("IntroAdder.Harmony_Patch", "FastFix.IntroChain", "IntroAdder splash pictures (LCPD_Statement) play first, then the intro of another intro mod (Wonderlab) instead of only one of them. Read at game start.", last, InstallIntroChain);
+			}
+			if (!_bxDone)
+			{
+				_bxDone = ModByType("Baxia_And_Fuxi.Creature.BaxiaAndFuxi", "FastFix.BaxiaObserve", "Baxia and Fuxi: a reset of observation data no longer empties their shared observation tables and no longer throws on regions already there. Read at game start.", last, InstallBaxia);
+			}
+			if (!_tmDone)
+			{
+				_tmDone = ModByType("Tiamat.Tiamat", "FastFix.TiamatFix", "Tiamat: stays in its own department after meltdown children (also fixes saves where it moved); only servants' works count; meltdown and lure errors no longer break the overload or the lure timer. Read at game start.", last, InstallTiamat);
+			}
+			if (!_roseDone)
+			{
+				_roseDone = ModByType("Sign_of_Roses.SignofRosesChild", "FastFix.SignOfRosesTarget", "Sign of Roses: when the employee its rose marked dies of something else, the rose no longer lowers a random abnormality's counter every tick (mass breaches, a full creature list copied every tick); it counts as having no target, as the mod does after its own kill. Read at game start.", last, InstallRose);
+			}
+			return _shoesDone && _queenDone && _raspDone && _pondDone && _turbDone && _heavenDone && _scytheDone && _wrResetDone && _brClearDone && _efDone && _introDone && _bxDone && _tmDone && _roseDone;
+		}
+
+		private static readonly HashSet<string> _batchErr = new HashSet<string>();
+
+		private static void BatchErr(string where, Exception e)
+		{
+			if (_batchErr.Add(where))
+			{
+				N.ULog.Warn(FastFixModule.Tag, "mod batch fix " + where + " failed (logged once): " + e.Message);
+			}
+		}
+
+		private static bool ModByType(string typeName, string key, string desc, bool last, Installer install)
+		{
+			Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
+			Assembly found = null;
+			for (int i = 0; i < all.Length && object.ReferenceEquals(found, null); i++)
+			{
+				try
+				{
+					if (!object.ReferenceEquals(all[i].GetType(typeName, false), null))
+					{
+						found = all[i];
+					}
+				}
+				catch (Exception)
+				{
+				}
+			}
+			if (object.ReferenceEquals(found, null))
+			{
+				if (last)
+				{
+					N.ULog.Info(FastFixModule.Tag, key + " not applied: " + typeName + " not loaded");
+				}
+				return last;
+			}
+			if (!N.Config.BindFlag(key, true, desc).On)
+			{
+				return true;
+			}
+			try
+			{
+				install(found);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
+			}
+			return true;
+		}
+
+		private static MethodInfo FindByName(Type t, string name, int args)
+		{
+			if (object.ReferenceEquals(t, null))
+			{
+				return null;
+			}
+			MethodInfo[] ms = t.GetMethods(All);
+			for (int i = 0; i < ms.Length; i++)
+			{
+				if (string.Equals(ms[i].Name, name, StringComparison.Ordinal) && ms[i].GetParameters().Length == args)
+				{
+					return ms[i];
+				}
+			}
+			return null;
+		}
+
+		// --- Blood Shoes ---
+		// OnNotice(OnEscape) reads GetCreature(100003L).IsEscaped(); GetCreature matches the vanilla Red Shoes metadata id and returns null
+		// when it is absent. Notice.Send has no catch, so the NRE leaves the escaping creature's Escape() and skips later observers.
+		private static FieldInfo _shoeAgent;
+		private static Type _leftShoe;
+		private static Type _rightShoe;
+		private static FieldInfo _leftAttacking;
+		private static FieldInfo _rightAttacking;
+		private static FieldInfo _leftTimer;
+		private static FieldInfo _rightTimer;
+		private static FieldInfo _leftAnimScript;
+		private static FieldInfo _rightAnimScript;
+		private static FieldInfo _leftTarget;
+		private static FieldInfo _rightTarget;
+		private static readonly Dictionary<CreatureBase, float> _shoeStuck = new Dictionary<CreatureBase, float>();
+		private const float ShoeStuckSeconds = 3f;
+
+		private static void InstallBloodShoes(Assembly asm)
+		{
+			const string key = "FastFix.BloodShoesFix";
+			Type t = asm.GetType("BloodShoesCreature.BloodShoes");
+			MethodInfo notice = FindByName(t, "OnNotice", 2);
+			MethodInfo release = Find(asm, "BloodShoesCreature.BloodShoes", "OnReleaseWork", new Type[] { typeof(UseSkill) });
+			_shoeAgent = object.ReferenceEquals(t, null) ? null : t.GetField("agent", All);
+			if (object.ReferenceEquals(notice, null) || object.ReferenceEquals(release, null))
+			{
+				Missing(key, "BloodShoesCreature.BloodShoes.OnNotice / OnReleaseWork");
+				return;
+			}
+			FastFixModule.Harmony.Patch(notice, new HarmonyMethod(Own("ShoesNoticePrefix")), null);
+			Patched(key, notice);
+			FastFixModule.Harmony.Patch(release, new HarmonyMethod(Own("ShoesReleasePrefix")), new HarmonyMethod(Own("ShoesReleasePostfix")));
+			Patched(key, release);
+			_leftShoe = asm.GetType("LeftShoe");
+			_rightShoe = asm.GetType("RightShoe");
+			Type leftAnim = asm.GetType("LeftShoeAnim");
+			Type rightAnim = asm.GetType("RightShoeAnim");
+			_leftAttacking = object.ReferenceEquals(_leftShoe, null) ? null : _leftShoe.GetField("attacking", All);
+			_rightAttacking = object.ReferenceEquals(_rightShoe, null) ? null : _rightShoe.GetField("attacking", All);
+			_leftTimer = object.ReferenceEquals(_leftShoe, null) ? null : _leftShoe.GetField("attackTimer", All);
+			_rightTimer = object.ReferenceEquals(_rightShoe, null) ? null : _rightShoe.GetField("attackTimer", All);
+			_leftTarget = object.ReferenceEquals(_leftShoe, null) ? null : _leftShoe.GetField("_target", All);
+			_rightTarget = object.ReferenceEquals(_rightShoe, null) ? null : _rightShoe.GetField("_target", All);
+			_leftAnimScript = object.ReferenceEquals(leftAnim, null) ? null : leftAnim.GetField("_script", All);
+			_rightAnimScript = object.ReferenceEquals(rightAnim, null) ? null : rightAnim.GetField("_script", All);
+			MethodInfo leftHit = FindByName(leftAnim, "Attack", 2);
+			MethodInfo rightHit = FindByName(rightAnim, "Attack", 2);
+			if (object.ReferenceEquals(_leftAttacking, null) || object.ReferenceEquals(_rightAttacking, null)
+				|| object.ReferenceEquals(_leftTimer, null) || object.ReferenceEquals(_rightTimer, null)
+				|| !object.ReferenceEquals(_leftTimer.FieldType, typeof(Timer)) || !object.ReferenceEquals(_rightTimer.FieldType, typeof(Timer))
+				|| object.ReferenceEquals(_leftTarget, null) || object.ReferenceEquals(_rightTarget, null)
+				|| object.ReferenceEquals(_leftAnimScript, null) || object.ReferenceEquals(_rightAnimScript, null)
+				|| object.ReferenceEquals(leftHit, null) || object.ReferenceEquals(rightHit, null))
+			{
+				Missing(key, "LeftShoe/RightShoe attacking, attackTimer, _target or the Anim Attack(TrackEntry, Event)");
+				return;
+			}
+			FastFixModule.Harmony.Patch(leftHit, new HarmonyMethod(Own("ShoeHitPrefix")), null);
+			Patched(key, leftHit);
+			FastFixModule.Harmony.Patch(rightHit, new HarmonyMethod(Own("ShoeHitPrefix")), null);
+			Patched(key, rightHit);
+			// AddBleed and GiveDamagebyBleed run on the same Spine event and read _script._target without a check too.
+			MethodInfo[] bleed = new MethodInfo[] { FindByName(leftAnim, "AddBleed", 2), FindByName(rightAnim, "AddBleed", 2), FindByName(leftAnim, "GiveDamagebyBleed", 2), FindByName(rightAnim, "GiveDamagebyBleed", 2) };
+			for (int i = 0; i < bleed.Length; i++)
+			{
+				if (object.ReferenceEquals(bleed[i], null))
+				{
+					if (i < 3)
+					{
+						Missing(key, "LeftShoeAnim/RightShoeAnim AddBleed / GiveDamagebyBleed");
+					}
+					continue;
+				}
+				FastFixModule.Harmony.Patch(bleed[i], new HarmonyMethod(Own("ShoeHitPrefix")), null);
+				Patched(key, bleed[i]);
+			}
+			MethodInfo tick = typeof(ChildCreatureModel).GetMethod("OnFixedUpdate", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+			if (object.ReferenceEquals(tick, null) || !object.ReferenceEquals(tick.DeclaringType, typeof(ChildCreatureModel)))
+			{
+				Missing(key, "ChildCreatureModel.OnFixedUpdate");
+				return;
+			}
+			FastFixModule.Harmony.Patch(tick, null, new HarmonyMethod(Own("ShoeTickPostfix")));
+			Patched(key, tick);
+		}
+
+		public static bool ShoesNoticePrefix(string notice)
+		{
+			try
+			{
+				if (string.Equals(notice, NoticeName.OnEscape, StringComparison.Ordinal) && CreatureManager.instance.GetCreature(100003L) == null)
+				{
+					return false;
+				}
+			}
+			catch (Exception e)
+			{
+				BatchErr("ShoesNoticePrefix", e);
+			}
+			return true;
+		}
+
+		// The tip says a GOOD result may lower the counter; the code rolls 50% on NORM. NORM: keep the agent field only
+		// (CreatureBase.OnReleaseWork is empty); GOOD: the 50% roll in the postfix. BAD stays as it is.
+		public static bool ShoesReleasePrefix(CreatureBase __instance, UseSkill skill)
+		{
+			try
+			{
+				if (skill != null && skill.GetCurrentFeelingState() == CreatureFeelingState.NORM)
+				{
+					if (!object.ReferenceEquals(_shoeAgent, null))
+					{
+						_shoeAgent.SetValue(__instance, skill.agent);
+					}
+					return false;
+				}
+			}
+			catch (Exception e)
+			{
+				BatchErr("ShoesReleasePrefix", e);
+			}
+			return true;
+		}
+
+		public static void ShoesReleasePostfix(CreatureBase __instance, UseSkill skill)
+		{
+			try
+			{
+				if (skill != null && skill.GetCurrentFeelingState() == CreatureFeelingState.GOOD && UnityEngine.Random.value < 0.5f)
+				{
+					__instance.model.SubQliphothCounter();
+				}
+			}
+			catch (Exception e)
+			{
+				BatchErr("ShoesReleasePostfix", e);
+			}
+		}
+
+		// The "Damage" event hits _script._target without a check; after the target died the NRE also drops the Complete
+		// callback that clears attacking, and the shoe stands still.
+		public static bool ShoeHitPrefix(object __instance)
+		{
+			try
+			{
+				bool left = object.ReferenceEquals(__instance.GetType(), _leftAnimScript.DeclaringType);
+				object shoe = (left ? _leftAnimScript : _rightAnimScript).GetValue(__instance);
+				if (shoe == null)
+				{
+					return false;
+				}
+				UnitModel target = (left ? _leftTarget : _rightTarget).GetValue(shoe) as UnitModel;
+				return target != null;
+			}
+			catch (Exception)
+			{
+				return true;
+			}
+		}
+
+		// attacking is cleared only by the attack animation's Complete; when it never comes the shoe is frozen.
+		// After the 0.7 s attack timer ended, attacking that stays true for ShoeStuckSeconds is cleared.
+		public static void ShoeTickPostfix(ChildCreatureModel __instance)
+		{
+			CreatureBase s = __instance.script;
+			if (s == null)
+			{
+				return;
+			}
+			Type t = s.GetType();
+			bool left = object.ReferenceEquals(t, _leftShoe);
+			if (!left && !object.ReferenceEquals(t, _rightShoe))
+			{
+				return;
+			}
+			try
+			{
+				FieldInfo attacking = left ? _leftAttacking : _rightAttacking;
+				Timer timer = (left ? _leftTimer : _rightTimer).GetValue(s) as Timer;
+				if (!(bool)attacking.GetValue(s) || (timer != null && timer.started))
+				{
+					_shoeStuck.Remove(s);
+					return;
+				}
+				float since;
+				if (!_shoeStuck.TryGetValue(s, out since))
+				{
+					if (_shoeStuck.Count > 32)
+					{
+						_shoeStuck.Clear();
+					}
+					_shoeStuck[s] = Time.time;
+					return;
+				}
+				if (Time.time - since >= ShoeStuckSeconds)
+				{
+					attacking.SetValue(s, false);
+					_shoeStuck.Remove(s);
+				}
+			}
+			catch (Exception e)
+			{
+				BatchErr("ShoeTickPostfix", e);
+			}
+		}
+
+		// --- Fairy Queen ---
+		// agentlist/agentlist2 ("Prepared Meat") are never cleared between days: two works yesterday + one today = death.
+		// HungryBuf at 10 layers holds the counter at 0 every tick; after suppression nothing resets it until the next day.
+		private static FieldInfo _fqList1;
+		private static FieldInfo _fqList2;
+		private static FieldInfo _fqHunger;
+		private static FieldInfo _fqLayer;
+		private static MethodInfo _fqReset;
+
+		private static void InstallFairyQueen(Assembly asm)
+		{
+			const string key = "FastFix.FairyQueenFix";
+			Type t = asm.GetType("FairyQueen");
+			Type buf = asm.GetType("FairyQueen+HungryBuf");
+			_fqList1 = object.ReferenceEquals(t, null) ? null : t.GetField("agentlist", All);
+			_fqList2 = object.ReferenceEquals(t, null) ? null : t.GetField("agentlist2", All);
+			_fqHunger = object.ReferenceEquals(t, null) ? null : t.GetField("HungryBuff", All);
+			_fqLayer = object.ReferenceEquals(buf, null) ? null : buf.GetField("layer_count", All);
+			_fqReset = object.ReferenceEquals(buf, null) ? null : buf.GetMethod("Reset", All, null, Type.EmptyTypes, null);
+			MethodInfo end = Find(asm, "FairyQueen", "OnStageEnd", Type.EmptyTypes);
+			MethodInfo rel = Find(asm, "FairyQueen", "OnStageRelease", Type.EmptyTypes);
+			MethodInfo ret = Find(asm, "FairyQueen", "OnReturn", Type.EmptyTypes);
+			if (object.ReferenceEquals(_fqList1, null) || object.ReferenceEquals(_fqList2, null) || object.ReferenceEquals(_fqHunger, null)
+				|| object.ReferenceEquals(_fqLayer, null) || object.ReferenceEquals(end, null) || object.ReferenceEquals(rel, null) || object.ReferenceEquals(ret, null))
+			{
+				Missing(key, "FairyQueen agentlist/agentlist2/HungryBuff, OnStageEnd/OnStageRelease/OnReturn");
+				return;
+			}
+			FastFixModule.Harmony.Patch(end, null, new HarmonyMethod(Own("QueenDayPostfix")));
+			Patched(key, end);
+			FastFixModule.Harmony.Patch(rel, null, new HarmonyMethod(Own("QueenDayPostfix")));
+			Patched(key, rel);
+			FastFixModule.Harmony.Patch(ret, null, new HarmonyMethod(Own("QueenReturnPostfix")));
+			Patched(key, ret);
+		}
+
+		public static void QueenDayPostfix(object __instance)
+		{
+			try
+			{
+				System.Collections.IList a = _fqList1.GetValue(__instance) as System.Collections.IList;
+				System.Collections.IList b = _fqList2.GetValue(__instance) as System.Collections.IList;
+				if (a != null)
+				{
+					a.Clear();
+				}
+				if (b != null)
+				{
+					b.Clear();
+				}
+			}
+			catch (Exception e)
+			{
+				BatchErr("QueenDayPostfix", e);
+			}
+		}
+
+		public static void QueenReturnPostfix(CreatureBase __instance)
+		{
+			try
+			{
+				object hunger = _fqHunger.GetValue(__instance);
+				if (hunger == null)
+				{
+					return;
+				}
+				try
+				{
+					_fqReset.Invoke(hunger, null);
+				}
+				catch (Exception)
+				{
+					_fqLayer.SetValue(hunger, 0);
+				}
+				if (__instance.model != null && __instance.model.qliphothCounter <= 0)
+				{
+					__instance.model.ResetQliphothCounter();
+				}
+			}
+			catch (Exception e)
+			{
+				BatchErr("QueenReturnPostfix", e);
+			}
+		}
+
+		// --- Raspberry Apostle ---
+		// Boom pauses the skill; only the Spine Complete of that track entry resumes it. A second Boom on the same animator
+		// replaces the entry, the first Complete never fires and the skill (often of another abnormality) stays paused.
+		private static readonly Dictionary<UseSkill, float> _raspPaused = new Dictionary<UseSkill, float>();
+		private const float RaspResumeSeconds = 15f;
+		private static bool _raspLogged;
+
+		private static void InstallRaspberry(Assembly asm)
+		{
+			const string key = "FastFix.RaspberryWork";
+			MethodInfo boss = Find(asm, "Raspberry_Apostle.Raspberry_Apostle", "OnSkillWorkTick", new Type[] { typeof(UseSkill) });
+			MethodInfo bush = Find(asm, "Raspberry_Apostle.Raspberry", "OnSkillWorkTick", new Type[] { typeof(UseSkill) });
+			MethodInfo tick = typeof(UseSkill).GetMethod("OnFixedUpdate", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+			if (object.ReferenceEquals(boss, null) || object.ReferenceEquals(bush, null) || object.ReferenceEquals(tick, null))
+			{
+				Missing(key, "Raspberry_Apostle.OnSkillWorkTick / Raspberry.OnSkillWorkTick / UseSkill.OnFixedUpdate");
+				return;
+			}
+			FastFixModule.Harmony.Patch(boss, new HarmonyMethod(Own("RaspTickPrefix")), new HarmonyMethod(Own("RaspTickPostfix")));
+			Patched(key, boss);
+			FastFixModule.Harmony.Patch(bush, new HarmonyMethod(Own("RaspTickPrefix")), new HarmonyMethod(Own("RaspTickPostfix")));
+			Patched(key, bush);
+			FastFixModule.Harmony.Patch(tick, null, new HarmonyMethod(Own("RaspSkillPostfix")));
+			Patched(key, tick);
+		}
+
+		public static bool RaspTickPrefix(UseSkill skill, ref bool __state)
+		{
+			__state = skill == null || skill.IsWorkPlaying;
+			return __state;
+		}
+
+		public static void RaspTickPostfix(UseSkill skill, bool __state)
+		{
+			if (__state && skill != null && !skill.IsWorkPlaying && !_raspPaused.ContainsKey(skill))
+			{
+				if (_raspPaused.Count > 64)
+				{
+					RaspPrune();
+				}
+				_raspPaused[skill] = Time.time;
+			}
+		}
+
+		// Entries of closed works never tick again; drop those older than a minute.
+		private static void RaspPrune()
+		{
+			List<UseSkill> old = new List<UseSkill>();
+			foreach (KeyValuePair<UseSkill, float> kv in _raspPaused)
+			{
+				if (Time.time - kv.Value > 60f)
+				{
+					old.Add(kv.Key);
+				}
+			}
+			for (int i = 0; i < old.Count; i++)
+			{
+				_raspPaused.Remove(old[i]);
+			}
+		}
+
+		public static void RaspSkillPostfix(UseSkill __instance)
+		{
+			if (_raspPaused.Count == 0)
+			{
+				return;
+			}
+			float since;
+			if (!_raspPaused.TryGetValue(__instance, out since))
+			{
+				return;
+			}
+			if (__instance.IsWorkPlaying)
+			{
+				_raspPaused.Remove(__instance);
+				return;
+			}
+			if (Time.time - since >= RaspResumeSeconds)
+			{
+				_raspPaused.Remove(__instance);
+				try
+				{
+					__instance.ResumeWorking();
+				}
+				catch (Exception e)
+				{
+					BatchErr("RaspSkillPostfix", e);
+				}
+				if (!_raspLogged)
+				{
+					_raspLogged = true;
+					N.ULog.Info(FastFixModule.Tag, "FastFix.RaspberryWork: a work paused by Raspberry Apostle for " + RaspResumeSeconds + " s was resumed");
+				}
+			}
+		}
+
+		// --- Charming Pond ---
+		// _noiseArea has no initializer and is never assigned: every branch that touches it throws (work effects, recall kill,
+		// counter 1 cleanup, ActivateQliphothCounter, OnStageRelease before the white pond cleanup). Ponds and their AutoTimers
+		// then outlive the day. OnStageStart has no exception handlers; the prefix creates the list and removes stale ponds.
+		private static FieldInfo _pondArea;
+		private static FieldInfo _pondArea2;
+		private static FieldInfo _pondTimer;
+		private static FieldInfo _pondTimer2;
+		private static FieldInfo _pondNoising;
+		private static FieldInfo _pondNoising2;
+
+		private static void InstallCharmingPond(Assembly asm)
+		{
+			const string key = "FastFix.CharmingPond";
+			Type t = asm.GetType("Charming.Charming");
+			MethodInfo start = Find(asm, "Charming.Charming", "OnStageStart", Type.EmptyTypes);
+			if (!object.ReferenceEquals(t, null))
+			{
+				_pondArea = t.GetField("_noiseArea", All);
+				_pondArea2 = t.GetField("_noiseArea2", All);
+				_pondTimer = t.GetField("_noiseMakingTimer", All);
+				_pondTimer2 = t.GetField("_noiseMakingTimer2", All);
+				_pondNoising = t.GetField("_isNoising", All);
+				_pondNoising2 = t.GetField("_isNoising2", All);
+			}
+			if (object.ReferenceEquals(start, null) || object.ReferenceEquals(_pondArea, null) || object.ReferenceEquals(_pondArea2, null)
+				|| object.ReferenceEquals(_pondTimer, null) || object.ReferenceEquals(_pondTimer2, null)
+				|| object.ReferenceEquals(_pondNoising, null) || object.ReferenceEquals(_pondNoising2, null))
+			{
+				Missing(key, "Charming.Charming OnStageStart / _noiseArea / _noiseArea2 / timers");
+				return;
+			}
+			FastFixModule.Harmony.Patch(start, new HarmonyMethod(Own("PondStartPrefix")), null);
+			Patched(key, start);
+		}
+
+		public static void PondStartPrefix(object __instance)
+		{
+			try
+			{
+				if (_pondArea.GetValue(__instance) == null)
+				{
+					_pondArea.SetValue(__instance, Activator.CreateInstance(_pondArea.FieldType));
+				}
+				AutoTimer t1 = _pondTimer.GetValue(__instance) as AutoTimer;
+				AutoTimer t2 = _pondTimer2.GetValue(__instance) as AutoTimer;
+				if (t1 != null)
+				{
+					t1.StopTimer();
+				}
+				if (t2 != null)
+				{
+					t2.StopTimer();
+				}
+				int n = PondClear(_pondArea.GetValue(__instance) as System.Collections.IList, "DestroyNoise") + PondClear(_pondArea2.GetValue(__instance) as System.Collections.IList, "DestroyNoise2");
+				_pondNoising.SetValue(__instance, false);
+				_pondNoising2.SetValue(__instance, false);
+				if (n > 0)
+				{
+					N.ULog.Info(FastFixModule.Tag, "FastFix.CharmingPond: " + n + " pond(s) left from an earlier day removed");
+				}
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(FastFixModule.Tag, "FastFix.CharmingPond: stage start cleanup failed: " + e.Message);
+			}
+		}
+
+		private static int PondClear(System.Collections.IList list, string destroy)
+		{
+			if (list == null || list.Count == 0)
+			{
+				return 0;
+			}
+			int n = list.Count;
+			for (int i = 0; i < n; i++)
+			{
+				object p = list[i];
+				if (p == null)
+				{
+					continue;
+				}
+				try
+				{
+					MethodInfo m = p.GetType().GetMethod(destroy, All, null, Type.EmptyTypes, null);
+					if (!object.ReferenceEquals(m, null))
+					{
+						m.Invoke(p, null);
+					}
+				}
+				catch (Exception e)
+				{
+					BatchErr("PondClear", e);
+				}
+			}
+			list.Clear();
+			return n;
+		}
+
+		// --- TurbidityCurrent ---
+		// TurbidityParalyzeBuf.Init builds an icon only for a WorkerModel with a WorkerUnit or a CreatureModel with a Unit and then
+		// uses it unconditionally: other units (rabbits, projectiles, dead workers) throw, and OnFixedUpdate stops every tick.
+		private static void InstallTurbidity(Assembly asm)
+		{
+			const string key = "FastFix.TurbidityParalyze";
+			MethodInfo m = Find(asm, "TurbidityCurrent.BufAdder", "AddCount_ParalyzeBuf", new Type[] { typeof(UnitModel), typeof(int) });
+			if (object.ReferenceEquals(m, null))
+			{
+				Missing(key, "TurbidityCurrent.BufAdder.AddCount_ParalyzeBuf(UnitModel, int)");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("TurbidityParalyzePrefix")), null);
+			Patched(key, m);
+		}
+
+		public static bool TurbidityParalyzePrefix(UnitModel agent)
+		{
+			try
+			{
+				WorkerModel w = agent as WorkerModel;
+				if (w != null)
+				{
+					return w.GetWorkerUnit() != null;
+				}
+				CreatureModel c = agent as CreatureModel;
+				return c != null && c.Unit != null;
+			}
+			catch (Exception)
+			{
+				return false;
+			}
+		}
+
+		// --- Burrowing Heaven ---
+		// ActivateSkill runs from its 100 s timer without checking a running work: it cancels the work (OnReleaseWork then kills
+		// the worker) and lures others. Officers pass CheckAttractCondition, but the lure action takes "worker as AgentModel"
+		// (null for an officer) and throws every frame while the officer stays in the lured list.
+		private static void InstallHeaven(Assembly asm)
+		{
+			const string key = "FastFix.BurrowingHeavenLure";
+			MethodInfo m = Find(asm, "Permeate_heaven", "CheckAttractCondition", new Type[] { typeof(WorkerModel) });
+			if (object.ReferenceEquals(m, null) || !object.ReferenceEquals(m.ReturnType, typeof(bool)))
+			{
+				Missing(key, "Permeate_heaven.CheckAttractCondition(WorkerModel)");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("HeavenLurePrefix")), null);
+			Patched(key, m);
+		}
+
+		public static bool HeavenLurePrefix(CreatureBase __instance, WorkerModel worker, ref bool __result)
+		{
+			try
+			{
+				if (!(worker is AgentModel) || (__instance.model != null && __instance.model.IsWorkingState()))
+				{
+					__result = false;
+					return false;
+				}
+			}
+			catch (Exception e)
+			{
+				BatchErr("HeavenLurePrefix", e);
+			}
+			return true;
+		}
+
+		// --- SilentPriceReboot (Scythe Clock) ---
+		// KillCountTxtAry has 13 entries. OnFixedUpdate reads [KillCount] while the counter is 0, and KillCount reaches 13 before the
+		// mass kill resets it: an IndexOutOfRangeException every tick. RoomSpriteInit reads [KillCount - 1] = [-1] while KillCount is 0.
+		// Neither method has exception handlers.
+		private static FieldInfo _scytheKills;
+
+		private static void InstallScythe(Assembly asm)
+		{
+			const string key = "FastFix.ScytheClockCount";
+			Type t = asm.GetType("SilentPriceReboot.ScytheClockReboot");
+			_scytheKills = object.ReferenceEquals(t, null) ? null : t.GetField("KillCount", All);
+			MethodInfo tick = Find(asm, "SilentPriceReboot.ScytheClockReboot", "OnFixedUpdate", new Type[] { typeof(CreatureModel) });
+			MethodInfo room = Find(asm, "SilentPriceReboot.ScytheClockReboot", "RoomSpriteInit", Type.EmptyTypes);
+			if (object.ReferenceEquals(_scytheKills, null) || !object.ReferenceEquals(_scytheKills.FieldType, typeof(int))
+				|| object.ReferenceEquals(tick, null) || object.ReferenceEquals(room, null))
+			{
+				Missing(key, "SilentPriceReboot.ScytheClockReboot KillCount / OnFixedUpdate / RoomSpriteInit");
+				return;
+			}
+			FastFixModule.Harmony.Patch(tick, new HarmonyMethod(Own("ScytheTickPrefix")), null);
+			Patched(key, tick);
+			FastFixModule.Harmony.Patch(room, new HarmonyMethod(Own("ScytheRoomPrefix")), new HarmonyMethod(Own("ScytheRoomPostfix")));
+			Patched(key, room);
+		}
+
+		public static void ScytheTickPrefix(object __instance)
+		{
+			try
+			{
+				if ((int)_scytheKills.GetValue(__instance) > 12)
+				{
+					_scytheKills.SetValue(__instance, 12);
+				}
+			}
+			catch (Exception e)
+			{
+				BatchErr("ScytheTickPrefix", e);
+			}
+		}
+
+		public static void ScytheRoomPrefix(object __instance, ref bool __state)
+		{
+			__state = false;
+			try
+			{
+				if ((int)_scytheKills.GetValue(__instance) <= 0)
+				{
+					_scytheKills.SetValue(__instance, 1);
+					__state = true;
+				}
+			}
+			catch (Exception e)
+			{
+				BatchErr("ScytheRoomPrefix", e);
+			}
+		}
+
+		public static void ScytheRoomPostfix(object __instance, bool __state)
+		{
+			if (!__state)
+			{
+				return;
+			}
+			try
+			{
+				_scytheKills.SetValue(__instance, 0);
+			}
+			catch (Exception e)
+			{
+				BatchErr("ScytheRoomPostfix", e);
+			}
+		}
+
+		// --- Celestial Bunny (WhiteRabbit) ---
+		// ResetAnimatorSpeed removes from changedDoor / changedUnit inside the foreach over them: InvalidOperationException after the
+		// first entry, the rest keep their slowed speed. Replacing prefix with the same steps over a copy.
+		private static FieldInfo _wrDoors;
+		private static FieldInfo _wrUnits;
+		private static FieldInfo _wrNormal;
+		private static MethodInfo _wrAnimSpeed;
+		private static bool _wrLogged;
+
+		private static void InstallRabbitReset(Assembly asm)
+		{
+			const string key = "FastFix.WhiteRabbitReset";
+			Type t = asm.GetType("WhiteRabbit.Harmony_Patch");
+			MethodInfo m = Find(asm, "WhiteRabbit.Harmony_Patch", "ResetAnimatorSpeed", Type.EmptyTypes);
+			if (!object.ReferenceEquals(t, null))
+			{
+				_wrDoors = t.GetField("changedDoor", All);
+				_wrUnits = t.GetField("changedUnit", All);
+				_wrNormal = t.GetField("normalPassage", All);
+				_wrAnimSpeed = t.GetMethod("ControlAnimSpeed", All);
+			}
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(_wrDoors, null) || object.ReferenceEquals(_wrUnits, null)
+				|| object.ReferenceEquals(_wrNormal, null) || object.ReferenceEquals(_wrAnimSpeed, null)
+				|| !object.ReferenceEquals(_wrDoors.FieldType, typeof(List<DoorObjectModel>))
+				|| !object.ReferenceEquals(_wrUnits.FieldType, typeof(Dictionary<MovableObjectNode, Animator>)))
+			{
+				Missing(key, "WhiteRabbit.Harmony_Patch.ResetAnimatorSpeed / changedDoor / changedUnit / normalPassage / ControlAnimSpeed");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("RabbitResetPrefix")), null);
+			Patched(key, m);
+		}
+
+		public static bool RabbitResetPrefix()
+		{
+			try
+			{
+				PassageObjectModel normal = _wrNormal.GetValue(null) as PassageObjectModel;
+				List<DoorObjectModel> doors = _wrDoors.GetValue(null) as List<DoorObjectModel>;
+				Dictionary<MovableObjectNode, Animator> units = _wrUnits.GetValue(null) as Dictionary<MovableObjectNode, Animator>;
+				if (doors != null)
+				{
+					DoorObjectModel[] copy = doors.ToArray();
+					for (int i = 0; i < copy.Length; i++)
+					{
+						DoorObjectModel d = copy[i];
+						FieldInfo pf = d.GetType().GetField("passage", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+						PassageObjectModel p = object.ReferenceEquals(pf, null) ? null : pf.GetValue(d) as PassageObjectModel;
+						if (p != normal)
+						{
+							PassageObject po = SefiraMapLayer.instance.GetPassageObject(normal);
+							PassageDoor door = po == null ? null : po.GetDoorPassage(d.GetId());
+							if (door != null && door.animator != null)
+							{
+								door.animator.speed = Time.timeScale;
+							}
+							doors.Remove(d);
+						}
+					}
+				}
+				if (units != null)
+				{
+					List<MovableObjectNode> keys = new List<MovableObjectNode>(units.Keys);
+					for (int i = 0; i < keys.Count; i++)
+					{
+						MovableObjectNode node = keys[i];
+						if (node == null || node.GetPassage() == normal)
+						{
+							continue;
+						}
+						UnitModel unit = node.GetUnit();
+						Animator anim = units[node];
+						if (unit is WorkerModel)
+						{
+							if (anim != null)
+							{
+								anim.speed = Time.timeScale;
+							}
+							(unit as WorkerModel).movementMul = Time.timeScale;
+						}
+						else if (unit is CreatureModel)
+						{
+							CreatureModel c = unit as CreatureModel;
+							if (c.Unit != null)
+							{
+								_wrAnimSpeed.Invoke(null, new object[] { c.Unit.animTarget, Time.timeScale });
+							}
+							c.movementScale = Time.timeScale;
+						}
+						else if (unit is RabbitModel)
+						{
+							if (anim != null)
+							{
+								anim.speed = Time.timeScale;
+							}
+							(unit as RabbitModel).baseMovement = Time.timeScale;
+						}
+						units.Remove(node);
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				if (!_wrLogged)
+				{
+					_wrLogged = true;
+					N.ULog.Warn(FastFixModule.Tag, "FastFix.WhiteRabbitReset failed (logged once): " + e.Message);
+				}
+			}
+			return false;
+		}
+
+		// --- Gory Bunny (BloodRabbit) ---
+		// ClearEffect calls DestroyFilter inside the foreach over effects, and DestroyFilter removes the entry from effects:
+		// InvalidOperationException, the other pools of that passage stay. Replacing prefix over a copy.
+		private static MethodInfo _brGet;
+		private static FieldInfo _brEffects;
+
+		private static void InstallBloodRabbit(Assembly asm)
+		{
+			const string key = "FastFix.BloodRabbitClear";
+			Type maker = asm.GetType("BloodRabbit_Mod.BloodPassageMaker");
+			Type rabbit = asm.GetType("BloodRabbit_Mod.BloodRabbit");
+			MethodInfo m = Find(asm, "BloodRabbit_Mod.BloodPassageMaker", "ClearEffect", new Type[] { typeof(PassageObjectModel) });
+			_brGet = object.ReferenceEquals(maker, null) ? null : maker.GetMethod("GetBloodRabbit", All, null, Type.EmptyTypes, null);
+			_brEffects = object.ReferenceEquals(rabbit, null) ? null : rabbit.GetField("effects", All);
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(_brGet, null) || object.ReferenceEquals(_brEffects, null))
+			{
+				Missing(key, "BloodRabbit_Mod.BloodPassageMaker.ClearEffect / GetBloodRabbit / BloodRabbit.effects");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("BloodRabbitClearPrefix")), null);
+			Patched(key, m);
+		}
+
+		public static bool BloodRabbitClearPrefix(PassageObjectModel passage)
+		{
+			try
+			{
+				object r = _brGet.Invoke(null, null);
+				System.Collections.IList list = r == null ? null : _brEffects.GetValue(r) as System.Collections.IList;
+				if (list == null || list.Count == 0)
+				{
+					return false;
+				}
+				object[] copy = new object[list.Count];
+				list.CopyTo(copy, 0);
+				for (int i = 0; i < copy.Length; i++)
+				{
+					object e = copy[i];
+					if (e == null)
+					{
+						continue;
+					}
+					FieldInfo pf = e.GetType().GetField("passage", All);
+					MethodInfo destroy = e.GetType().GetMethod("DestroyFilter", All, null, Type.EmptyTypes, null);
+					if (!object.ReferenceEquals(pf, null) && !object.ReferenceEquals(destroy, null) && pf.GetValue(e) == passage)
+					{
+						destroy.Invoke(e, null);
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				BatchErr("BloodRabbitClearPrefix", e);
+			}
+			return false;
+		}
+
+		// ----- mod batch 2 (2026-11-16): Flower of Eternity Remake 1.0.1, IntroAdder chain, Baxia and Fuxi, Tiamat -----
+
+		private static string Inner(Exception e)
+		{
+			TargetInvocationException t = e as TargetInvocationException;
+			return t != null && t.InnerException != null ? t.InnerException.GetType().Name + ": " + t.InnerException.Message : e.GetType().Name + ": " + e.Message;
+		}
+
+		private static void Batch2Err(string where, Exception e)
+		{
+			if (_batchErr.Add(where))
+			{
+				N.ULog.Warn(FastFixModule.Tag, "mod batch fix " + where + " failed (logged once): " + Inner(e));
+			}
+		}
+
+		// --- Flower of Eternity Remake 1.0.1 (EternalFlower.EternalFlowerWeapon) ---
+		// OnFixedUpdate every 4 s adds the room passage of every creature of the wielder's department to the game's own
+		// sefira.passageList (never removed) and makes a thorn for every hostile unit in every passage of that list, without a cap.
+		// The method has try/catch (GL-53), so the prefix only takes over the 4 s tick: it sets damageTime so the original branch
+		// never fires and makes at most FastFix.EternalFlowerThorns thorns from a local passage list (own passage first).
+		private static FieldInfo _efTime;
+		private static MethodInfo _efThorn;
+		private static MethodInfo _efHostile;
+		private static PropertyInfo _efPassage;
+		private static N.IntParam _efCap;
+		private static readonly List<PassageObjectModel> _efPassages = new List<PassageObjectModel>();
+		private static readonly List<UnitModel> _efTargets = new List<UnitModel>();
+		private static readonly object[] _efArg = new object[1];
+
+		private static void InstallEternalFlower(Assembly asm)
+		{
+			const string key = "FastFix.EternalFlowerThornCap";
+			Type t = asm.GetType("EternalFlower.EternalFlowerWeapon");
+			MethodInfo m = Find(asm, "EternalFlower.EternalFlowerWeapon", "OnFixedUpdate", Type.EmptyTypes);
+			if (!object.ReferenceEquals(t, null))
+			{
+				BindingFlags inst = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+				_efTime = t.GetField("damageTime", inst);
+				_efThorn = t.GetMethod("MakeThorn", inst, null, new Type[] { typeof(UnitModel) }, null);
+				_efHostile = t.GetMethod("IsHostile", inst, null, new Type[] { typeof(UnitModel) }, null);
+				_efPassage = t.GetProperty("passage", inst);
+			}
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(_efTime, null) || !object.ReferenceEquals(_efTime.FieldType, typeof(float))
+				|| object.ReferenceEquals(_efThorn, null) || object.ReferenceEquals(_efHostile, null) || !object.ReferenceEquals(_efHostile.ReturnType, typeof(bool))
+				|| object.ReferenceEquals(_efPassage, null) || !object.ReferenceEquals(_efPassage.PropertyType, typeof(PassageObjectModel)))
+			{
+				Missing(key, "EternalFlower.EternalFlowerWeapon.OnFixedUpdate / damageTime / MakeThorn / IsHostile / passage");
+				return;
+			}
+			_efCap = N.Config.BindInt("FastFix.EternalFlowerThorns", 12, 1, 100, 1, "Flower of Eternity Remake: most thorns one wielder of its weapon makes every 4 s (the mod makes one for every hostile unit in the department, without a cap).");
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("EternalFlowerTickPrefix")), null);
+			Patched(key, m);
+		}
+
+		// Own 4 s clock per weapon. damageTime is held at 0 (one cached box), so the original's "+= deltaTime; >= 4" never
+		// fires and no frame reads the field by reflection.
+		private static readonly object _efZero = 0f;
+		private static readonly Dictionary<EquipmentScriptBase, float> _efClock = new Dictionary<EquipmentScriptBase, float>();
+
+		public static void EternalFlowerTickPrefix(EquipmentScriptBase __instance)
+		{
+			try
+			{
+				float t;
+				_efClock.TryGetValue(__instance, out t);
+				t += Time.deltaTime;
+				_efTime.SetValue(__instance, _efZero);
+				if (t < 4f)
+				{
+					_efClock[__instance] = t;
+					return;
+				}
+				if (_efClock.Count > 256)
+				{
+					// weapons of dead or fired agents; a cleared clock only restarts its 4 s
+					_efClock.Clear();
+				}
+				_efClock[__instance] = 0f;
+				EternalFlowerThorns(__instance);
+			}
+			catch (Exception e)
+			{
+				Batch2Err("EternalFlowerTickPrefix", e);
+			}
+		}
+
+		private static void EternalFlowerThorns(EquipmentScriptBase w)
+		{
+			PassageObjectModel own = _efPassage.GetValue(w, null) as PassageObjectModel;
+			Sefira sefira = own == null ? null : own.GetSefira();
+			if (sefira == null)
+			{
+				return;
+			}
+			_efPassages.Clear();
+			_efTargets.Clear();
+			_efPassages.Add(own);
+			for (int i = 0; i < sefira.passageList.Count; i++)
+			{
+				PassageObjectModel p = sefira.passageList[i];
+				if (p != null && !_efPassages.Contains(p))
+				{
+					_efPassages.Add(p);
+				}
+			}
+			for (int i = 0; i < sefira.creatureList.Count; i++)
+			{
+				CreatureModel c = sefira.creatureList[i];
+				PassageObjectModel p = c == null || c.roomNode == null ? null : c.roomNode.GetAttachedPassage();
+				if (p != null && !_efPassages.Contains(p))
+				{
+					_efPassages.Add(p);
+				}
+			}
+			int cap = _efCap == null ? 12 : _efCap.Value;
+			for (int i = 0; i < _efPassages.Count && _efTargets.Count < cap; i++)
+			{
+				ReadOnlyCollection<MovableObjectNode> nodes = _efPassages[i].GetEnteredTargets();
+				for (int j = 0; j < nodes.Count && _efTargets.Count < cap; j++)
+				{
+					UnitModel u = nodes[j] == null ? null : nodes[j].GetUnit();
+					if (u == null || _efTargets.Contains(u))
+					{
+						continue;
+					}
+					_efArg[0] = u;
+					try
+					{
+						if ((bool)_efHostile.Invoke(w, _efArg))
+						{
+							_efTargets.Add(u);
+						}
+					}
+					catch (Exception e)
+					{
+						Batch2Err("EternalFlowerHostile", e);
+					}
+				}
+			}
+			for (int i = 0; i < _efTargets.Count; i++)
+			{
+				_efArg[0] = _efTargets[i];
+				try
+				{
+					_efThorn.Invoke(w, _efArg);
+				}
+				catch (Exception e)
+				{
+					Batch2Err("EternalFlowerThorn", e);
+				}
+			}
+			_efArg[0] = null;
+			_efPassages.Clear();
+			_efTargets.Clear();
+		}
+
+		// --- IntroAdder (LCPD_Statement: TurbidityCurrent, Drifting Fox splash pictures) and other intro mods ---
+		// IntroAdder and Wonderlab (and similar mods) each replace IntroPlayer.Update with a prefix that returns false. Harmony 1.0.9.1
+		// stops the prefix chain at the first false, so only one of them plays. A prefix at Priority.First runs IntroAdder until its
+		// pictures are over (12 s + AddedIntroTime), then sets the clock back to 12 s and runs the first other replacing prefix, which
+		// plays its own part and loads the title. Without IntroAdder pictures or another replacing prefix it changes nothing.
+		private static MethodInfo _iaUpdate;
+		private static FieldInfo _iaAdded;
+		private static FieldInfo _iaIntros;
+		private static Type _iaType;
+		private static FieldInfo _ipElapsed;
+		private static MethodInfo _icTarget;
+		private static readonly List<Patch> _icList = new List<Patch>();
+		private static readonly object[] _icArg = new object[1];
+		private static int _icIdx;
+		private static bool _icStarted;
+		private static string _icOwner;
+		private static int _icPhase;
+		private static bool _icAdderErr;
+
+		private static void InstallIntroChain(Assembly asm)
+		{
+			const string key = "FastFix.IntroChain";
+			_iaType = asm.GetType("IntroAdder.Harmony_Patch");
+			_iaUpdate = Find(asm, "IntroAdder.Harmony_Patch", "IntroPlayer_Update", new Type[] { typeof(IntroPlayer) });
+			_iaAdded = object.ReferenceEquals(_iaType, null) ? null : _iaType.GetField("AddedIntroTime", All);
+			_iaIntros = object.ReferenceEquals(_iaType, null) ? null : _iaType.GetField("intros", All);
+			_ipElapsed = typeof(IntroPlayer).GetField("_elapsedTime", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+			_icTarget = typeof(IntroPlayer).GetMethod("Update", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public, null, Type.EmptyTypes, null);
+			if (object.ReferenceEquals(_iaUpdate, null) || object.ReferenceEquals(_iaAdded, null) || !object.ReferenceEquals(_iaAdded.FieldType, typeof(float))
+				|| object.ReferenceEquals(_ipElapsed, null) || !object.ReferenceEquals(_ipElapsed.FieldType, typeof(float)) || object.ReferenceEquals(_icTarget, null))
+			{
+				Missing(key, "IntroAdder.Harmony_Patch.IntroPlayer_Update / AddedIntroTime or IntroPlayer.Update / _elapsedTime");
+				return;
+			}
+			FastFixModule.Harmony.Patch(_icTarget, N.PatchUtil.WithPriority(Own("IntroChainPrefix"), Priority.First), null);
+			Patched(key, _icTarget);
+		}
+
+		public static bool IntroChainPrefix(IntroPlayer __instance)
+		{
+			try
+			{
+				if (_icPhase == 0)
+				{
+					_icPhase = IntroChainStart(__instance);
+				}
+				if (_icPhase == 1)
+				{
+					float end = 12f + (float)_iaAdded.GetValue(null);
+					float before = (float)_ipElapsed.GetValue(__instance);
+					if (before + Time.deltaTime < end)
+					{
+						try
+						{
+							_icArg[0] = __instance;
+							_iaUpdate.Invoke(null, _icArg);
+						}
+						catch (Exception e)
+						{
+							// IntroAdder.NextIntro reads past its list when the last picture is skipped; the next frame ends this part.
+							if (!_icAdderErr)
+							{
+								_icAdderErr = true;
+								N.ULog.Info(FastFixModule.Tag, "FastFix.IntroChain: IntroAdder threw once (" + Inner(e) + ")");
+							}
+							// It threw before moving the clock: move it here, or this part never ends.
+							if ((float)_ipElapsed.GetValue(__instance) == before)
+							{
+								_ipElapsed.SetValue(__instance, before + Time.deltaTime);
+							}
+						}
+						return false;
+					}
+					IntroChainHide();
+					_ipElapsed.SetValue(__instance, 12f);
+					_icPhase = 2;
+					N.ULog.Info(FastFixModule.Tag, "FastFix.IntroChain: IntroAdder pictures done, intro of " + _icOwner + " follows");
+				}
+				if (_icPhase == 2)
+				{
+					while (_icIdx < _icList.Count)
+					{
+						_icArg[0] = __instance;
+						object r = _icList[_icIdx].patch.Invoke(null, _icArg);
+						if (r is bool && !(bool)r)
+						{
+							_icStarted = true;
+							return false;
+						}
+						if (_icStarted)
+						{
+							break;
+						}
+						// It let the intro run on its first call: not an intro of its own, try the next one.
+						N.ULog.Info(FastFixModule.Tag, "FastFix.IntroChain: intro prefix of " + _icList[_icIdx].owner + " does not replace the intro, next one tried");
+						_icIdx++;
+					}
+					_icPhase = 3;
+				}
+			}
+			catch (Exception e)
+			{
+				_icPhase = 3;
+				Batch2Err("IntroChainPrefix", e);
+			}
+			return true;
+		}
+
+		// 1 = IntroAdder part first, 3 = leave the chain as it is.
+		private static int IntroChainStart(IntroPlayer ip)
+		{
+			float added = (float)_iaAdded.GetValue(null);
+			if (added <= 0f)
+			{
+				return 3;
+			}
+			if ((float)_ipElapsed.GetValue(ip) >= 12f)
+			{
+				N.ULog.Info(FastFixModule.Tag, "FastFix.IntroChain: intro clock already past 12 s on its first frame (PerfPack.IntroSkip or a late install), chain not used");
+				return 3;
+			}
+			Patches info = PatchProcessor.IsPatched(_icTarget);
+			if (info == null || info.Prefixes == null)
+			{
+				return 3;
+			}
+			_icList.Clear();
+			for (int i = 0; i < info.Prefixes.Count; i++)
+			{
+				Patch p = info.Prefixes[i];
+				MethodInfo pm = p == null ? null : p.patch;
+				if (object.ReferenceEquals(pm, null) || string.Equals(p.owner, FastFixModule.Harmony.Id, StringComparison.Ordinal) || object.ReferenceEquals(pm.DeclaringType, _iaType))
+				{
+					continue;
+				}
+				ParameterInfo[] ps = pm.GetParameters();
+				if (!pm.IsStatic || !object.ReferenceEquals(pm.ReturnType, typeof(bool)) || ps == null || ps.Length != 1
+					|| !ps[0].ParameterType.IsAssignableFrom(typeof(IntroPlayer)))
+				{
+					N.ULog.Info(FastFixModule.Tag, "FastFix.IntroChain: intro prefix of " + p.owner + " has another form, skipped");
+					continue;
+				}
+				// Harmony order: higher priority first, then lower index.
+				int at = 0;
+				while (at < _icList.Count && (_icList[at].priority > p.priority || (_icList[at].priority == p.priority && _icList[at].index < p.index)))
+				{
+					at++;
+				}
+				_icList.Insert(at, p);
+			}
+			if (_icList.Count == 0)
+			{
+				return 3;
+			}
+			_icIdx = 0;
+			_icStarted = false;
+			_icOwner = _icList[0].owner;
+			N.ULog.Info(FastFixModule.Tag, "FastFix.IntroChain: IntroAdder pictures (" + added.ToString("0.#") + " s) play before the intro of " + _icOwner);
+			return 1;
+		}
+
+		private static void IntroChainHide()
+		{
+			System.Collections.IList list = object.ReferenceEquals(_iaIntros, null) ? null : _iaIntros.GetValue(null) as System.Collections.IList;
+			if (list == null)
+			{
+				return;
+			}
+			for (int i = 0; i < list.Count; i++)
+			{
+				RawImage img = list[i] as RawImage;
+				if (img != null)
+				{
+					img.color = new Color(1f, 1f, 1f, 0f);
+				}
+			}
+		}
+
+		// --- Baxia and Fuxi (Baxia_And_Fuxi.Creature) ---
+		// The mod keeps both observation tables in static dictionaries and points the instance field observeRegions of 1998110 at
+		// them. Vanilla InitObserveRegion starts with observeRegions.Clear(), so a reset of the observation data (CreatureManager
+		// .ResetObserveData) empties the shared table; the mod's postfix then only Adds and throws on the first key already there
+		// (also for every new CreatureObserveInfoModel of 1998110), which leaves the tables half filled.
+		// Prefix on the vanilla method: a shared table is swapped for a scratch one before Clear. Replacing prefix on the mod's
+		// postfix: adds missing regions only, a real reset clears the flags, and the instance gets its shared table back.
+		private const long BaxiaId = 1998110L;
+		private static FieldInfo _bxBaxia;
+		private static FieldInfo _bxFuxi;
+		private static FieldInfo _obsRegions;
+		private static Dictionary<string, ObserveRegion> _bxWas;
+
+		private static void InstallBaxia(Assembly asm)
+		{
+			const string key = "FastFix.BaxiaObserve";
+			Type t = asm.GetType("Baxia_And_Fuxi.Creature.BaxiaAndFuxi");
+			MethodInfo modPost = Find(asm, "Baxia_And_Fuxi.Creature.Harmony_Patch", "CreatureObserveInfoModel_InitObserveRegion", new Type[] { typeof(CreatureObserveInfoModel) });
+			MethodInfo vanilla = typeof(CreatureObserveInfoModel).GetMethod("InitObserveRegion", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, new Type[] { typeof(List<ObserveInfoData>) }, null);
+			_obsRegions = typeof(CreatureObserveInfoModel).GetField("observeRegions", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+			if (!object.ReferenceEquals(t, null))
+			{
+				_bxBaxia = t.GetField("baxia_observe", All);
+				_bxFuxi = t.GetField("fuxi_observe", All);
+			}
+			if (object.ReferenceEquals(modPost, null) || object.ReferenceEquals(vanilla, null) || object.ReferenceEquals(_obsRegions, null)
+				|| object.ReferenceEquals(_bxBaxia, null) || object.ReferenceEquals(_bxFuxi, null)
+				|| !object.ReferenceEquals(_bxBaxia.FieldType, typeof(Dictionary<string, ObserveRegion>))
+				|| !object.ReferenceEquals(_bxFuxi.FieldType, typeof(Dictionary<string, ObserveRegion>)))
+			{
+				Missing(key, "Baxia_And_Fuxi baxia_observe / fuxi_observe / InitObserveRegion postfix or CreatureObserveInfoModel.InitObserveRegion");
+				return;
+			}
+			FastFixModule.Harmony.Patch(vanilla, new HarmonyMethod(Own("BaxiaObservePrefix")), null);
+			Patched(key, vanilla);
+			FastFixModule.Harmony.Patch(modPost, new HarmonyMethod(Own("BaxiaRegionsPrefix")), null);
+			Patched(key, modPost);
+		}
+
+		public static void BaxiaObservePrefix(CreatureObserveInfoModel __instance)
+		{
+			_bxWas = null;
+			try
+			{
+				if (__instance.creatureTypeId != BaxiaId)
+				{
+					return;
+				}
+				Dictionary<string, ObserveRegion> cur = _obsRegions.GetValue(__instance) as Dictionary<string, ObserveRegion>;
+				if (cur != null && (object.ReferenceEquals(cur, _bxBaxia.GetValue(null)) || object.ReferenceEquals(cur, _bxFuxi.GetValue(null))))
+				{
+					_bxWas = cur;
+					_obsRegions.SetValue(__instance, new Dictionary<string, ObserveRegion>());
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("BaxiaObservePrefix", e);
+			}
+		}
+
+		public static bool BaxiaRegionsPrefix(CreatureObserveInfoModel __instance)
+		{
+			Dictionary<string, ObserveRegion> was = _bxWas;
+			_bxWas = null;
+			try
+			{
+				if (__instance.creatureTypeId != BaxiaId)
+				{
+					return false;
+				}
+				bool reset = was != null;
+				try
+				{
+					BaxiaAdd(_bxBaxia.GetValue(null) as Dictionary<string, ObserveRegion>, 1998111L, reset);
+					BaxiaAdd(_bxFuxi.GetValue(null) as Dictionary<string, ObserveRegion>, 1998112L, reset);
+				}
+				finally
+				{
+					if (reset)
+					{
+						_obsRegions.SetValue(__instance, was);
+					}
+				}
+				if (reset)
+				{
+					N.ULog.Info(FastFixModule.Tag, "FastFix.BaxiaObserve: observation data of Baxia and Fuxi reset with the facility's");
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("BaxiaRegionsPrefix", e);
+			}
+			return false;
+		}
+
+		private static void BaxiaAdd(Dictionary<string, ObserveRegion> dic, long id, bool reset)
+		{
+			if (dic == null)
+			{
+				return;
+			}
+			CreatureTypeInfo info = CreatureTypeList.instance.GetData_Mod(new LobotomyBaseMod.LcIdLong(id));
+			if (info == null || info.observeData == null)
+			{
+				return;
+			}
+			for (int i = 0; i < info.observeData.Count; i++)
+			{
+				ObserveInfoData d = info.observeData[i];
+				ObserveRegion r;
+				if (dic.TryGetValue(d.regionName, out r))
+				{
+					if (reset)
+					{
+						r.isObserved = false;
+					}
+				}
+				else
+				{
+					ObserveRegion n = new ObserveRegion();
+					n.info = d;
+					n.isObserved = false;
+					dic.Add(d.regionName, n);
+				}
+			}
+		}
+
+		// --- Tiamat (Tiamat.Tiamat) ---
+		// OnNotice has no try: an exception in its meltdown branch (MakeChildCreature without a free hallway) leaves
+		// CreatureOverloadManager.SetQliphothOverloadLevel through Notice.Send. Its work branch counts a work of any agent on another
+		// abnormality, its guide says only servants (buf 142801) count. MakeChildCreature writes the child's hallway department into
+		// Tiamat's own sefira/sefiraNum; sefiraNum is saved, and after a reload Tiamat is listed under that other department.
+		// ActivateSkill indexes an empty target list and throws before its 200 s timer restarts (luring stops for the day).
+		private const int TiamatServantBuf = 142801;
+		private static FieldInfo _tmWorking;
+		private static FieldInfo _tmTiamat;
+		private static FieldInfo _tmZList;
+		private static MethodInfo _tmMakeChild;
+		private static MethodInfo _tmCalamity;
+		private static MethodInfo _tmCount;
+		private static MethodInfo _tmTargets;
+		private static int _tmMovedDay = -1;
+
+		private static void InstallTiamat(Assembly asm)
+		{
+			const string key = "FastFix.TiamatFix";
+			const string tn = "Tiamat.Tiamat";
+			Type t = asm.GetType(tn);
+			MethodInfo notice = Find(asm, tn, "OnNotice", new Type[] { typeof(string), typeof(object[]) });
+			_tmMakeChild = Find(asm, tn, "MakeChildCreature", new Type[] { typeof(UnitModel), typeof(bool) });
+			MethodInfo skill = Find(asm, tn, "ActivateSkill", Type.EmptyTypes);
+			MethodInfo stage = Find(asm, tn, "OnStageStart", Type.EmptyTypes);
+			_tmCalamity = Find(asm, tn, "SetBothCalamity", Type.EmptyTypes);
+			_tmTargets = Find(asm, tn, "GetAttractTargets", Type.EmptyTypes);
+			_tmCount = Find(asm, "Tiamat.TiamatDieCount", "Modify", new Type[] { typeof(UnitModel), typeof(int) });
+			if (!object.ReferenceEquals(t, null))
+			{
+				_tmWorking = t.GetField("isOnWorking", All);
+				_tmTiamat = t.GetField("tiamat", All);
+				_tmZList = t.GetField("z_list", All);
+			}
+			if (object.ReferenceEquals(notice, null) || object.ReferenceEquals(_tmMakeChild, null) || object.ReferenceEquals(skill, null)
+				|| object.ReferenceEquals(stage, null) || object.ReferenceEquals(_tmCalamity, null) || object.ReferenceEquals(_tmTargets, null)
+				|| object.ReferenceEquals(_tmCount, null) || !_tmCount.IsStatic || object.ReferenceEquals(_tmWorking, null) || !object.ReferenceEquals(_tmWorking.FieldType, typeof(bool))
+				|| object.ReferenceEquals(_tmTiamat, null) || !object.ReferenceEquals(_tmTiamat.FieldType, typeof(CreatureModel))
+				|| object.ReferenceEquals(_tmZList, null) || !object.ReferenceEquals(_tmZList.FieldType, typeof(List<ChildCreatureModel>))
+				|| !object.ReferenceEquals(_tmTargets.ReturnType, typeof(AgentModel[])))
+			{
+				Missing(key, "Tiamat.Tiamat OnNotice / MakeChildCreature / ActivateSkill / OnStageStart / fields or TiamatDieCount.Modify");
+				return;
+			}
+			FastFixModule.Harmony.Patch(notice, new HarmonyMethod(Own("TiamatNoticePrefix")), null);
+			Patched(key, notice);
+			FastFixModule.Harmony.Patch(_tmMakeChild, new HarmonyMethod(Own("TiamatChildPrefix")), new HarmonyMethod(Own("TiamatChildPostfix")));
+			Patched(key, _tmMakeChild);
+			FastFixModule.Harmony.Patch(skill, new HarmonyMethod(Own("TiamatSkillPrefix")), null);
+			Patched(key, skill);
+			FastFixModule.Harmony.Patch(stage, null, new HarmonyMethod(Own("TiamatStagePostfix")));
+			Patched(key, stage);
+		}
+
+		public static bool TiamatNoticePrefix(CreatureBase __instance, string notice, object[] param)
+		{
+			if (notice == NoticeName.OnQliphothOverloadLevelChanged)
+			{
+				try
+				{
+					if (param != null && param.Length != 0 && param[0] is int && (int)param[0] != 1)
+					{
+						EnergyModel.instance.SubEnergy(20f);
+						List<ChildCreatureModel> z = _tmZList.GetValue(__instance) as List<ChildCreatureModel>;
+						Sefira home = __instance.model == null ? null : __instance.model.sefira;
+						for (int i = 0; i < 3; i++)
+						{
+							try
+							{
+								ChildCreatureModel c = _tmMakeChild.Invoke(__instance, new object[] { __instance.model, true }) as ChildCreatureModel;
+								if (c != null && z != null)
+								{
+									z.Add(c);
+								}
+							}
+							catch (Exception e)
+							{
+								// A throw after MakeChildCreature moved Tiamat skips its postfix: move it back here.
+								TiamatChildPostfix(__instance, home);
+								Batch2Err("TiamatChild", e);
+							}
+						}
+						_tmCalamity.Invoke(__instance, null);
+					}
+				}
+				catch (Exception e)
+				{
+					Batch2Err("TiamatMeltdown", e);
+				}
+				return false;
+			}
+			if (notice == NoticeName.OnWorkStart)
+			{
+				try
+				{
+					CreatureModel target = param != null && param.Length != 0 ? param[0] as CreatureModel : null;
+					CreatureModel self = _tmTiamat.GetValue(__instance) as CreatureModel;
+					if (target != null && self != null && target != self && !(bool)_tmWorking.GetValue(__instance))
+					{
+						AgentModel agent = target.currentSkill == null ? null : target.currentSkill.agent;
+						if (agent != null && agent.HasUnitBuf((UnitBufType)TiamatServantBuf))
+						{
+							_tmCount.Invoke(null, new object[] { self, 1 });
+						}
+					}
+				}
+				catch (Exception e)
+				{
+					Batch2Err("TiamatWorkCount", e);
+				}
+				return false;
+			}
+			return true;
+		}
+
+		public static void TiamatChildPrefix(CreatureBase __instance, out Sefira __state)
+		{
+			__state = __instance.model == null ? null : __instance.model.sefira;
+		}
+
+		public static void TiamatChildPostfix(CreatureBase __instance, Sefira __state)
+		{
+			CreatureModel m = __instance.model;
+			if (m != null && __state != null && m.sefira != __state)
+			{
+				m.sefira = __state;
+				m.sefiraNum = __state.indexString;
+			}
+		}
+
+		public static bool TiamatSkillPrefix(CreatureBase __instance)
+		{
+			try
+			{
+				AgentModel[] list = _tmTargets.Invoke(__instance, null) as AgentModel[];
+				return list != null && list.Length != 0;
+			}
+			catch (Exception e)
+			{
+				Batch2Err("TiamatSkillPrefix", e);
+				return false;
+			}
+		}
+
+		// Saves written before this fix keep Tiamat's sefiraNum of a hallway department: the room is still built by its node
+		// (emergency path), but the model is listed in the other department. Put it back into the department of its room.
+		public static void TiamatStagePostfix(CreatureBase __instance)
+		{
+			try
+			{
+				CreatureModel m = __instance.model;
+				PassageObjectModel room = m == null || m.roomNode == null ? null : m.roomNode.GetAttachedPassage();
+				Sefira home = room == null ? null : SefiraManager.instance.GetSefira(room.GetSefiraName());
+				if (home == null || (m.sefira == home && home.creatureList.Contains(m)))
+				{
+					return;
+				}
+				List<Sefira> all = SefiraManager.instance.sefiraList;
+				for (int i = 0; all != null && i < all.Count; i++)
+				{
+					if (all[i] != null && all[i] != home)
+					{
+						all[i].creatureList.Remove(m);
+					}
+				}
+				if (!home.creatureList.Contains(m))
+				{
+					home.creatureList.Add(m);
+				}
+				string was = m.sefiraNum;
+				m.sefira = home;
+				m.sefiraNum = home.indexString;
+				m.sefiraOrigin = home;
+				if (_tmMovedDay != PlayerModel.instance.GetDay())
+				{
+					_tmMovedDay = PlayerModel.instance.GetDay();
+					N.ULog.Info(FastFixModule.Tag, "FastFix.TiamatFix: Tiamat listed under department " + was + " moved back to the department of its room (" + home.indexString + ")");
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("TiamatStagePostfix", e);
+			}
+		}
+
+		// --- Sign of Roses (Sign_of_Roses.SignofRosesChild) ---
+		// UniqueEscape: at time >= 120 a living targetagent is killed, targetagent = null and time = 90. A target that died of
+		// something else keeps targetagent set and time is never reset: every tick from then on copies the whole creature list and
+		// calls SubQliphothCounter twice on a random abnormality. The prefix clears a dead target, so the mod's own "no target"
+		// branch runs (one counter, time = 90), as after its own kill.
+		private delegate AgentModel RoseGetFn(CreatureBase c);
+		private delegate void RoseClearFn(CreatureBase c);
+		private static RoseGetFn _roseGet;
+		private static RoseClearFn _roseClear;
+
+		private static void InstallRose(Assembly asm)
+		{
+			const string key = "FastFix.SignOfRosesTarget";
+			Type t = asm.GetType("Sign_of_Roses.SignofRosesChild");
+			MethodInfo m = Find(asm, "Sign_of_Roses.SignofRosesChild", "UniqueEscape", Type.EmptyTypes);
+			FieldInfo f = object.ReferenceEquals(t, null) ? null : t.GetField("targetagent", All);
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(f, null) || !object.ReferenceEquals(f.FieldType, typeof(AgentModel)) || !typeof(CreatureBase).IsAssignableFrom(t))
+			{
+				Missing(key, "Sign_of_Roses.SignofRosesChild.UniqueEscape / targetagent");
+				return;
+			}
+			// UniqueEscape runs every tick: field access through emitted delegates, no reflection per call.
+			DynamicMethod get = new DynamicMethod("FastFix_RoseGet", typeof(AgentModel), new Type[] { typeof(CreatureBase) }, t, true);
+			ILGenerator il = get.GetILGenerator();
+			il.Emit(OpCodes.Ldarg_0);
+			il.Emit(OpCodes.Castclass, t);
+			il.Emit(OpCodes.Ldfld, f);
+			il.Emit(OpCodes.Ret);
+			DynamicMethod clear = new DynamicMethod("FastFix_RoseClear", typeof(void), new Type[] { typeof(CreatureBase) }, t, true);
+			il = clear.GetILGenerator();
+			il.Emit(OpCodes.Ldarg_0);
+			il.Emit(OpCodes.Castclass, t);
+			il.Emit(OpCodes.Ldnull);
+			il.Emit(OpCodes.Stfld, f);
+			il.Emit(OpCodes.Ret);
+			_roseGet = (RoseGetFn)get.CreateDelegate(typeof(RoseGetFn));
+			_roseClear = (RoseClearFn)clear.CreateDelegate(typeof(RoseClearFn));
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("RoseTargetPrefix")), null);
+			Patched(key, m);
+		}
+
+		public static void RoseTargetPrefix(CreatureBase __instance)
+		{
+			try
+			{
+				AgentModel a = _roseGet(__instance);
+				if (a != null && a.IsDead())
+				{
+					_roseClear(__instance);
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("RoseTargetPrefix", e);
+			}
+		}
+
 		// ----- vanilla: second suppression of a child -----
 
 		private static void InstallChild()
@@ -2835,6 +5700,274 @@ namespace FastFix
 				}
 				return true;
 			}
+		}
+
+		// ----- vanilla: a creature unit without an animation script -----
+
+		private static readonly HashSet<long> _noAnimLogged = new HashSet<long>();
+
+		// CreatureUnit.OnChangeState calls animTarget.HasDeadMotion / PlayRevivalMotion before its own null check of animTarget.
+		private static void InstallCreatureNoAnim()
+		{
+			const string key = "FastFix.CreatureNoAnimState";
+			if (!N.Config.BindFlag(key, true, "A creature without an animation script (some mods) no longer throws when it is suppressed or returns; its return marker is still switched. Read at game start.").On)
+			{
+				return;
+			}
+			try
+			{
+				MethodInfo m = typeof(CreatureUnit).GetMethod("OnChangeState", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+				if (object.ReferenceEquals(m, null) || !object.ReferenceEquals(m.DeclaringType, typeof(CreatureUnit)))
+				{
+					Missing(key, "CreatureUnit.OnChangeState");
+					return;
+				}
+				FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("CreatureNoAnimPrefix")), null);
+				Patched(key, m);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
+			}
+		}
+
+		// Runs vanilla when animTarget exists (a destroyed script too: vanilla calls its C# overrides); otherwise the null-safe part
+		// of vanilla. No try/catch on purpose: failing open after OnAfterSuppressed would call it a second time in vanilla, and the
+		// only throws left (script null, OnAfterSuppressed) throw in vanilla too. A subclass override without base is not covered.
+		public static bool CreatureNoAnimPrefix(CreatureUnit __instance)
+		{
+			if (!object.ReferenceEquals(__instance.animTarget, null))
+			{
+				return true;
+			}
+			CreatureModel model = __instance.model;
+			if (model == null)
+			{
+				return true;
+			}
+			if (_noAnimLogged.Add(model.metadataId))
+			{
+				N.ULog.Info(FastFixModule.Tag, "creature " + model.metadataId + " has no animation script: state change handled without it (logged once per creature)");
+			}
+			bool show;
+			if (model.canBeSuppressed && (model.state == CreatureState.SUPPRESSED || model.state == CreatureState.SUPPRESSED_RETURN))
+			{
+				if (model.script.OnAfterSuppressed())
+				{
+					return false;
+				}
+				show = true;
+			}
+			else
+			{
+				show = false;
+			}
+			if (__instance.returnObject != null)
+			{
+				__instance.returnObject.gameObject.SetActive(show);
+			}
+			return false;
+		}
+
+		// ----- vanilla: damage factor of equipment and buffs -----
+
+		private static bool _dmgFactorErr;
+		private static bool _dmgBufs;
+
+		// UnitModel.GetDamageFactorByEquipment tests weapon before reading armor (a unit with a weapon and no armor throws into its
+		// empty catch and loses the gift factor) and drops the result of UnitBuf.GetDamageFactor. No vanilla buff overrides it;
+		// mod buffs that do (e.g. Colored Fixer BlueReverb x0.7) change real outgoing damage, so that part has its own flag, off.
+		// Full replacement: the original has try/catch and foreach (GL-53).
+		private static void InstallDamageFactor()
+		{
+			const string key = "FastFix.DamageFactor";
+			if (!N.Config.BindFlag(key, true, "A unit with a weapon and no armor no longer loses its gift damage factor to an error. Read at game start.").On)
+			{
+				return;
+			}
+			_dmgBufs = N.Config.BindFlag("FastFix.BufDamageFactor", false, "Damage factors of mod buffs are applied to outgoing damage (vanilla drops them). Changes balance of such mods. Needs FastFix.DamageFactor. Read at game start.").On;
+			try
+			{
+				MethodInfo m = typeof(UnitModel).GetMethod("GetDamageFactorByEquipment", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+				if (object.ReferenceEquals(m, null))
+				{
+					Missing(key, "UnitModel.GetDamageFactorByEquipment");
+					return;
+				}
+				FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("DamageFactorPrefix")), null);
+				Patched(key, m);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
+			}
+		}
+
+		public static bool DamageFactorPrefix(UnitModel __instance, ref float __result)
+		{
+			float num = 1f;
+			try
+			{
+				UnitEquipSpace eq = __instance.Equipment;
+				if (eq != null)
+				{
+					if (eq.weapon != null)
+					{
+						num *= eq.weapon.GetDamageFactor();
+					}
+					if (eq.armor != null)
+					{
+						num *= eq.armor.GetDamageFactor();
+					}
+					if (eq.gifts != null)
+					{
+						num *= eq.gifts.GetDamageFactor();
+					}
+					List<UnitBuf> bufs = _dmgBufs ? __instance.GetUnitBufList() : null;
+					if (bufs != null)
+					{
+						for (int i = 0; i < bufs.Count; i++)
+						{
+							UnitBuf b = bufs[i];
+							if (b != null)
+							{
+								num *= b.GetDamageFactor();
+							}
+						}
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				// vanilla swallows here too and returns the factor reached so far
+				if (!_dmgFactorErr)
+				{
+					_dmgFactorErr = true;
+					N.ULog.Warn(FastFixModule.Tag, "FastFix.DamageFactor: a factor threw, the factor reached so far is used as in vanilla (logged once): " + e);
+				}
+			}
+			__result = num;
+			return false;
+		}
+
+		// ----- vanilla: sound sequence with no loaded clip -----
+
+		private static FieldInfo _sndClips;
+		private static bool _sndLogged;
+
+		// SoundEffectPlayer.DeQueue calls Stop() on an empty queue or a null clip but goes on (Dequeue throws, or PlayOneShot(null)
+		// and clip.length throw). PlaySequence calls it directly, so a sequence whose files all fail to load throws into its caller
+		// (CreatureBase.MakeSoundQueue). The prefix closes the player and returns in those two cases; vanilla runs otherwise.
+		private static void InstallSoundDeQueue()
+		{
+			const string key = "FastFix.SoundSequenceEmpty";
+			if (!N.Config.BindFlag(key, true, "A sound sequence whose sound files are missing no longer throws; the sound player just closes. Read at game start.").On)
+			{
+				return;
+			}
+			try
+			{
+				MethodInfo m = typeof(SoundEffectPlayer).GetMethod("DeQueue", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+				_sndClips = typeof(SoundEffectPlayer).GetField("clips", BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance);
+				if (object.ReferenceEquals(m, null) || object.ReferenceEquals(_sndClips, null) || !object.ReferenceEquals(_sndClips.FieldType, typeof(Queue<AudioClip>)))
+				{
+					Missing(key, "SoundEffectPlayer.DeQueue / clips");
+					return;
+				}
+				FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("SoundDeQueuePrefix")), null);
+				Patched(key, m);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
+			}
+		}
+
+		// Called once per clip of a sequence (not per frame): reflection is fine here.
+		public static bool SoundDeQueuePrefix(SoundEffectPlayer __instance)
+		{
+			Queue<AudioClip> q;
+			try
+			{
+				q = _sndClips.GetValue(__instance) as Queue<AudioClip>;
+			}
+			catch (Exception)
+			{
+				// field read failed: leave the call to vanilla
+				return true;
+			}
+			if (q == null)
+			{
+				return true;
+			}
+			if (q.Count > 0 && q.Peek() != null)
+			{
+				return true;
+			}
+			// the whole queue: Update's "clips.Count != 0" check then never calls DeQueue again before the destroy
+			q.Clear();
+			if (!_sndLogged)
+			{
+				_sndLogged = true;
+				N.ULog.Info(FastFixModule.Tag, "FastFix.SoundSequenceEmpty: a sound sequence had no loaded clip; the player was closed instead of throwing (logged once)");
+			}
+			__instance.Stop();
+			return false;
+		}
+
+		// ----- vanilla: bullet count update before the bullet window exists -----
+
+		private static bool _bulletLogged;
+
+		// GlobalBulletManager.UpdateMaxBullet checks GlobalBulletWindow.CurrentWindow for null, then calls SetBulletCount on it
+		// unguarded (reached from CreatureOverloadManager.OnStageStart and Sefira.UpdateOfficerAliveLevel). Without a window the
+		// prefix does the same arithmetic and skips the window; with one vanilla runs.
+		private static void InstallBulletMax()
+		{
+			const string key = "FastFix.BulletWindowNull";
+			if (!N.Config.BindFlag(key, true, "Updating the bullet count before the bullet panel exists no longer throws. Read at game start.").On)
+			{
+				return;
+			}
+			try
+			{
+				MethodInfo m = typeof(GlobalBullet.GlobalBulletManager).GetMethod("UpdateMaxBullet", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+				if (object.ReferenceEquals(m, null))
+				{
+					Missing(key, "GlobalBulletManager.UpdateMaxBullet");
+					return;
+				}
+				FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("BulletMaxPrefix")), null);
+				Patched(key, m);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
+			}
+		}
+
+		public static bool BulletMaxPrefix(GlobalBullet.GlobalBulletManager __instance)
+		{
+			if (GlobalBullet.GlobalBulletWindow.CurrentWindow != null)
+			{
+				return true;
+			}
+			__instance.maxBullet = __instance.initialMaxBullet;
+			if (MissionManager.instance.ExistsFinishedBossMission(SefiraEnum.TIPERERTH1))
+			{
+				__instance.maxBullet += (int)Mathf.Round((float)__instance.maxBullet * 0.3f);
+			}
+			__instance.maxBullet += SefiraAbilityValueInfo.chesedOfficerAliveValues[SefiraManager.instance.GetOfficerAliveLevel(SefiraEnum.CHESED)];
+			if (__instance.currentBullet > __instance.maxBullet)
+			{
+				__instance.currentBullet = __instance.maxBullet;
+			}
+			if (!_bulletLogged)
+			{
+				_bulletLogged = true;
+				N.ULog.Info(FastFixModule.Tag, "FastFix.BulletWindowNull: bullet count updated before the bullet panel exists; panel update skipped (logged once)");
+			}
+			return false;
 		}
 
 		// ----- vanilla: a child creature whose path ends on an elevator -----
@@ -3221,6 +6354,155 @@ namespace FastFix
 				}
 			}
 			return full;
+		}
+
+		// ----- kekesi_CustomRisk: suppress window postfix reads observeInfo of a child creature that has none -----
+
+		// CreatureSuppressRegion_SetData reads target.observeInfo / metaInfo before its own dictionary check; a child
+		// creature without base meta has observeInfo null (ChildCreatureModel.SetParent). Its postfix only recolours the
+		// risk label of custom-risk creatures, so skipping it for such a target changes nothing else.
+		private static void InstallCustomRisk(Assembly asm)
+		{
+			Type t = asm.GetType("kekesi_CustomRisk.Harmony_Patch");
+			MethodInfo m = object.ReferenceEquals(t, null) ? null : t.GetMethod("CreatureSuppressRegion_SetData", All);
+			if (object.ReferenceEquals(m, null) || !m.IsStatic)
+			{
+				Missing("FastFix.CustomRiskChild", "kekesi_CustomRisk.Harmony_Patch.CreatureSuppressRegion_SetData");
+				return;
+			}
+			ParameterInfo[] ps = m.GetParameters();
+			if (ps.Length != 2 || ps[1].Name != "target" || !object.ReferenceEquals(ps[1].ParameterType, typeof(UnitModel)))
+			{
+				Missing("FastFix.CustomRiskChild", "CreatureSuppressRegion_SetData(_, UnitModel target)");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("CustomRiskPrefix")), null);
+			Patched("FastFix.CustomRiskChild", m);
+		}
+
+		public static bool CustomRiskPrefix(UnitModel target)
+		{
+			CreatureModel c = target as CreatureModel;
+			return c == null || (c.observeInfo != null && c.metaInfo != null);
+		}
+
+		// ----- FeatherMemories: HardModeManager.LoadSetting reads the mod data file every tick -----
+
+		// FeatherMemories.OnFixedUpdate calls HardModeManager.LoadSetting each tick: File.Exists + File.ReadAllLines +
+		// Split per line (~0.6 ms, ~24 KB per tick under breach). currentState changes only in LoadSetting and in
+		// SaveSetting, which sets it itself, so after a load that found Enabled or Disabled the later loads are skipped.
+		// While the state is NotSet (choice popup pending) every load still runs.
+		private static bool _fhLoaded;
+		private static PropertyInfo _fhState;
+
+		private static void InstallFeatherHardMode(Assembly asm)
+		{
+			Type t = asm.GetType("FeatherMemories.HardModeManager");
+			MethodInfo m = object.ReferenceEquals(t, null) ? null : t.GetMethod("LoadSetting", All);
+			PropertyInfo p = object.ReferenceEquals(t, null) ? null : t.GetProperty("CurrentState", All);
+			if (object.ReferenceEquals(m, null) || !m.IsStatic || m.GetParameters().Length != 0
+				|| object.ReferenceEquals(p, null) || !p.PropertyType.IsEnum)
+			{
+				Missing("FastFix.FeatherHardMode", "FeatherMemories.HardModeManager.LoadSetting() / CurrentState");
+				return;
+			}
+			_fhState = p;
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("FeatherLoadPrefix")), new HarmonyMethod(Own("FeatherLoadPostfix")));
+			Patched("FastFix.FeatherHardMode", m);
+		}
+
+		public static bool FeatherLoadPrefix()
+		{
+			return !_fhLoaded;
+		}
+
+		public static void FeatherLoadPostfix()
+		{
+			if (_fhLoaded)
+			{
+				return;
+			}
+			try
+			{
+				_fhLoaded = Convert.ToInt32(_fhState.GetValue(null, null)) != 0;
+			}
+			catch (Exception)
+			{
+				_fhLoaded = false;
+			}
+		}
+
+		// ----- FD: Enumerable.Contains<UnitModel>(List<AgentModel>) in OnFixedUpdate aborts Mono -----
+
+		private static FieldInfo _fdEntry;
+		private static FieldInfo _fdChecked;
+		private static FieldInfo _fdRooms;
+		private static MethodInfo _fdSteam;
+		private static bool _fdFailed;
+
+		// OnFixedUpdate has a foreach (handlers): Covariance fixes it only with 12Harmony. A replacing Prefix
+		// needs none (the original body never runs); it repeats the steps with List<AgentModel>.Contains.
+		private static void InstallFdTick(Assembly asm)
+		{
+			MethodInfo m = Find(asm, "FD.FD", "OnFixedUpdate", new Type[] { typeof(CreatureModel) });
+			Type t = object.ReferenceEquals(m, null) ? null : m.DeclaringType;
+			_fdEntry = object.ReferenceEquals(t, null) ? null : t.GetField("entryPassage", All);
+			_fdChecked = object.ReferenceEquals(t, null) ? null : t.GetField("checkedUnits", All);
+			_fdRooms = object.ReferenceEquals(t, null) ? null : t.GetField("affectedRooms", All);
+			_fdSteam = object.ReferenceEquals(t, null) ? null : t.GetMethod("GiveSteamBuf", All, null, Type.EmptyTypes, null);
+			if (object.ReferenceEquals(t, null) || !typeof(CreatureBase).IsAssignableFrom(t)
+				|| object.ReferenceEquals(_fdEntry, null) || !object.ReferenceEquals(_fdEntry.FieldType, typeof(PassageObjectModel))
+				|| object.ReferenceEquals(_fdChecked, null) || !object.ReferenceEquals(_fdChecked.FieldType, typeof(List<AgentModel>))
+				|| object.ReferenceEquals(_fdRooms, null) || !typeof(System.Collections.ICollection).IsAssignableFrom(_fdRooms.FieldType)
+				|| object.ReferenceEquals(_fdSteam, null))
+			{
+				Missing("FastFix.FDTick", "FD.OnFixedUpdate, entryPassage, checkedUnits, affectedRooms or GiveSteamBuf");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("FdTickPrefix")), null);
+			Patched("FastFix.FDTick", m);
+			N.ULog.Info(FastFixModule.Tag, "FastFix.FDTick covers the covariance place in FD.FD.OnFixedUpdate (a 'not fixed' covariance line for it can be ignored)");
+		}
+
+		public static bool FdTickPrefix(object __instance)
+		{
+			try
+			{
+				System.Collections.ICollection rooms = _fdRooms.GetValue(__instance) as System.Collections.ICollection;
+				if (rooms != null && rooms.Count != 0)
+				{
+					_fdSteam.Invoke(__instance, null);
+				}
+				PassageObjectModel entry = _fdEntry.GetValue(__instance) as PassageObjectModel;
+				List<AgentModel> checkedUnits = _fdChecked.GetValue(__instance) as List<AgentModel>;
+				CreatureModel model = ((CreatureBase)__instance).model;
+				// Before OnViewInit the entry passage is not set yet (the original throws there).
+				if (entry == null || checkedUnits == null || model == null)
+				{
+					return false;
+				}
+				System.Collections.ObjectModel.ReadOnlyCollection<MovableObjectNode> targets = entry.GetEnteredTargets();
+				for (int i = 0; i < targets.Count; i++)
+				{
+					MovableObjectNode node = targets[i];
+					AgentModel agent = node == null ? null : node.GetUnit() as AgentModel;
+					if (agent != null && !checkedUnits.Contains(agent) && agent.IsPanic())
+					{
+						checkedUnits.Add(agent);
+						model.SubQliphothCounter();
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				// Any exception: logged once, tick skipped (the original would throw or abort the game).
+				if (!_fdFailed)
+				{
+					_fdFailed = true;
+					N.ULog.Error(FastFixModule.Tag, "FD tick fix failed, tick skipped (logged once): " + e);
+				}
+			}
+			return false;
 		}
 
 		// ----- Invalidum: escaped creature without a passage, wrong folder name -----
@@ -3795,12 +7077,177 @@ namespace FastFix
 			}
 			if (!Covariance.Handlers12())
 			{
-				Covariance.NoH12("FastFix.KekesiWolfHit", "UniqueEscape has exception handlers and 12Harmony is not loaded");
+				// Without 12Harmony: a Prefix that replaces the whole method (the original body never runs, GL-53 does not apply).
+				InstallKekesiPrefix(m);
 				return;
 			}
 			_hits = 0;
 			FastFixModule.Harmony.Patch(m, null, null, new HarmonyMethod(Own("KekesiTranspiler")));
 			Report("FastFix.KekesiWolfHit", m, "PassageObjectModel.GetEnteredTargets call");
+		}
+
+		private static FieldInfo _kwAttack;
+		private static FieldInfo _kwEffect;
+		private static FieldInfo _kwAttackTime;
+		private static FieldInfo _kwSpecialAttackTime;
+		private static FieldInfo _kwSpecialTime;
+		private static FieldInfo _kwTime;
+		private static FieldInfo _kwAnim;
+		private static MethodInfo _kwNear;
+		private static MethodInfo _kwMakeEffect;
+		private static MethodInfo _kwMakeMovement;
+		private static MethodInfo _kwStopMovement;
+		private static MethodInfo _kwDestroyEffect;
+		private static MethodInfo _kwAnimAttack;
+		private static MethodInfo _kwAnimAttack2;
+		private static MethodInfo _kwAnimDefault;
+		private static Type _kwType;
+		private static bool _kwFailed;
+
+		private static void InstallKekesiPrefix(MethodInfo m)
+		{
+			Type t = m.DeclaringType;
+			_kwType = t;
+			_kwAttack = t.GetField("IsAttack", All);
+			_kwEffect = t.GetField("IsEffect", All);
+			_kwAttackTime = t.GetField("AttackTime", All);
+			_kwSpecialAttackTime = t.GetField("SpecialAttackTime", All);
+			_kwSpecialTime = t.GetField("SpecialTime", All);
+			_kwTime = t.GetField("time", All);
+			_kwAnim = t.GetField("animscript", All);
+			_kwNear = t.GetMethod("GetNearEnemy", All, null, Type.EmptyTypes, null);
+			_kwMakeEffect = t.GetMethod("MakeEffect", All, null, Type.EmptyTypes, null);
+			_kwMakeMovement = t.GetMethod("MakeMovement", All, null, Type.EmptyTypes, null);
+			_kwStopMovement = t.GetMethod("StopMovement", All, null, Type.EmptyTypes, null);
+			_kwDestroyEffect = t.GetMethod("DestoryEffect", All, null, Type.EmptyTypes, null);
+			Type anim = object.ReferenceEquals(_kwAnim, null) ? null : _kwAnim.FieldType;
+			_kwAnimAttack = object.ReferenceEquals(anim, null) ? null : anim.GetMethod("Attack", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
+			_kwAnimAttack2 = object.ReferenceEquals(anim, null) ? null : anim.GetMethod("Attack2", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
+			_kwAnimDefault = object.ReferenceEquals(anim, null) ? null : anim.GetMethod("Default", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
+			if (!typeof(CreatureBase).IsAssignableFrom(t)
+				|| !IsField(_kwAttack, typeof(bool)) || !IsField(_kwEffect, typeof(bool))
+				|| !IsField(_kwAttackTime, typeof(float)) || !IsField(_kwSpecialAttackTime, typeof(float))
+				|| !IsField(_kwSpecialTime, typeof(float)) || !IsField(_kwTime, typeof(float))
+				|| object.ReferenceEquals(_kwNear, null) || !object.ReferenceEquals(_kwNear.ReturnType, typeof(List<UnitModel>))
+				|| object.ReferenceEquals(_kwMakeEffect, null) || object.ReferenceEquals(_kwMakeMovement, null)
+				|| object.ReferenceEquals(_kwStopMovement, null) || object.ReferenceEquals(_kwDestroyEffect, null)
+				|| object.ReferenceEquals(_kwAnimAttack, null) || object.ReferenceEquals(_kwAnimAttack2, null) || object.ReferenceEquals(_kwAnimDefault, null))
+			{
+				Missing("FastFix.KekesiWolfHit", "AmirWolf fields or methods for the copy without 12Harmony");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("KekesiEscapePrefix")), null);
+			Patched("FastFix.KekesiWolfHit", m);
+			N.ULog.Info(FastFixModule.Tag, "FastFix.KekesiWolfHit: 12Harmony not loaded, UniqueEscape replaced by a copy that hits a snapshot of the room");
+		}
+
+		private static bool IsField(FieldInfo f, Type type)
+		{
+			return !object.ReferenceEquals(f, null) && object.ReferenceEquals(f.FieldType, type);
+		}
+
+		// Copy of AmirWolf.UniqueEscape (KekesiWolf.AmirWolf.cs:223-341); the room hit loops over a snapshot of the room,
+		// so a unit that dies and leaves the room does not break the loop.
+		public static bool KekesiEscapePrefix(object __instance)
+		{
+			try
+			{
+				CreatureBase self = (CreatureBase)__instance;
+				if ((bool)_kwAttack.GetValue(__instance))
+				{
+					return false;
+				}
+				object anim = _kwAnim.GetValue(__instance);
+				float dt = Time.deltaTime;
+				if (!(bool)_kwEffect.GetValue(__instance))
+				{
+					float attackTime = (float)((float)_kwAttackTime.GetValue(__instance) - dt);
+					float specialAttackTime = (float)((float)_kwSpecialAttackTime.GetValue(__instance) - dt);
+					_kwAttackTime.SetValue(__instance, attackTime);
+					_kwSpecialAttackTime.SetValue(__instance, specialAttackTime);
+					List<UnitModel> near = (List<UnitModel>)_kwNear.Invoke(__instance, null);
+					if (near.Count > 0)
+					{
+						UnitModel target = near[UnityEngine.Random.Range(0, near.Count)];
+						if (specialAttackTime <= 0f)
+						{
+							_kwStopMovement.Invoke(__instance, null);
+							_kwMakeEffect.Invoke(__instance, null);
+							_kwAnimAttack2.Invoke(anim, null);
+							_kwSpecialAttackTime.SetValue(__instance, 20f);
+							_kwEffect.SetValue(__instance, true);
+						}
+						else if (attackTime <= 0f)
+						{
+							MovableObjectNode movable = self.movable;
+							movable.SetDirection(target.GetMovableNode().GetCurrentViewPosition().x < movable.GetCurrentViewPosition().x ? (UnitDirection)0 : (UnitDirection)1);
+							_kwStopMovement.Invoke(__instance, null);
+							_kwAnimAttack.Invoke(anim, null);
+							_kwAttack.SetValue(__instance, true);
+						}
+					}
+					else if (!self.movable.IsMoving())
+					{
+						_kwMakeMovement.Invoke(__instance, null);
+					}
+					return false;
+				}
+				float time = (float)((float)_kwTime.GetValue(__instance) - dt);
+				_kwTime.SetValue(__instance, time);
+				if (time <= 0f)
+				{
+					PassageObjectModel passage = self.model.GetMovableNode().GetPassage();
+					if (passage != null)
+					{
+						// Local snapshot (one hit per 0.3 s): a unit that dies leaves the room list, not this copy.
+						List<MovableObjectNode> targets = new List<MovableObjectNode>(passage.GetEnteredTargets());
+						for (int i = 0; i < targets.Count; i++)
+						{
+							UnitModel unit = targets[i] == null ? null : targets[i].GetUnit();
+							if (unit == null || unit == self.model)
+							{
+								continue;
+							}
+							WorkerModel worker = unit as WorkerModel;
+							if (worker != null && !worker.IsDead())
+							{
+								worker.TakeDamage(new DamageInfo((RwbpType)3, 1, 5));
+							}
+							CreatureModel creature = unit as CreatureModel;
+							if (creature != null && (creature.script == null || !_kwType.IsInstanceOfType(creature.script)))
+							{
+								creature.TakeDamage(new DamageInfo((RwbpType)3, 1, 5));
+							}
+						}
+						_kwTime.SetValue(__instance, 0.3f);
+					}
+				}
+				float specialTime = (float)((float)_kwSpecialTime.GetValue(__instance) - dt);
+				_kwSpecialTime.SetValue(__instance, specialTime);
+				if (specialTime <= 0f)
+				{
+					_kwSpecialAttackTime.SetValue(__instance, 20f);
+					_kwSpecialTime.SetValue(__instance, 20f);
+					_kwAnimDefault.Invoke(anim, null);
+					_kwEffect.SetValue(__instance, false);
+					_kwAttack.SetValue(__instance, false);
+					Sefira sefira = SefiraManager.instance.GetSefira(self.currentPassage.GetSefiraName());
+					for (int i = 0; i < sefira.passageList.Count; i++)
+					{
+						Notice.instance.Send(NoticeName.PassageWhitle, new object[] { sefira.passageList[i] });
+					}
+					_kwDestroyEffect.Invoke(__instance, null);
+				}
+			}
+			catch (Exception e)
+			{
+				if (!_kwFailed)
+				{
+					_kwFailed = true;
+					N.ULog.Error(FastFixModule.Tag, "KekesiWolf escape copy failed, tick skipped (logged once): " + e);
+				}
+			}
+			return false;
 		}
 
 		public static IEnumerable<CodeInstruction> CharlotteTranspiler(IEnumerable<CodeInstruction> instructions)
@@ -5708,6 +9155,49 @@ namespace FastFix
 			catch (Exception e)
 			{
 				N.ULog.Warn(FastFixModule.Tag, "persephone gifts not set: " + e.Message);
+			}
+		}
+	}
+
+	// ---------- CorpseSelectRing ----------
+
+	// AgentUnit.OnSelect shows selectedIcon (OnEnter -> OnOverlayEnabled). AgentModel.OnDie calls UnitMouseEventManager.Unselect, which
+	// only drops the target from its list and never calls the unit's OnUnselect; OnExit returns for a dead model anyway. A selected agent
+	// that dies keeps the ring under the body for the rest of the day. Fix: Postfix AgentUnit.OnDie runs the vanilla unselect and
+	// SelectIconDisable (selectIconState off, icon hidden). A revived agent gets the ring again on the next select or hover.
+	public static class CorpseSelectRing
+	{
+		private static N.Flag _flag;
+		private static bool _errorLogged;
+
+		internal static void Install(HarmonyInstance harmony, N.Flag flag)
+		{
+			_flag = flag;
+			MethodBase die = N.PatchUtil.Resolve(FastFixModule.Tag, typeof(AgentUnit), "OnDie", Type.EmptyTypes);
+			if (!object.ReferenceEquals(die, null))
+			{
+				N.PatchUtil.Install(harmony, FastFixModule.Tag, die, null, new HarmonyMethod(typeof(CorpseSelectRing).GetMethod("Postfix", BindingFlags.Public | BindingFlags.Static)));
+			}
+		}
+
+		public static void Postfix(AgentUnit __instance)
+		{
+			if (!_flag.On)
+			{
+				return;
+			}
+			try
+			{
+				__instance.OnUnselect();
+				__instance.SelectIconDisable();
+			}
+			catch (Exception e)
+			{
+				if (!_errorLogged)
+				{
+					_errorLogged = true;
+					N.ULog.Warn(FastFixModule.Tag, "corpse select ring not hidden (logged once): " + e.Message);
+				}
 			}
 		}
 	}

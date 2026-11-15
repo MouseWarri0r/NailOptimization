@@ -657,6 +657,26 @@
       <name>Дочернее существо у лифта</name>
       <desc>Дочернее существо, чей путь обрывается на лифте, больше не вызывает ошибку; оно обрабатывается как обычные существа.</desc>
     </option>
+    <option key="FastFix.CreatureNoAnimState">
+      <name>Существо без скрипта анимации</name>
+      <desc>Существо без скрипта анимации (бывает в модах) больше не вызывает ошибку при подавлении или возврате; маркер возврата по-прежнему переключается.</desc>
+    </option>
+    <option key="FastFix.DamageFactor">
+      <name>Множитель урона снаряжения</name>
+      <desc>Юнит с оружием, но без брони больше не теряет множитель урона от даров из-за ошибки.</desc>
+    </option>
+    <option key="FastFix.BufDamageFactor">
+      <name>Множитель урона баффов (моды)</name>
+      <desc>Множители урона баффов из модов применяются к исходящему урону (в ванили отбрасываются). Меняет баланс таких модов. Нужен фикс множителя снаряжения.</desc>
+    </option>
+    <option key="FastFix.SoundSequenceEmpty">
+      <name>Звуковая цепочка без файлов</name>
+      <desc>Звуковая цепочка, у которой нет звуковых файлов, больше не вызывает ошибку; проигрыватель просто закрывается.</desc>
+    </option>
+    <option key="FastFix.BulletWindowNull">
+      <name>Число пуль без панели</name>
+      <desc>Обновление числа пуль до появления панели пуль больше не вызывает ошибку.</desc>
+    </option>
     <option key="FastFix.WeaponReskin">
       <name>Вид дубинки после снятия оружия</name>
       <desc>После снятия оружия сотрудник показывает и бьёт дубинкой (Riot stick), а не оружием One Sin.</desc>
@@ -692,6 +712,10 @@
     <option key="PerfPack.AgentUiHideZoom">
       <name>Скрывать полосы сотрудников с масштаба</name>
       <desc>С этого размера камеры полоски, ранг, титул, баффы и реплики сотрудников скрываются. 0 = никогда.</desc>
+    </option>
+    <option key="PerfPack.CreatureUiHideZoom">
+      <name>Скрывать полосы аномалий с масштаба</name>
+      <desc>С этого размера камеры полоски и подписи над сбежавшими аномалиями и их порождениями скрываются. 0 = никогда.</desc>
     </option>
     <option key="PerfPack.CameraCache">
       <name>Кэш главной камеры</name>
@@ -732,6 +756,14 @@
     <option key="PerfPack.SefiraLookup">
       <name>Поиск отделов</name>
       <desc>Поиск отдела не создаёт мусора.</desc>
+    </option>
+    <option key="PerfPack.PassageLookup">
+      <name>Поиск коридора</name>
+      <desc>Поиск отрисованного коридора по проходу карты не создаёт мусор (вода, свет и другие эффекты модов, каждый тик).</desc>
+    </option>
+    <option key="PerfPack.CounterText">
+      <name>Счётчик комнаты</name>
+      <desc>Счётчик Qliphoth каждой камеры содержания больше не создаёт новый текст каждый тик. Отображение то же.</desc>
     </option>
     <option key="PerfPack.AgentAnimLod">
       <name>LOD анимаций агентов</name>
@@ -932,6 +964,78 @@
     <option key="FastFix.KekesiWolfHit">
       <name>Alleyway Watchdog: удар по области</name>
       <desc>Удар по области больше не обрывается, когда кто-то в комнате погибает.</desc>
+    </option>
+    <option key="FastFix.FDTick">
+      <name>FD (Krau Deluge): вылет в его комнате</name>
+      <desc>Сотрудник в его комнате больше не закрывает игру; работает без 12Harmony.</desc>
+    </option>
+    <option key="FastFix.CustomRiskChild">
+      <name>kekesi CustomRisk: клик по порождению</name>
+      <desc>Клик по порождению аномалии без своих данных наблюдения больше не вызывает ошибку и не ломает окно команд.</desc>
+    </option>
+    <option key="FastFix.FeatherHardMode">
+      <name>Bloody Past: файл настроек каждый тик</name>
+      <desc>Настройка сложного режима читается с диска один раз, а не каждый тик (около 0.6 мс на тик, пока аномалия на свободе).</desc>
+    </option>
+    <option key="FastFix.BloodShoesFix">
+      <name>Blood Shoes: ошибка побега, счётчик, застывшие туфли</name>
+      <desc>Побег любой аномалии больше не вызывает ошибку без ванильных Red Shoes; нормальный результат не снижает счётчик (хороший может, как в подсказке); туфли не застывают после удара.</desc>
+    </option>
+    <option key="FastFix.FairyQueenFix">
+      <name>Fairy Queen: Prepared Meat и голод</name>
+      <desc>Метки Prepared Meat сбрасываются в конце дня; после подавления голод начинается заново, а не держит счётчик на 0.</desc>
+    </option>
+    <option key="FastFix.RaspberryWork">
+      <name>Raspberry Apostle: бесконечная работа</name>
+      <desc>Работа, поставленная им или кустами на паузу, не ставится на паузу повторно и возобновляется через 15 с, если анимация так и не закончилась.</desc>
+    </option>
+    <option key="FastFix.CharmingPond">
+      <name>Charming Pond: пруды в коридорах и эффекты работы</name>
+      <desc>Создаётся её внутренний список: эффекты работы, убийство при Recall и очистка в конце дня работают; пруды прошлых дней удаляются в начале дня.</desc>
+    </option>
+    <option key="FastFix.TurbidityParalyze">
+      <name>Dream-Devouring Slitcurrent: вода не уходит</name>
+      <desc>Юнит без тела в воде больше не получает паралич, который вызывал ошибку каждый тик и держал воду.</desc>
+    </option>
+    <option key="FastFix.BurrowingHeavenLure">
+      <name>Burrowing Heaven: заманивание во время работы, клерки</name>
+      <desc>Нет заманивания, пока с ней работают; клерки больше не заманиваются (их заманивание ломалось и блокировало следующие).</desc>
+    </option>
+    <option key="FastFix.ScytheClockCount">
+      <name>Silent Price: ошибка счётчика убийств</name>
+      <desc>Счётчик убийств больше не выходит за 13 текстов (ошибка каждый тик на 13 убийствах и при настройке комнаты).</desc>
+    </option>
+    <option key="FastFix.WhiteRabbitReset">
+      <name>Celestial Bunny: возврат скорости</name>
+      <desc>Возврат нормальной скорости после замедления больше не обрывается на первой двери или юните.</desc>
+    </option>
+    <option key="FastFix.BloodRabbitClear">
+      <name>Gory Bunny: очистка луж крови</name>
+      <desc>Очистка луж крови в коридоре больше не обрывается на первой луже.</desc>
+    </option>
+    <option key="FastFix.EternalFlowerThornCap">
+      <name>Flower of Eternity 1.0.1: лимит шипов</name>
+      <desc>Оружие больше не добавляет комнаты в список коридоров отдела навсегда; шипы каждые 4 с ограничены (сначала свой коридор).</desc>
+    </option>
+    <option key="FastFix.EternalFlowerThorns">
+      <name>Flower of Eternity: шипов за 4 с</name>
+      <desc>Сколько шипов максимум создаёт один носитель оружия каждые 4 с.</desc>
+    </option>
+    <option key="FastFix.IntroChain">
+      <name>IntroAdder + моды заставок</name>
+      <desc>Сначала показываются картинки IntroAdder, затем заставка другого мода (Wonderlab), а не только одна из них.</desc>
+    </option>
+    <option key="FastFix.BaxiaObserve">
+      <name>Baxia and Fuxi: данные наблюдения</name>
+      <desc>Сброс данных наблюдения больше не опустошает их общие таблицы и не падает на уже имеющихся пунктах.</desc>
+    </option>
+    <option key="FastFix.TiamatFix">
+      <name>Tiamat: отдел и счётчик</name>
+      <desc>Остаётся в своём отделе после детей при мелтдауне (чинит и старые сохранения); считаются только работы слуг; ошибки мелтдауна и приманки больше не ломают перегрузку и таймер приманки.</desc>
+    </option>
+    <option key="FastFix.SignOfRosesTarget">
+      <name>Sign of Roses: погибшая цель</name>
+      <desc>Если отмеченный сотрудник погиб от другого, роза больше не снижает счётчик случайной аномалии каждый тик.</desc>
     </option>
     <option key="FastFix.PuLaoChain">
       <name>PuLao: бесконечная цепочка урона</name>
