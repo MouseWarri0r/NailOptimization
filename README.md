@@ -94,7 +94,7 @@ If you used standalone versions of DamageEffectThrottle, EffectPool or RecoverEf
 
 ## Settings
 
-- Press **F10** in game, or use the button on the title screen. The panel lists all 258 options in sections (General, Performance, Memory, Effects, Protection, Bugfixes, Mod fixes, Interface, Experimental, Debug, Advanced). Values are staged and written with **Apply**.
+- Press **F10** in game, or use the button on the title screen. The panel lists all 260 options in sections (General, Performance, Memory, Effects, Protection, Bugfixes, Mod fixes, Interface, Experimental, Debug, Advanced). Values are staged and written with **Apply**.
 - The config file is `NailOptimization.cfg.txt` in the mod folder, one `Key=value` per line. It is checked for outside edits every 10 seconds (`Config.WatchSeconds`) and applied live where the option allows.
 - Options marked "restart" in the panel (red text with a warning sign) apply after a game restart. The panel shows a notice after Apply that lists them.
 - A fix for a specific mod is declared only when that mod is loaded and is hidden in the panel otherwise.

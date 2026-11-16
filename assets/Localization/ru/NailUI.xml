@@ -220,6 +220,10 @@
       <name>CENSORED: жертва остаётся неуправляемой</name>
       <desc>Сотрудник, выбранный жертвой CENSORED, снова управляем, если CENSORED сбежала до его прихода, а не стоит без управления до конца дня.</desc>
     </option>
+    <option key="FastFix.CorpseSelectRing" section="Bugfixes" group="Vanilla" order="134" restart="1">
+      <name>Кольцо выбора на трупе</name>
+      <desc>Агент, погибший выбранным, больше не оставляет кольцо выбора под телом.</desc>
+    </option>
     <option key="GameFix.TeddyDayEnd" section="Bugfixes" group="Gameplay" order="10" restart="1">
       <name>Happy Teddy: агент гибнет, если день закончился во время объятия</name>
       <desc>Меняет правило. Агент, которого Happy Teddy обнимал в момент конца дня, погибает, как погиб бы по окончании объятия. В игре он выживает. Перезапуск дня и выход в меню не затрагиваются.</desc>
@@ -764,6 +768,10 @@
     <option key="PerfPack.CounterText">
       <name>Счётчик комнаты</name>
       <desc>Счётчик Qliphoth каждой камеры содержания больше не создаёт новый текст каждый тик. Отображение то же.</desc>
+    </option>
+    <option key="PerfPack.TimerNoGc">
+      <name>Без принудительной очистки по таймерам</name>
+      <desc>Некоторые аномалии (1.76 MHz, Snow Queen, Queen Bee и другие) запускают полную очистку памяти по окончании своего таймера, что вызывает короткий фриз. Принудительная очистка пропускается; игра чистит память по своему расписанию.</desc>
     </option>
     <option key="PerfPack.AgentAnimLod">
       <name>LOD анимаций агентов</name>

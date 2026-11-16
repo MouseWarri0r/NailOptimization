@@ -1,6 +1,6 @@
 # Configuration reference
 
-This file lists every option shown in the NailUI panel (F10), generated from `assets/Localization/en/NailUI.xml` and the `Bind*` calls in the sources. The panel has 258 options.
+This file lists every option shown in the NailUI panel (F10), generated from `assets/Localization/en/NailUI.xml` and the `Bind*` calls in the sources. The panel has 260 options.
 
 Options are stored in `NailOptimization.cfg.txt` as `Key=value`. Flags use `true`/`false`. A file edited outside the game is applied live after `Config.WatchSeconds` (default 10 s). Options marked **Restart: yes** apply after a game restart.
 
@@ -145,6 +145,7 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `PerfPack.MeshRelease` | `true` | yes | **Character mesh memory fix**. At each day start, character meshes that nothing uses any more are destroyed. |
 | `PerfPack.CursorScale` | `true` | yes | **Aiming cursor memory fix**. The aiming cursor frees its old texture. |
 | `PerfPack.GcQuiet` | `true` | no | **Memory cleaning in quiet moments**. Memory is cleaned on pause, in the info window and at day end. |
+| `PerfPack.TimerNoGc` | `true` | yes | **No forced cleanup on timers**. Some abnormalities (1.76 MHz, Snow Queen, Queen Bee and others) force a full memory cleanup when their timer ends, which causes a short freeze. The forced cleanup is skipped; the game cleans memory on its own schedule. |
 | `PerfPack.GcQuietGrowMb` | `48` | no | **Quiet cleaning threshold (MB)**. Memory growth in MB before a quiet cleaning. Range 8..256. |
 
 ## Effects
@@ -249,6 +250,7 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `FastFix.TwilightArmorNull` | `true` | yes | **Twilight suit error before day setup**. The Twilight suit's damage bonus no longer throws an error when it is asked before the day set the suit up (a suit given during the day by a mod). |
 | `FastFix.IronMaidenExit` | `true` | yes | **We Can Change Anything: agent invisible after work**. An agent who leaves We Can Change Anything alive is visible again and is no longer killed at the end of the day; the machine closes as after a death. |
 | `FastFix.CensoredVictimRelease` | `true` | yes | **CENSORED: sacrifice stays out of control**. The employee chosen as CENSORED's sacrifice gets control back when CENSORED escapes before he arrives, instead of standing out of control until the day ends. |
+| `FastFix.CorpseSelectRing` | `true` | yes | **Selection ring on a corpse**. An agent who dies while selected no longer keeps the selection ring under the body. |
 
 ### Rule fixes (change the game)
 
@@ -472,15 +474,6 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 |---|---|---|---|
 | `Config.Save` | `true` | no | **Save changes to the file**. Changes are written to NailOptimization.cfg.txt. Off: they last until the game closes. |
 | `Config.WatchSeconds` | `10` | no | **Check file for edits**. Seconds between checks of the config file for outside edits. 0 = never. Range 0..300. |
-
-## Other keys in the config file
-
-Keys that exist in the sources but have no entry in the panel layout. They are shown under Advanced with their raw key if the module declares them, or are read from the file only.
-
-| Key | Default | Range |
-|---|---|---|
-| `FastFix.CorpseSelectRing` | `true` | flag |
-| `PerfPack.TimerNoGc` | `true` | flag |
 
 ## Core keys (not in the panel)
 

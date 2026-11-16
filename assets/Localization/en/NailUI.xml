@@ -226,6 +226,10 @@
       <name>CENSORED: sacrifice stays out of control</name>
       <desc>The employee chosen as CENSORED's sacrifice gets control back when CENSORED escapes before he arrives, instead of standing out of control until the day ends.</desc>
     </option>
+    <option key="FastFix.CorpseSelectRing" section="Bugfixes" group="Vanilla" order="134" restart="1">
+      <name>Selection ring on a corpse</name>
+      <desc>An agent who dies while selected no longer keeps the selection ring under the body.</desc>
+    </option>
     <option key="GameFix.TeddyDayEnd" section="Bugfixes" group="Gameplay" order="10" restart="1">
       <name>Happy Teddy: agent dies if the day ends during the hug</name>
       <desc>Rule change. An agent caught in Happy Teddy's hug when the day ends dies, as the hug would have ended. In the game he survives. Restart and return to title are not affected.</desc>
@@ -766,6 +770,10 @@
     <option key="PerfPack.CounterText" section="Performance" group="PerfLogic" order="62" restart="1">
       <name>Room counter text</name>
       <desc>The Qliphoth counter of every containment room no longer creates a new text every tick. Same display.</desc>
+    </option>
+    <option key="PerfPack.TimerNoGc" section="Memory" group="MemMain" order="65" restart="1">
+      <name>No forced cleanup on timers</name>
+      <desc>Some abnormalities (1.76 MHz, Snow Queen, Queen Bee and others) force a full memory cleanup when their timer ends, which causes a short freeze. The forced cleanup is skipped; the game cleans memory on its own schedule.</desc>
     </option>
     <option key="PerfPack.AgentAnimLod" section="Performance" group="PerfRender" order="60">
       <name>Agent animation LOD</name>
