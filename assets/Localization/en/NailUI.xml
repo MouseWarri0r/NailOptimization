@@ -52,6 +52,8 @@
     <s id="AlertDllPartial">{0} loaded partially: {1}. Parts of this mod may not work; the other mods loaded normally.</s>
     <s id="AlertLastCrash">The last session closed unexpectedly (last record {0}) during: {1}, since {4}. Last error at {3}: {2}.</s>
     <s id="AlertBaseModVersion">BaseMod (LMM) {0} is not supported: NailOptimization is made for BaseMod {1}. Stable work cannot be guaranteed.</s>
+    <s id="AlertLecDisabled">LoadErrorCheck does not work with NailOptimization and was turned off for this session (its error screen could not be left). Load problems are listed here instead.</s>
+    <s id="AlertGenerateNoData">abnormality {0} is in the new-game list but its data did not load; it was left out of the list.</s>
   </ui>
 
   <sections>
@@ -142,6 +144,10 @@
       <name>Warn about an unsupported BaseMod version</name>
       <desc>If BaseMod (LMM) is not version 1.3.9, the warning list names it and opens once on the title screen.</desc>
     </option>
+    <option key="LoadGuard.DisableLoadErrorCheck" section="Protection" group="Protection" order="32" restart="1">
+      <name>Turn off LoadErrorCheck</name>
+      <desc>When the LoadErrorCheck mod is installed, it is turned off for the session: under NailOptimization its error screen at start cannot be left. Load problems are named in the warning list instead.</desc>
+    </option>
     <option key="LoadGuard.CrashTrail" section="Protection" group="Protection" order="28" restart="1">
       <name>Name the cause of the last crash</name>
       <desc>The last step before the game closed with an error (mod being loaded, scene, day, last error) is kept in Logs/LastSession.txt. At the next start it is named in the warning list, which opens once on the title screen.</desc>
@@ -193,6 +199,10 @@
     <option key="FastFix.AcaciaBullet" section="ModFixes" group="ModFixList" order="90" restart="1">
       <name>Acacia</name>
       <desc>The bullet check no longer throws when the bullet touches something that is not a unit.</desc>
+    </option>
+    <option key="FastFix.EndlessgyroMaxNum" section="ModFixes" group="ModFixList" order="91" restart="1">
+      <name>Endlessgyro</name>
+      <desc>Its EGO limit of one copy works again (its patch aimed at a method that does not exist).</desc>
     </option>
     <option key="FastFix.ElysiaRiskUnit" section="ModFixes" group="ModFixList" order="100" restart="1">
       <name>Elysia RiskLevel</name>
@@ -1162,6 +1172,200 @@
     <option key="PerfPack.WeaponModScript" section="Performance" group="PerfLoad" order="45">
       <name>Mod weapon scripts without a game namesake</name>
       <desc>With the script list on: a mod weapon whose script class has no game class of the same name gets its script. The game gives it none, so its special effect never runs.</desc>
+    </option>
+    <option key="Gui.Hotkey" section="Interface" group="Hotkey" order="30" restart="1">
+      <name>Core panel key</name>
+      <desc>Key of the core settings panel (Unity KeyCode name, e.g. F10).</desc>
+    </option>
+    <option key="Gui.TitleButton" section="Interface" group="DayButton" order="30" restart="1">
+      <name>Button on the title screen</name>
+      <desc>Icon button on the title screens that opens the panel.</desc>
+    </option>
+    <option key="Gui.TitleIcon" section="Interface" group="DayButton" order="40" restart="1">
+      <name>Title button icon</name>
+      <desc>PNG of the title button, path relative to the NailOptimization folder. A missing file shows a placeholder square.</desc>
+    </option>
+    <option key="Gui.Prewarm" section="Performance" group="PerfUi" order="200" restart="1">
+      <name>Prepare the panel at start</name>
+      <desc>The panel is built and its glyphs are rasterized at game start instead of on the first open: the first open is faster, the start slightly slower.</desc>
+    </option>
+    <option key="Gui.LogEnvironment" section="Debug" group="UiDebug" order="20">
+      <name>Log canvases on panel open</name>
+      <desc>Each panel open writes the list of scene canvases to the log. Diagnostic.</desc>
+    </option>
+    <option key="Gui.OpenTimingFrames" section="Debug" group="UiDebug" order="30">
+      <name>Frames timed after panel open</name>
+      <desc>Number of frame times written to the log after each panel open (0 = off, at most 32).</desc>
+    </option>
+    <option key="Detect.Names" section="Protection" group="PatchGuard" order="30" restart="1">
+      <name>Other optimizer names</name>
+      <desc>Comma-separated parts of assembly names or Harmony ids reported as other optimizers (a warning only).</desc>
+    </option>
+    <option key="Detect.DumpPatches" section="Protection" group="PatchGuard" order="40" restart="1">
+      <name>Write all Harmony patches to the log</name>
+      <desc>At the second frame every Harmony patch found is written to the log. Diagnostic.</desc>
+    </option>
+    <option key="LogViewer.BenignPatterns" section="Interface" group="LogWindow" order="50" restart="1">
+      <name>Extra harmless messages</name>
+      <desc>Advanced log: extra parts of harmless messages hidden by the harmless filter, separated by |.</desc>
+    </option>
+    <option key="PerfTools.Key" section="Debug" group="PerfOverlay" order="60" restart="1">
+      <name>Overlay key</name>
+      <desc>Key that shows or hides the performance overlay (Unity KeyCode name; Shift+, Ctrl+, Alt+ allowed).</desc>
+    </option>
+    <option key="PerfTools.ProfKey" section="Debug" group="Profiler" order="60" restart="1">
+      <name>Profiler key</name>
+      <desc>Key that starts or stops a profiler session (Unity KeyCode name; Shift+, Ctrl+, Alt+ allowed).</desc>
+    </option>
+    <option key="LoadGuard.Prefetch" section="Advanced" group="Config" order="900" hidden="1">
+      <name>Read mod data ahead</name>
+      <desc>With LoadGuard on: the mod data files (localization, equipment, creatures, sefira isolate) are read on a worker thread once the mod DLLs have loaded; each text is used once if unchanged.</desc>
+    </option>
+    <option key="LoadGuard.CustomDamageCache" section="Performance" group="PerfLoad" order="100" restart="1">
+      <name>Custom damage type list</name>
+      <desc>With LoadGuard on: kekesi_CustomDamageBase finds the script class of a custom damage type through a list built once instead of reading the types of every mod for each weapon (about 6 s at start with many mods).</desc>
+    </option>
+    <option key="FastFix.AttackEndNull" section="Bugfixes" group="Vanilla" order="136" restart="1">
+      <name>Attack end with no damage event</name>
+      <desc>An attack animation of a unit with no damage event set no longer throws at its end; the attack end is still sent.</desc>
+    </option>
+    <option key="FastFix.PassageRectQuiet" section="ModFixes" group="ModFixGeneral" order="110" restart="1">
+      <name>GetPassageRect error spam</name>
+      <desc>Mods with a GetPassageRect helper (Nobody Is, Incubator, Four Fools and others): a room whose view or sprite is missing no longer writes an error on every call; the result is the same empty rect.</desc>
+    </option>
+    <option key="FastFix.FourFoolsBufIcon" section="ModFixes" group="ModFixList" order="394" restart="1">
+      <name>Four Fools: Zkbuf icon</name>
+      <desc>The Zkbuf buf gets its icon (the mod reads it before it knows its folder).</desc>
+    </option>
+    <option key="FastFix.NothingIsTitle" section="ModFixes" group="ModFixList" order="395" restart="1">
+      <name>Nobody Is: disguised agent title</name>
+      <desc>The title of its disguised agent no longer throws and writes an error on every UI refresh when the creature data is missing.</desc>
+    </option>
+    <option key="FastFix.MagicalTrioOwner" section="ModFixes" group="ModFixList" order="396" restart="1">
+      <name>Magical Trio: weapon with no owner</name>
+      <desc>A hit by a weapon with no owner no longer throws in the mod's set check (the set bonus needs an owner).</desc>
+    </option>
+    <option key="FastFix.WhiteRabbitRange" section="ModFixes" group="ModFixList" order="397" restart="1">
+      <name>Celestial Bunny: damage with no attacker</name>
+      <desc>Damage with no attacker no longer throws in its range check (counts as out of range).</desc>
+    </option>
+    <option key="FastFix.NodeStateTrace" section="Advanced" group="Config" order="900" hidden="1">
+      <name>Trace of invalid node state (removed)</name>
+    </option>
+    <!-- Keys left in the cfg file by older versions; no code reads them (2026-11-18). -->
+    <option key="NoPilot.Enabled" section="Advanced" group="Config" order="900" hidden="1">
+      <name>Pilot flag</name>
+    </option>
+    <option key="NoPilot.Limit" section="Advanced" group="Config" order="900" hidden="1">
+      <name>Pilot integer</name>
+    </option>
+    <option key="NoPilot.Scale" section="Advanced" group="Config" order="900" hidden="1">
+      <name>Pilot float</name>
+    </option>
+    <option key="PerfPack.FastDistance" section="Advanced" group="Config" order="900" hidden="1">
+      <name>Fast distance (replaced by PathCheck)</name>
+    </option>
+    <option key="Display.Fullscreen" section="Advanced" group="Config" order="900" hidden="1">
+      <name>Fullscreen (replaced by window mode)</name>
+    </option>
+    <option key="PerfPack.DayPreload" section="Advanced" group="Config" order="900" hidden="1">
+      <name>Day preload (removed)</name>
+    </option>
+    <option key="PerfPack.ReadAheadExperimental" section="Advanced" group="Config" order="900" hidden="1">
+      <name>Read-ahead (removed)</name>
+    </option>
+    <option key="FastFix.SpineMeshes" section="Advanced" group="Config" order="900" hidden="1">
+      <name>Old Spine meshes (removed)</name>
+    </option>
+    <option key="FastFix.BingJieXianNodeLog" section="Advanced" group="Config" order="900" hidden="1">
+      <name>BingJieXian invalid node state (replaced by InvalidNodeLog)</name>
+    </option>
+    <option key="FastFix.BleedIconEnd" section="ModFixes" group="ModFixList" order="399" restart="1">
+      <name>Blood Shoes: bleed end error file</name>
+      <desc>The end of a bleed no longer throws in its icon update and no longer writes BurnShowIconerror.txt to the desktop LOG folder.</desc>
+    </option>
+    <option key="FastFix.GiftFixScript" section="ModFixes" group="ModFixList" order="400" restart="1">
+      <name>Incubator (GiftFix): EGO gift script</name>
+      <desc>Giving an EGO gift whose script was not set no longer throws (the GiftFix DLL is built for a newer .NET and stopped the day load); the script is set as the mod intends.</desc>
+    </option>
+    <option key="FastFix.BloodShoesLogDir" section="ModFixes" group="ModFixList" order="401" restart="1">
+      <name>Blood Shoes: missing LOG folder</name>
+      <desc>When the desktop LOG folder does not exist, the mod writes its files to a LOG folder in its own mod folder; without it the bleed buf fails to start. An existing desktop LOG folder is used as before.</desc>
+    </option>
+    <option key="FastFix.CreatureNoNameLog" section="Bugfixes" group="Vanilla" order="138" restart="1">
+      <name>Creature without a name: log spam</name>
+      <desc>A creature type without a name in its data (some mod child creatures) no longer writes a dictionary error to the log each time its name is read; the game shows Unknown as before.</desc>
+    </option>
+    <option key="FastFix.MovableStateLog" section="Bugfixes" group="Vanilla" order="139" restart="1">
+      <name>Invalid Movable State spam</name>
+      <desc>A unit whose map node was moved by a mod while it walked no longer writes Invalid Movable State to the log; the game stops that move as before.</desc>
+    </option>
+    <option key="FastFix.ChildViewWait" section="Bugfixes" group="Vanilla" order="140" restart="1">
+      <name>Child creature escapes before its view exists</name>
+      <desc>A child creature that escapes on the tick it is made waits for its view to be set up before its first escape step. Some mod children (The Crying Children, ReUse) threw an error there.</desc>
+    </option>
+    <option key="FastFix.AddComponentNullQuiet" section="Bugfixes" group="Vanilla" order="141" restart="1">
+      <name>AddComponent with no type: log spam</name>
+      <desc>AddComponent with no type (Incubator witches do it on purpose and then add their own script) returns nothing at once instead of writing a warning to the log each time.</desc>
+    </option>
+    <option key="FastFix.JokerSheepDamage" section="ModFixes" group="ModFixList" order="402" restart="1">
+      <name>Penitent Clown: sheep attacks</name>
+      <desc>Its sheep no longer throw when they attack outside a room or when a target dies during the attack; the same targets take the same damage and panic buf.</desc>
+    </option>
+    <option key="FastFix.IncubatorModId" section="ModFixes" group="ModFixList" order="403" restart="1">
+      <name>Incubator: mod id</name>
+      <desc>The mod looks up its abnormalities and EGO under the id BaseMod gave its folder (empty when the game language has no info.xml of the mod), so the Walpurgis Night lasers, witches made by the Incubator and its EGO checks are found again. Saves are not changed.</desc>
+    </option>
+    <option key="FastFix.WalpurgisDayStart" section="ModFixes" group="ModFixList" order="404" restart="1">
+      <name>Incubator: Walpurgis Night at day start</name>
+      <desc>A Walpurgis Night kept in containment no longer makes the witches and the Knight of Despair escape and spawns its lasers while the day is being prepared (lasers failed there and left the creature without its node); both happen at the first frame of the day.</desc>
+    </option>
+    <option key="FastFix.IncubatorPoolDestroy" section="ModFixes" group="ModFixList" order="405" restart="1">
+      <name>Incubator: witch animation pool</name>
+      <desc>A witch suppressed by a hit inside a physics callback or an animation event no longer logs &quot;Destroying components immediately is not permitted&quot;; the extra scripts on its pooled animation are disabled at once and removed at the end of the frame.</desc>
+    </option>
+    <option key="FastFix.UncertainPagePortrait" section="ModFixes" group="ModFixList" order="406" restart="1">
+      <name>Uncertain Page: freeze on use</name>
+      <desc>The abnormality picture on the page is looked up once per abnormality and kept; the mod walked every file of all mods and read every CreatureInfo file on each use. The same picture is chosen.</desc>
+    </option>
+    <option key="FastFix.LingDragSelect" section="ModFixes" group="ModFixList" order="407" restart="1">
+      <name>Ling: area select</name>
+      <desc>An area select (left drag) over an object that is not a unit (an effect or bullet collider) no longer throws in the mod's check for its own creature.</desc>
+    </option>
+    <option key="FastFix.IncubatorCheckAgent" section="ModFixes" group="ModFixList" order="408" restart="1">
+      <name>Incubator: agents between rooms</name>
+      <desc>An agent between rooms (on a hallway edge or an elevator) no longer throws in the Incubator's check for agents with low SP; the check stopped the Incubator's whole tick each time. That agent is checked again when it is in a room.</desc>
+    </option>
+    <option key="FastFix.LadyInRainSpecial" section="ModFixes" group="ModFixList" order="409" restart="1">
+      <name>The Lady in Rain: missing special animation</name>
+      <desc>When the mod picks the rare special version of an animation that its model does not have (Escapediespecial), the normal one is played instead of an error; the death motion is no longer lost.</desc>
+    </option>
+    <option key="FastFix.TiamatButtonLayer" section="ModFixes" group="ModFixList" order="410" restart="1">
+      <name>Tiamat EGO reader: layer error</name>
+      <desc>Its EGO switch buttons in the abnormality window no longer write a layer error to the log each time the window opens (the mod sets layer 999; Unity refused it and kept the layer, as now).</desc>
+    </option>
+    <option key="FastFix.HmiInfoHover" section="ModFixes" group="ModFixList" order="411" restart="1">
+      <name>I-1236 Branch: abnormality window hover</name>
+      <desc>Hovering a closed area of the abnormality window while the window has no abnormality set no longer throws in the hover check of the mod.</desc>
+    </option>
+    <option key="FastFix.FewSuppressChild" section="ModFixes" group="ModFixList" order="412" restart="1">
+      <name>Goddess of the Stars (FEW RiskLevel): escaped child creatures</name>
+      <desc>Clicking an escaped child creature without its own observation data no longer throws in the risk level label of the suppress window; the window keeps the game label.</desc>
+    </option>
+    <option key="FastFix.HslebSuppressChild" section="ModFixes" group="ModFixList" order="413" restart="1">
+      <name>Souls Pawn Shop (HSLEB RiskLevel): escaped child creatures</name>
+      <desc>Clicking an escaped child creature without its own observation data no longer throws in the risk level label of the suppress window; the window keeps the game label.</desc>
+    </option>
+    <option key="FastFix.FourFoolsSelect" section="ModFixes" group="ModFixList" order="414" restart="1">
+      <name>Four Fools: abnormality choice screen</name>
+      <desc>The abnormality choice screen no longer throws when a choice door starts before its abnormality is set.</desc>
+    </option>
+    <option key="FastFix.InvalidNodeLog" section="Bugfixes" group="Vanilla" order="137" restart="1">
+      <name>Invalid node state spam</name>
+      <desc>A unit with neither a map node nor an edge (some mods move units this way) no longer writes invalid node state to the log on every move; the game does nothing else on that path.</desc>
+    </option>
+    <option key="FastFix.MoveStateTrace" section="Advanced" group="Config" order="900" hidden="1">
+      <name>Trace of movable and day start state errors (removed)</name>
     </option>
   </options>
 </NailUI>

@@ -5590,23 +5590,27 @@ namespace NailOptimization
 			}
 			Canvas myRoot = myCanvas.rootCanvas;
 			// AbnoSeal's intro animation sets its button's position every frame and removes itself at the end.
-			if (AbnoSealAnimating())
+			GameObject np = GameObject.Find("NoPlagueButton");
+			if (AbnoSealAnimating(np))
 			{
 				return;
 			}
-			// A mod that puts its button back: restore our x once more (y is left alone, hover moves it).
-			for (int k = 0; k < _movedT.Count; k++)
+			// AbnoSeal builds its selection window under the parent of its button; its parts are never ours to move.
+			Transform sealBtn = np != null ? np.transform : null;
+			// A mod that puts its button back owns that place: it is left there and not moved again.
+			for (int k = _movedT.Count - 1; k >= 0; k--)
 			{
 				Transform mt = _movedT[k];
-				if (mt == null || Mathf.Abs(mt.position.x - _movedX[k]) < 0.01f)
+				if (mt != null && Mathf.Abs(mt.position.x - _movedX[k]) < 0.01f)
 				{
 					continue;
 				}
-				ULog.Info("title", "other button " + mt.name + " was put back to x=" + mt.position.x.ToString("F2", CultureInfo.InvariantCulture) + ", moving again to x=" + _movedX[k].ToString("F2", CultureInfo.InvariantCulture));
-				Vector3 mp = mt.position;
-				mt.position = new Vector3(_movedX[k], mp.y, mp.z);
-				_moves++;
-				return;
+				if (mt != null)
+				{
+					ULog.Info("title", "other button " + mt.name + " was put back by its mod to x=" + mt.position.x.ToString("F2", CultureInfo.InvariantCulture) + ", left there");
+				}
+				_movedT.RemoveAt(k);
+				_movedX.RemoveAt(k);
 			}
 			// "Ours" = the base button plus the action buttons left of it.
 			Rect mine = ScreenRect(own);
@@ -5649,6 +5653,10 @@ namespace NailOptimization
 				{
 					continue;
 				}
+				if ((sealBtn != null && InAbnoSealWindow(st, sealBtn)) || Animated(st))
+				{
+					continue;
+				}
 				srt.GetWorldCorners(_wc);
 				float theirRight = Mathf.Max(_wc[0].x, _wc[2].x);
 				float shift = theirRight - ourLeft + ourWidth * MoveGapShare;
@@ -5660,17 +5668,21 @@ namespace NailOptimization
 				ULog.Info("title", "moved other button " + s.name + " left by " + shift.ToString("F2", CultureInfo.InvariantCulture) + " world (overlap screen=" + other.ToString() + ") move=" + _moves + " now=" + st.position.ToString("F2"));
 				return;
 			}
-			MoveAbnoSeal(mine, ourLeft, ourWidth);
+			MoveAbnoSeal(np, mine, ourLeft, ourWidth);
 		}
 
-		private static bool AbnoSealAnimating()
+		private static bool AbnoSealAnimating(GameObject np)
 		{
-			GameObject np = GameObject.Find("NoPlagueButton");
 			if (np == null)
 			{
 				return false;
 			}
-			MonoBehaviour[] parts = np.GetComponents<MonoBehaviour>();
+			return HasMovableImage(np);
+		}
+
+		private static bool HasMovableImage(GameObject go)
+		{
+			MonoBehaviour[] parts = go.GetComponents<MonoBehaviour>();
 			for (int i = 0; i < parts.Length; i++)
 			{
 				if (parts[i] != null && parts[i].GetType().Name == "MovableImage")
@@ -5681,10 +5693,44 @@ namespace NailOptimization
 			return false;
 		}
 
-		// AbnoSeal's button has a label wider than it: both count, and our labels too.
-		private static void MoveAbnoSeal(Rect mine, float ourLeft, float ourWidth)
+		// A mod's sliding UI (AbnoSeal MovableImage on the object or a parent below the canvas): never moved by us.
+		// AbnoSeal's parent is the shared title panel (decomp AbnormalitySealMod/Harmony_Patch.cs:247). Its window parts are direct children
+		// of it created after NoPlagueButton (ChooseAndSealAbnormalitiesUI.cs CreateCreaturesList, SetParent(ptf)); vanilla containers and foreign
+		// buttons copied into them sit under children with a lower sibling index, so they are still checked.
+		private static bool InAbnoSealWindow(Transform st, Transform np)
 		{
-			GameObject np = GameObject.Find("NoPlagueButton");
+			Transform root = np.parent;
+			if (root == null || st == root)
+			{
+				return false;
+			}
+			Transform t = st;
+			while (t != null && t.parent != root)
+			{
+				t = t.parent;
+			}
+			return t != null && t.GetSiblingIndex() >= np.GetSiblingIndex();
+		}
+
+		private static bool Animated(Transform t)
+		{
+			for (Transform p = t; p != null; p = p.parent)
+			{
+				if (p.GetComponent<Canvas>() != null)
+				{
+					return false;
+				}
+				if (HasMovableImage(p.gameObject))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		// AbnoSeal's button has a label wider than it: both count, and our labels too.
+		private static void MoveAbnoSeal(GameObject np, Rect mine, float ourLeft, float ourWidth)
+		{
 			if (np == null || _moved.Contains(np.GetInstanceID()))
 			{
 				return;

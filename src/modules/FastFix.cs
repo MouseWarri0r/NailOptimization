@@ -10,6 +10,7 @@
 //   Starflare (CS)                 CSArmor.CollisionCheck and CSCreature.MakeMovement no longer throw.
 //   Black Swan, White fixer (vanilla)  BlackSwanSister/FixerWhite.CanTakeDamage no longer reflect to herself without end.
 //   Acacia                         its FreischutzBullet.CollisionCheck Prefix no longer throws for a non-unit collider.
+//   Endlessgyro                    its MaxNum patch (aimed at a getter overload that does not exist) goes on get_MaxNum().
 //   Elysia RiskLevel               its CreatureUnit.Update Prefix skips a unit with a null model part instead of throwing.
 //   KingOfGreedWeapon Enhance      KingOfGreedWeapon.OnTakeDamage, OnAttackEnd, OnCancelWeapon no longer throw for a wearer
 //                                  without a passage.
@@ -519,7 +520,7 @@ namespace FastFix
 		{
 			get
 			{
-				return "1.42";
+				return "1.70";
 			}
 		}
 
@@ -572,6 +573,7 @@ namespace FastFix
 			FastFixDriver.KingGreedPending = true;
 			FastFixDriver.ElysiaUnitPending = true;
 			FastFixDriver.AcaciaPending = true;
+			FastFixDriver.GyroPending = true;
 			FastFixDriver.CovariancePending = true;
 			FastFixDriver.ModNrePending = true;
 			PanicStuck.Install(Harmony, N.Config.BindFlag("FastFix.PanicStuck", true, "An agent in the panic that opens containment units walks again when the walk to the unit was interrupted, and picks another unit if it cannot get there."));
@@ -747,6 +749,7 @@ namespace FastFix
 		internal static bool KingGreedPending;
 		internal static bool ElysiaUnitPending;
 		internal static bool AcaciaPending;
+		internal static bool GyroPending;
 		internal static bool CovariancePending;
 		internal static bool ModNrePending;
 		internal static bool YaZiPending;
@@ -764,7 +767,7 @@ namespace FastFix
 			SpecialAttackStuck.Tick();
 			CensoredChildren.Tick();
 			H12Hint.Tick();
-			if (WhiteRabbitPending || RiskPortraitPending || StarflarePending || HellTrainPending || EffectNamesPending || BambooPending || CauldronPending || ChaofengPending || ColoredFixerPending || BossBirdPending || AddRoomPending || PinelPending || KingGreedPending || ElysiaUnitPending || AcaciaPending || CovariancePending || ModNrePending || YaZiPending)
+			if (WhiteRabbitPending || RiskPortraitPending || StarflarePending || HellTrainPending || EffectNamesPending || BambooPending || CauldronPending || ChaofengPending || ColoredFixerPending || BossBirdPending || AddRoomPending || PinelPending || KingGreedPending || ElysiaUnitPending || AcaciaPending || GyroPending || CovariancePending || ModNrePending || YaZiPending)
 			{
 				_frames++;
 				if (_frames == 1 || _frames % PollFrames == 0 || _frames >= GiveUpFrames)
@@ -936,6 +939,18 @@ namespace FastFix
 					{
 						AcaciaPending = false;
 						N.ULog.Error(FastFixModule.Tag, "acacia install failed: " + e);
+					}
+					try
+					{
+						if (GyroPending && GyroMaxNumFix.TryInstall(_frames >= GiveUpFrames))
+						{
+							GyroPending = false;
+						}
+					}
+					catch (Exception e)
+					{
+						GyroPending = false;
+						N.ULog.Error(FastFixModule.Tag, "endlessgyro install failed: " + e);
 					}
 					try
 					{
@@ -1189,6 +1204,12 @@ namespace FastFix
 		private static bool _stepOpen;
 		private static readonly Dictionary<string, bool> SkipKeys = new Dictionary<string, bool>();
 		private const string SkipV2 = "v2|";
+		// Assemblies read before without a place to fix: key (path|write ticks) -> the "methods not read" text ("" when none).
+		private static readonly Dictionary<string, string> Clean = new Dictionary<string, string>();
+		private static readonly Dictionary<string, bool> CleanUsed = new Dictionary<string, bool>();
+		private static string _cacheFile;
+		private static string _cacheHeader;
+		private static bool _cacheDirty;
 
 		// True when the attempt is finished. Runs on each driver poll until the give-up frame: assemblies a mod loads late are read then.
 		internal static bool TryInstall(bool last)
@@ -1214,6 +1235,7 @@ namespace FastFix
 				_covary = typeof(Covariance).GetMethod("Covary", BindingFlags.Public | BindingFlags.Static);
 				_ownDir = System.IO.Path.GetDirectoryName(typeof(N.ULog).Assembly.Location);
 				StepInit();
+				CacheLoad();
 			}
 			if (!_flag.On)
 			{
@@ -1228,6 +1250,7 @@ namespace FastFix
 			int skipped = 0;
 			int noRef = 0;
 			int notRead = 0;
+			int cached = 0;
 			List<MethodBase> targets = new List<MethodBase>();
 			Dictionary<string, bool> loaded = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
 			for (int a = 0; a < all.Length; a++)
@@ -1257,12 +1280,28 @@ namespace FastFix
 					N.ULog.Warn(FastFixModule.Tag, "covariance: " + key + " not read: the game closed while reading it at an earlier start");
 					continue;
 				}
+				string note;
+				if (Clean.TryGetValue(key, out note))
+				{
+					cached++;
+					CleanUsed[key] = true;
+					if (note.Length > 0)
+					{
+						N.ULog.Info(FastFixModule.Tag, "covariance: " + System.IO.Path.GetFileName(all[a].Location) + ": " + note + " (cached)");
+					}
+					continue;
+				}
 				Step("asm", key);
 				string missing = MissingRef(all[a], loaded);
 				if (missing != null)
 				{
+					if (!ReportNoRef(all[a], missing, last))
+					{
+						// The reference ships with the mod and is loaded by it later: read this assembly at a later poll.
+						Seen.Remove(all[a]);
+						continue;
+					}
 					noRef++;
-					N.ULog.Warn(FastFixModule.Tag, "covariance: " + key + " not read: its reference " + missing + " cannot be loaded");
 					continue;
 				}
 				Dictionary<int, bool> unsafeMethods = new Dictionary<int, bool>();
@@ -1276,10 +1315,19 @@ namespace FastFix
 				}
 				read++;
 				int before = notRead;
+				int targetsBefore = targets.Count;
 				ScanAssembly(all[a], targets, unsafeMethods, ref methods, ref skipped, ref notRead);
+				note = string.Empty;
 				if (notRead > before)
 				{
-					N.ULog.Info(FastFixModule.Tag, "covariance: " + System.IO.Path.GetFileName(all[a].Location) + ": " + (notRead - before) + " methods not read: they use " + (absent.Count > 0 ? string.Join(", ", absent.GetRange(0, Math.Min(3, absent.Count)).ToArray()) : "(unreadable IL or signature)") + " missing in this game's runtime");
+					note = (notRead - before) + " methods not read: they use " + (absent.Count > 0 ? string.Join(", ", absent.GetRange(0, Math.Min(3, absent.Count)).ToArray()) : "(unreadable IL or signature)") + " missing in this game's runtime";
+					N.ULog.Info(FastFixModule.Tag, "covariance: " + System.IO.Path.GetFileName(all[a].Location) + ": " + note);
+				}
+				if (targets.Count == targetsBefore)
+				{
+					Clean[key] = note;
+					CleanUsed[key] = true;
+					_cacheDirty = true;
 				}
 			}
 			for (int i = 0; i < targets.Count; i++)
@@ -1287,9 +1335,13 @@ namespace FastFix
 				Patch(targets[i]);
 			}
 			StepClear();
-			if (read > 0 || noRef > 0)
+			if (_cacheDirty)
 			{
-				N.ULog.Info(FastFixModule.Tag, "covariance: " + read + " assemblies (" + noRef + " not read for a missing reference or a failed metadata check), " + methods + " methods read, " + skipped + " not analyzed, " + notRead + " not read (missing runtime members), " + targets.Count + " methods to patch, " + _fixed + " places fixed in total, " + sw.ElapsedMilliseconds + " ms; memory heap " + Mb(heap0) + " -> " + Mb(GC.GetTotalMemory(false)) + " MB, private " + Mb(priv0) + " -> " + Mb(PrivateBytes()) + " MB");
+				CacheSave();
+			}
+			if (read > 0 || noRef > 0 || cached > 0)
+			{
+				N.ULog.Info(FastFixModule.Tag, "covariance: " + cached + " assemblies unchanged since a clean read (cache), " + read + " assemblies (" + noRef + " not read for a missing reference or a failed metadata check), " + methods + " methods read, " + skipped + " not analyzed, " + notRead + " not read (missing runtime members), " + targets.Count + " methods to patch, " + _fixed + " places fixed in total, " + sw.ElapsedMilliseconds + " ms; memory heap " + Mb(heap0) + " -> " + Mb(GC.GetTotalMemory(false)) + " MB, private " + Mb(priv0) + " -> " + Mb(PrivateBytes()) + " MB");
 			}
 			return last;
 		}
@@ -1503,6 +1555,88 @@ namespace FastFix
 			}
 		}
 
+		// Logs/Covariance.cache.txt: line 1 = header (format, FastFix and Assembly-CSharp write ticks, handler option); then one
+		// "key<TAB>note" line per assembly read without a place to fix. A different header drops the whole cache: the result of a
+		// read depends on this code and on the game's types. Assemblies with places are never cached (their methods get patched).
+		private static void CacheLoad()
+		{
+			try
+			{
+				string dir = System.IO.Path.Combine(N.UiHost.RootDir, "Logs");
+				_cacheFile = System.IO.Path.Combine(dir, "Covariance.cache.txt");
+				_cacheHeader = "covcache1|" + Ticks(typeof(Covariance).Assembly.Location) + "|" + Ticks(typeof(AgentModel).Assembly.Location) + "|" + (_handlers != null && _handlers.On ? "h1" : "h0");
+				if (!System.IO.File.Exists(_cacheFile))
+				{
+					return;
+				}
+				string[] lines = System.IO.File.ReadAllLines(_cacheFile);
+				if (lines.Length == 0 || lines[0] != _cacheHeader)
+				{
+					N.ULog.Info(FastFixModule.Tag, "covariance: cache from another FastFix or game build, all assemblies are read again");
+					return;
+				}
+				for (int i = 1; i < lines.Length; i++)
+				{
+					int tab = lines[i].IndexOf('\t');
+					if (tab > 0)
+					{
+						Clean[lines[i].Substring(0, tab)] = lines[i].Substring(tab + 1);
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				Clean.Clear();
+				N.ULog.Warn(FastFixModule.Tag, "covariance: cache not read: " + e.Message);
+			}
+		}
+
+		// Writes only the entries of assemblies present in this session, so removed mods drop out. Temp file, then replace.
+		private static void CacheSave()
+		{
+			_cacheDirty = false;
+			if (_cacheFile == null)
+			{
+				return;
+			}
+			try
+			{
+				System.Text.StringBuilder sb = new System.Text.StringBuilder();
+				sb.Append(_cacheHeader).Append("\r\n");
+				foreach (KeyValuePair<string, bool> kv in CleanUsed)
+				{
+					string note;
+					if (Clean.TryGetValue(kv.Key, out note))
+					{
+						sb.Append(kv.Key).Append('\t').Append(note).Append("\r\n");
+					}
+				}
+				string tmp = _cacheFile + ".tmp";
+				System.IO.File.WriteAllText(tmp, sb.ToString());
+				if (System.IO.File.Exists(_cacheFile))
+				{
+					System.IO.File.Delete(_cacheFile);
+				}
+				System.IO.File.Move(tmp, _cacheFile);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(FastFixModule.Tag, "covariance: cache not written: " + e.Message);
+			}
+		}
+
+		private static long Ticks(string path)
+		{
+			try
+			{
+				return System.IO.File.GetLastWriteTimeUtc(path).Ticks;
+			}
+			catch (Exception)
+			{
+				return 0;
+			}
+		}
+
 		// Also called by the driver when TryInstall throws: a managed exception is not a crash.
 		internal static void StepClear()
 		{
@@ -1542,6 +1676,89 @@ namespace FastFix
 		private static string Norm(string name)
 		{
 			return name.EndsWith(".s", StringComparison.Ordinal) ? name.Substring(0, name.Length - 2) : name;
+		}
+
+		private static readonly Dictionary<string, string> ModRefs = new Dictionary<string, string>();
+
+		// Why a mod assembly is not read. Returns false while the missing reference is a DLL inside the mod's own folder (the mod's
+		// library loader loads it later) and this is not the last poll: the caller tries again. Logs once otherwise:
+		// INFO for a .NET Standard / .NET Core build (Mono resolves what the mod's running code uses; the scan cannot) and for a DLL
+		// shipped with the mod; WARN only when the reference is nowhere: the mod code that uses it fails when it runs.
+		private static bool ReportNoRef(Assembly asm, string missing, bool last)
+		{
+			string loc = asm.Location;
+			string mod = ModFolder(loc);
+			string who = "covariance: " + mod + "/" + System.IO.Path.GetFileName(loc) + " not scanned: ";
+			if (missing.StartsWith("(", StringComparison.Ordinal))
+			{
+				N.ULog.Warn(FastFixModule.Tag, who + "reference list " + missing);
+				return true;
+			}
+			string name = missing.Split(new char[] { ',' })[0].Trim();
+			if (name == "netstandard" || name == "System.Runtime" || name == "System.Private.CoreLib")
+			{
+				N.ULog.Info(FastFixModule.Tag, who + "built against " + missing + " (.NET Standard / .NET Core); the scan cannot load it, the mod itself runs while its code uses only types this runtime has");
+				return true;
+			}
+			string found = FindInMod(loc, name + ".dll");
+			if (found != null)
+			{
+				if (!last)
+				{
+					return false;
+				}
+				N.ULog.Info(FastFixModule.Tag, who + "its reference " + name + " ships with the mod (" + found + ") but was not loaded by the end of start-up; the mod loads it when it needs it");
+				return true;
+			}
+			N.ULog.Warn(FastFixModule.Tag, who + "its reference " + missing + " is neither loaded, nor in Managed, nor in the mod folder: code of this mod that uses it fails when it runs (a missing dependency mod?)");
+			return true;
+		}
+
+		// "<folder under BaseMods>" of a mod file, or the file's directory name when it is not under BaseMods.
+		private static string ModFolder(string loc)
+		{
+			string full = loc.Replace('/', '\\');
+			int i = full.IndexOf("\\BaseMods\\", StringComparison.OrdinalIgnoreCase);
+			if (i < 0)
+			{
+				return System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(full));
+			}
+			string rest = full.Substring(i + 10);
+			int k = rest.IndexOf('\\');
+			return k < 0 ? rest : rest.Substring(0, k);
+		}
+
+		// Path of 'file' inside the mod's folder under BaseMods, relative to it; null when absent. Cached per mod and file.
+		private static string FindInMod(string loc, string file)
+		{
+			string full = loc.Replace('/', '\\');
+			int i = full.IndexOf("\\BaseMods\\", StringComparison.OrdinalIgnoreCase);
+			if (i < 0)
+			{
+				return null;
+			}
+			string mod = ModFolder(full);
+			string root = full.Substring(0, i + 10) + mod;
+			string ck = root + "|" + file;
+			string hit;
+			if (ModRefs.TryGetValue(ck, out hit))
+			{
+				return hit;
+			}
+			hit = null;
+			try
+			{
+				string[] files = System.IO.Directory.GetFiles(root, file, System.IO.SearchOption.AllDirectories);
+				if (files.Length > 0)
+				{
+					hit = files[0].Substring(root.Length).TrimStart(new char[] { '\\', '/' });
+				}
+			}
+			catch (Exception)
+			{
+			}
+			ModRefs[ck] = hit;
+			return hit;
 		}
 
 		// A mod whose reference cannot be loaded is not read: loading its types for the scan is where such mods can fail.
@@ -3743,6 +3960,9 @@ namespace FastFix
 	// its folder name; Pinocchio range check on a removed target; Lady in Rain drawing on a destroyed view; QiuNiu circle hit
 	// on a unit its inverted check reads as a child; Mephisto (MiFe) buf on a non-agent. Transpiled methods with exception
 	// handlers are patched only when 12Harmony is already loaded.
+	// Four Fools (1.47): Harmony_Patch's static fields load sprites in its cctor, before its constructor sets Harmony_Patch.path,
+	// so zkBufSprite stays null (no icon on the Zkbuf buf). It is loaded again through the mod's own AssetGetter once path is
+	// set; no patch. The three "Failed To Load Sprite" lines of the cctor stay (they come before any mod can act).
 	public static class ModNreFixes
 	{
 		private const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
@@ -3775,6 +3995,7 @@ namespace FastFix
 		private static bool _yaziDone;
 		private static bool _bbDeathDone;
 		private static bool _whaleRoamDone;
+		private static bool _fourFoolsDone;
 		private static bool _qianRuDone;
 		private static bool _cauldronDone;
 		private static bool _ribbonDone;
@@ -3807,6 +4028,13 @@ namespace FastFix
 				InstallDamageFactor();
 				InstallSoundDeQueue();
 				InstallBulletMax();
+				InstallAttackEnd();
+				InstallPassageRect();
+				InstallNodeQuiet();
+				InstallNoNameQuiet();
+				InstallChildViewWait();
+				InstallAddCompTrace();
+				InstallMoveQuiet();
 			}
 			if (!_blackBirdDone)
 			{
@@ -3912,6 +4140,10 @@ namespace FastFix
 			{
 				_bbDeathDone = Mod("BlackBird_WhiteBird", "FastFix.BlackBirdDeath", "White Bird and Black Bird: suppression of the black bird without a death animation no longer throws every frame. Read at game start.", last, InstallBlackBirdDeath);
 			}
+			if (!_fourFoolsDone)
+			{
+				_fourFoolsDone = Mod("FourFools", "FastFix.FourFoolsBufIcon", "Four Fools: the Zkbuf buf gets its icon (the mod reads it before it knows its folder). Read at game start.", last, InstallFourFools);
+			}
 			if (!_whaleRoamDone)
 			{
 				_whaleRoamDone = Mod("RottenWhaleFall", "FastFix.RottenWhaleRoam", "Rotten Whale Fall: without a target it keeps one roaming destination instead of picking a new one every tick and turning back and forth. Read at game start.", last, InstallWhaleRoam);
@@ -3949,7 +4181,7 @@ namespace FastFix
 				&& _toyDone && _invSefiraDone && _invPathDone && _pinoRangeDone && _rainDone && _qiuDone && _niuDone && _hookahDone
 				&& _whaleDone && _charlotteDone && _kekesiDone && _fdDone && _riskDone && _featherDone && _puLaoDone
 				&& _pinoEscDone && _floodDone && _beastDone && _yaziDone && _bbDeathDone && _whaleRoamDone
-				&& _qianRuDone && _cauldronDone && _ribbonDone && _cloudDone && _yaziEscDone && _grunglyDone && _bbPassageDone && batch;
+				&& _qianRuDone && _cauldronDone && _ribbonDone && _cloudDone && _yaziEscDone && _grunglyDone && _bbPassageDone && _fourFoolsDone && batch;
 		}
 
 		private delegate void Installer(Assembly asm);
@@ -4021,6 +4253,25 @@ namespace FastFix
 		private static bool _bxDone;
 		private static bool _tmDone;
 		private static bool _roseDone;
+		private static bool _nothingDone;
+		private static bool _trioDone;
+		private static bool _rabbitRangeDone;
+		private static bool _bleedEndDone;
+		private static bool _giftFixDone;
+		private static bool _shoesDirDone;
+		private static bool _walpDone;
+		private static bool _poolDone;
+		private static bool _upDone;
+		private static bool _lingDone;
+		private static bool _incCheckDone;
+		private static bool _ladySpecialDone;
+		private static bool _tiamatLayerDone;
+		private static bool _hmiHoverDone;
+		private static bool _fewSuppressDone;
+		private static bool _hslebSuppressDone;
+		private static bool _fourFoolsSelectDone;
+		private static bool _incIdDone;
+		private static bool _sheepDone;
 
 		private static bool InstallBatch(bool last)
 		{
@@ -4080,7 +4331,84 @@ namespace FastFix
 			{
 				_roseDone = ModByType("Sign_of_Roses.SignofRosesChild", "FastFix.SignOfRosesTarget", "Sign of Roses: when the employee its rose marked dies of something else, the rose no longer lowers a random abnormality's counter every tick (mass breaches, a full creature list copied every tick); it counts as having no target, as the mod does after its own kill. Read at game start.", last, InstallRose);
 			}
-			return _shoesDone && _queenDone && _raspDone && _pondDone && _turbDone && _heavenDone && _scytheDone && _wrResetDone && _brClearDone && _efDone && _introDone && _bxDone && _tmDone && _roseDone;
+			if (!_nothingDone)
+			{
+				_nothingDone = ModByType("NothingIs.HP.Creature", "FastFix.NothingIsTitle", "Nobody Is: the title of its disguised agent no longer throws and writes an error on every UI refresh when the creature data is missing. Read at game start.", last, InstallNothingTitle);
+			}
+			if (!_trioDone)
+			{
+				_trioDone = ModByType("MagicalTrio.Harmony_Patch", "FastFix.MagicalTrioOwner", "Magical Trio: a hit by a weapon with no owner no longer throws in the mod's set check (the set bonus needs an owner). Read at game start.", last, InstallTrio);
+			}
+			if (!_rabbitRangeDone)
+			{
+				_rabbitRangeDone = ModByType("WhiteRabbit.WhiteRabbit", "FastFix.WhiteRabbitRange", "Celestial Bunny: damage with no attacker no longer throws in its range check (counts as out of range). Read at game start.", last, InstallRabbitRange);
+			}
+			if (!_sheepDone)
+			{
+				_sheepDone = ModByType("Joker_MOD.Sheep", "FastFix.JokerSheepDamage", "Penitent Clown (Joker): its sheep no longer throw when they attack outside a room or when a target dies during the attack; the same targets take the same damage and panic buf. Read at game start.", last, InstallSheep);
+			}
+			if (!_incIdDone)
+			{
+				_incIdDone = ModByType("Incubator.Incubator", "FastFix.IncubatorModId", "Incubator: the mod looks up its abnormalities and EGO under the id BaseMod gave its folder (empty when the game language has no info.xml of the mod), so the Walpurgis Night lasers, witches made by the Incubator and its EGO checks are found again. Saves are not changed. Read at game start.", last, InstallIncModId);
+			}
+			if (!_walpDone)
+			{
+				_walpDone = ModByType("Incubator.WalpurgisNight.WalpurgisNight", "FastFix.WalpurgisDayStart", "Incubator: a Walpurgis Night kept in containment no longer makes the witches and the Knight of Despair escape and spawns its lasers while the day is being prepared (lasers failed there and left the creature without its node); both happen at the first frame of the day. Read at game start.", last, InstallWalp);
+			}
+			if (!_shoesDirDone)
+			{
+				_shoesDirDone = ModByType("BloodShoesCreature.BloodShoes", "FastFix.BloodShoesLogDir", "Blood Shoes: when the desktop LOG folder does not exist, the mod writes its files to a LOG folder in its own mod folder instead; without it the bleed buf fails to start. Read at game start.", last, InstallShoesDir);
+			}
+			if (!_giftFixDone)
+			{
+				_giftFixDone = ModByType("GiftFix.Harmony_Patch", "FastFix.GiftFixScript", "Incubator (GiftFix): giving an EGO gift whose script was not found no longer throws (the mod is built for a newer .NET and stops the day load); the script is set as the mod intends. Read at game start.", last, InstallGiftFix);
+			}
+			if (!_poolDone)
+			{
+				_poolDone = ModByType("Incubator.Incubator", "FastFix.IncubatorPoolDestroy", "Incubator: a witch suppressed by a hit inside a physics callback (Der Freischutz bullet) no longer logs 'Destroying components immediately is not permitted' when its animation goes back to the pool; the extra scripts on it are removed at the end of the frame instead of staying on the pooled animation. Read at game start.", last, InstallPool);
+			}
+			if (!_incCheckDone)
+			{
+				_incCheckDone = ModByType("Incubator.Incubator", "FastFix.IncubatorCheckAgent", "Incubator: an agent between rooms (on a hallway edge or an elevator) no longer throws in the Incubator's check for agents with low SP; the check stopped the Incubator's whole tick each time. That agent is checked again when it is in a room. Read at game start.", last, InstallIncCheck);
+			}
+			if (!_ladySpecialDone)
+			{
+				_ladySpecialDone = ModByType("GirlInRain.GirlInRainAnim", "FastFix.LadyInRainSpecial", "The Lady in Rain: when the mod picks the rare special version of an animation that its model does not have (Escapediespecial), the normal one is played instead of an error; the death motion is no longer lost. Read at game start.", last, InstallLadySpecial);
+			}
+			if (!_tiamatLayerDone)
+			{
+				_tiamatLayerDone = ModByType("TiamatEGOreader.Harmony_Patch", "FastFix.TiamatButtonLayer", "Tiamat EGO reader: its EGO switch buttons in the abnormality window no longer write a layer error to the log each time the window opens (the mod sets layer 999; Unity refused it and kept the layer, as now). Read at game start.", last, InstallTiamatLayer);
+			}
+			if (!_fewSuppressDone)
+			{
+				_fewSuppressDone = ModByType("FEW_RiskLevel.Harmony_Patch", "FastFix.FewSuppressChild", "Goddess of the Stars (FEW RiskLevel): clicking an escaped child creature (without its own observation data) no longer throws in the mod's risk level label of the suppress window; the window keeps the game's label. Read at game start.", last, InstallFewSuppress);
+			}
+			if (!_hslebSuppressDone)
+			{
+				_hslebSuppressDone = ModByType("HSLEB_RiskLevel.Harmony_Patch", "FastFix.HslebSuppressChild", "Souls Pawn Shop (HSLEB RiskLevel): clicking an escaped child creature (without its own observation data) no longer throws in the mod's risk level label of the suppress window; the window keeps the game's label. Read at game start.", last, InstallHslebSuppress);
+			}
+			if (!_fourFoolsSelectDone)
+			{
+				_fourFoolsSelectDone = ModByType("FourFools.HP_CSUnit", "FastFix.FourFoolsSelect", "Four Fools: the abnormality choice screen no longer throws when a choice door starts before its abnormality is set. Read at game start.", last, InstallFourFoolsSelect);
+			}
+			if (!_hmiHoverDone)
+			{
+				_hmiHoverDone = ModByType("HMI_AgentP_MOD.Harmony_Patch", "FastFix.HmiInfoHover", "I-1236 Branch (HMI_AgentP_MOD): hovering a closed area of the abnormality window while the window has no abnormality set no longer throws in the mod's hover check. Read at game start.", last, InstallHmiHover);
+			}
+			if (!_lingDone)
+			{
+				_lingDone = ModByType("Ling.Harmony_Patch", "FastFix.LingDragSelect", "Ling: an area select (left drag) over an object that is not a unit (an effect or bullet collider) no longer throws in the mod's check for its own creature. Read at game start.", last, InstallLingDrag);
+			}
+			if (!_upDone)
+			{
+				_upDone = ModByType("UncertainPageMod.UncertainPageScrollVisual", "FastFix.UncertainPagePortrait", "Uncertain Page: the abnormality picture on the page is looked up once per abnormality and kept; the mod's search walked every file of all mods and read every CreatureInfo file on each use (a long freeze when the item is used). The same picture is chosen. Read at game start.", last, InstallUpPortrait);
+			}
+			if (!_bleedEndDone)
+			{
+				_bleedEndDone = ModByType("Bleedbuf", "FastFix.BleedIconEnd", "Blood Shoes: the end of a bleed no longer throws in its icon update and writes an error file to the desktop. Read at game start.", last, InstallBleedEnd);
+			}
+			return _shoesDone && _queenDone && _raspDone && _pondDone && _turbDone && _heavenDone && _scytheDone && _wrResetDone && _brClearDone && _efDone && _introDone && _bxDone && _tmDone && _roseDone
+				&& _nothingDone && _trioDone && _rabbitRangeDone && _bleedEndDone && _giftFixDone && _shoesDirDone && _walpDone && _incIdDone && _sheepDone && _poolDone && _upDone && _lingDone && _incCheckDone && _ladySpecialDone && _tiamatLayerDone && _hmiHoverDone && _fewSuppressDone && _hslebSuppressDone && _fourFoolsSelectDone;
 		}
 
 		private static readonly HashSet<string> _batchErr = new HashSet<string>();
@@ -4153,6 +4481,10 @@ namespace FastFix
 		// --- Blood Shoes ---
 		// OnNotice(OnEscape) reads GetCreature(100003L).IsEscaped(); GetCreature matches the vanilla Red Shoes metadata id and returns null
 		// when it is absent. Notice.Send has no catch, so the NRE leaves the escaping creature's Escape() and skips later observers.
+		// With Red Shoes escaped it calls its own Escape() even when already escaped; Escape() sends OnEscape again, so the next
+		// escape anywhere recursed until the stack overflowed (native crash, signature A; run mass-breach-1). 1.48: an OnEscape
+		// notice is skipped while the shoes are escaped (the other branch handles OnAgentDead only).
+		private static bool _shoesLoopLogged;
 		private static FieldInfo _shoeAgent;
 		private static Type _leftShoe;
 		private static Type _rightShoe;
@@ -4226,6 +4558,29 @@ namespace FastFix
 				FastFixModule.Harmony.Patch(bleed[i], new HarmonyMethod(Own("ShoeHitPrefix")), null);
 				Patched(key, bleed[i]);
 			}
+			// GetUnitBufByName compares GetType().Name: a buf of another mod also named Bleedbuf is found, "as Bleedbuf" is null
+			// and GiveDamagebyBleed throws in the Spine event; such a hit is skipped. AddBleed also threw when the new buf was not
+			// on the target after AddUnitBuf (mass-breach-25/26); it is done whole by ShoeAddBleedPrefix with the same counts.
+			_bleedType = asm.GetType("Bleedbuf");
+			_bleedCount = object.ReferenceEquals(_bleedType, null) ? null : _bleedType.GetField("count", All);
+			_bleedPower = object.ReferenceEquals(_bleedType, null) ? null : _bleedType.GetField("power", All);
+			_bleedCtor = object.ReferenceEquals(_bleedType, null) ? null : _bleedType.GetConstructor(new Type[] { typeof(UnitModel), typeof(UnitModel) });
+			if (!object.ReferenceEquals(_bleedCount, null) && !object.ReferenceEquals(_bleedPower, null) && !object.ReferenceEquals(_bleedCtor, null)
+				&& object.ReferenceEquals(_bleedCount.FieldType, typeof(int)) && object.ReferenceEquals(_bleedPower.FieldType, typeof(int)))
+			{
+				for (int i = 0; i < bleed.Length; i++)
+				{
+					if (!object.ReferenceEquals(bleed[i], null))
+					{
+						FastFixModule.Harmony.Patch(bleed[i], new HarmonyMethod(Own(i < 2 ? "ShoeAddBleedPrefix" : "ShoeBleedPrefix")), null);
+					}
+				}
+				N.ULog.Info(FastFixModule.Tag, key + ": AddBleed done null-safe; GiveDamagebyBleed skips a target whose Bleedbuf is another mod's buf");
+			}
+			else
+			{
+				Missing(key, "Bleedbuf count / power / (UnitModel, UnitModel) constructor");
+			}
 			MethodInfo tick = typeof(ChildCreatureModel).GetMethod("OnFixedUpdate", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
 			if (object.ReferenceEquals(tick, null) || !object.ReferenceEquals(tick.DeclaringType, typeof(ChildCreatureModel)))
 			{
@@ -4236,12 +4591,22 @@ namespace FastFix
 			Patched(key, tick);
 		}
 
-		public static bool ShoesNoticePrefix(string notice)
+		public static bool ShoesNoticePrefix(CreatureBase __instance, string notice)
 		{
 			try
 			{
 				if (string.Equals(notice, NoticeName.OnEscape, StringComparison.Ordinal) && CreatureManager.instance.GetCreature(100003L) == null)
 				{
+					return false;
+				}
+				if (string.Equals(notice, NoticeName.OnEscape, StringComparison.Ordinal) && __instance != null && __instance.model != null
+					&& __instance.model.IsEscaped())
+				{
+					if (!_shoesLoopLogged)
+					{
+						_shoesLoopLogged = true;
+						N.ULog.Info(FastFixModule.Tag, "FastFix.BloodShoesFix: OnEscape skipped for escaped Blood Shoes (its own Escape() would send OnEscape again without end; logged once)");
+					}
 					return false;
 				}
 			}
@@ -4291,6 +4656,93 @@ namespace FastFix
 
 		// The "Damage" event hits _script._target without a check; after the target died the NRE also drops the Complete
 		// callback that clears attacking, and the shoe stands still.
+		private static Type _bleedType;
+		private static FieldInfo _bleedCount;
+		private static FieldInfo _bleedPower;
+		private static ConstructorInfo _bleedCtor;
+		private static bool _bleedForeignLogged;
+		private static int _bleedAddMissed;
+
+		// The original AddBleed, with checks. Left shoe: existing buf count +3, new buf count +2. Right shoe: existing buf
+		// count +1 and power +1, new buf power +1. Always returns false.
+		public static bool ShoeAddBleedPrefix(object __instance, Spine.Event e)
+		{
+			try
+			{
+				if (e == null || e.Data == null || !string.Equals(e.Data.Name, "Damage", StringComparison.Ordinal))
+				{
+					return false;
+				}
+				bool left = object.ReferenceEquals(__instance.GetType(), _leftAnimScript.DeclaringType);
+				CreatureBase shoe = (left ? _leftAnimScript : _rightAnimScript).GetValue(__instance) as CreatureBase;
+				UnitModel target = shoe == null ? null : (left ? _leftTarget : _rightTarget).GetValue(shoe) as UnitModel;
+				if (target == null)
+				{
+					return false;
+				}
+				UnitBuf b = target.GetUnitBufByName("Bleedbuf");
+				if (b != null)
+				{
+					if (_bleedType.IsInstanceOfType(b))
+					{
+						_bleedCount.SetValue(b, (int)_bleedCount.GetValue(b) + (left ? 3 : 1));
+						if (!left)
+						{
+							_bleedPower.SetValue(b, (int)_bleedPower.GetValue(b) + 1);
+						}
+					}
+					return false;
+				}
+				target.AddUnitBuf((UnitBuf)_bleedCtor.Invoke(new object[] { shoe.model, target }));
+				b = target.GetUnitBufByName("Bleedbuf");
+				if (b == null || !_bleedType.IsInstanceOfType(b))
+				{
+					_bleedAddMissed++;
+					if (_bleedAddMissed <= 3)
+					{
+						N.ULog.Info(FastFixModule.Tag, "FastFix.BloodShoesFix: bleed did not stay on " + target.GetUnitName() + " (" + target.GetType().Name + ") after AddUnitBuf; hit left without bleed (" + _bleedAddMissed + "/3 logged)");
+					}
+					return false;
+				}
+				FieldInfo f = left ? _bleedCount : _bleedPower;
+				f.SetValue(b, (int)f.GetValue(b) + (left ? 2 : 1));
+			}
+			catch (Exception ex)
+			{
+				Batch2Err("ShoeAddBleedPrefix", ex);
+			}
+			return false;
+		}
+
+		public static bool ShoeBleedPrefix(object __instance)
+		{
+			try
+			{
+				bool left = object.ReferenceEquals(__instance.GetType(), _leftAnimScript.DeclaringType);
+				object shoe = (left ? _leftAnimScript : _rightAnimScript).GetValue(__instance);
+				UnitModel target = shoe == null ? null : (left ? _leftTarget : _rightTarget).GetValue(shoe) as UnitModel;
+				if (target == null)
+				{
+					return true;
+				}
+				UnitBuf b = target.GetUnitBufByName("Bleedbuf");
+				if (b == null || _bleedType.IsInstanceOfType(b))
+				{
+					return true;
+				}
+				if (!_bleedForeignLogged)
+				{
+					_bleedForeignLogged = true;
+					N.ULog.Info(FastFixModule.Tag, "FastFix.BloodShoesFix: " + target.GetUnitName() + " has " + b.GetType().FullName + " (another mod's Bleedbuf); the shoe's bleed hit is skipped (logged once)");
+				}
+				return false;
+			}
+			catch (Exception)
+			{
+				return true;
+			}
+		}
+
 		public static bool ShoeHitPrefix(object __instance)
 		{
 			try
@@ -5121,6 +5573,8 @@ namespace FastFix
 		private static string _icOwner;
 		private static int _icPhase;
 		private static bool _icAdderErr;
+		private const string LecOwner = "Lobotomy.kekesi.ErrorCheck";
+		private static int _icLecWait = -1;
 
 		private static void InstallIntroChain(Assembly asm)
 		{
@@ -5219,9 +5673,10 @@ namespace FastFix
 			{
 				return 3;
 			}
-			if ((float)_ipElapsed.GetValue(ip) >= 12f)
+			// PerfPack.SkipIntroLogos starts the clock at 12.1 s: only the logos are skipped, the pictures still play first.
+			if ((float)_ipElapsed.GetValue(ip) >= 12f + added)
 			{
-				N.ULog.Info(FastFixModule.Tag, "FastFix.IntroChain: intro clock already past 12 s on its first frame (PerfPack.IntroSkip or a late install), chain not used");
+				N.ULog.Info(FastFixModule.Tag, "FastFix.IntroChain: intro clock already past the IntroAdder pictures on its first frame, chain not used");
 				return 3;
 			}
 			Patches info = PatchProcessor.IsPatched(_icTarget);
@@ -5237,6 +5692,25 @@ namespace FastFix
 				if (object.ReferenceEquals(pm, null) || string.Equals(p.owner, FastFixModule.Harmony.Id, StringComparison.Ordinal) || object.ReferenceEquals(pm.DeclaringType, _iaType))
 				{
 					continue;
+				}
+				// LoadErrorCheck's prefix is a gate (error screen up -> no intro), not an intro: never skipped by phase 1 while it works.
+				if (string.Equals(p.owner, LecOwner, StringComparison.Ordinal))
+				{
+					if (SkippedByNail(pm))
+					{
+						continue;
+					}
+					// LoadGuard turns it off on its first frame; the order of the two in that frame is not fixed.
+					if (_icLecWait < 0)
+					{
+						_icLecWait = Time.frameCount;
+					}
+					if (Time.frameCount - _icLecWait < 10)
+					{
+						return 0;
+					}
+					N.ULog.Info(FastFixModule.Tag, "FastFix.IntroChain: LoadErrorCheck gate on IntroPlayer.Update is active, chain not used");
+					return 3;
 				}
 				ParameterInfo[] ps = pm.GetParameters();
 				if (!pm.IsStatic || !object.ReferenceEquals(pm.ReturnType, typeof(bool)) || ps == null || ps.Length != 1
@@ -5262,6 +5736,25 @@ namespace FastFix
 			_icOwner = _icList[0].owner;
 			N.ULog.Info(FastFixModule.Tag, "FastFix.IntroChain: IntroAdder pictures (" + added.ToString("0.#") + " s) play before the intro of " + _icOwner);
 			return 1;
+		}
+
+		// True when a NailOptimization module has put a skipping Prefix on this foreign patch method.
+		private static bool SkippedByNail(MethodInfo pm)
+		{
+			Patches pi = PatchProcessor.IsPatched(pm);
+			if (pi == null || pi.Prefixes == null)
+			{
+				return false;
+			}
+			for (int i = 0; i < pi.Prefixes.Count; i++)
+			{
+				Patch q = pi.Prefixes[i];
+				if (q != null && q.owner != null && q.owner.StartsWith("Lobotomy.NailOptimization.", StringComparison.Ordinal))
+				{
+					return true;
+				}
+			}
+			return false;
 		}
 
 		private static void IntroChainHide()
@@ -5293,6 +5786,8 @@ namespace FastFix
 		private static FieldInfo _bxFuxi;
 		private static FieldInfo _obsRegions;
 		private static Dictionary<string, ObserveRegion> _bxWas;
+		// Instance of the running vanilla InitObserveRegion: the mod's postfix is static, Harmony 1 cannot hand its argument as __instance.
+		private static CreatureObserveInfoModel _bxInst;
 
 		private static void InstallBaxia(Assembly asm)
 		{
@@ -5323,6 +5818,7 @@ namespace FastFix
 		public static void BaxiaObservePrefix(CreatureObserveInfoModel __instance)
 		{
 			_bxWas = null;
+			_bxInst = __instance;
 			try
 			{
 				if (__instance.creatureTypeId != BaxiaId)
@@ -5342,13 +5838,15 @@ namespace FastFix
 			}
 		}
 
-		public static bool BaxiaRegionsPrefix(CreatureObserveInfoModel __instance)
+		public static bool BaxiaRegionsPrefix()
 		{
 			Dictionary<string, ObserveRegion> was = _bxWas;
+			CreatureObserveInfoModel inst = _bxInst;
 			_bxWas = null;
+			_bxInst = null;
 			try
 			{
-				if (__instance.creatureTypeId != BaxiaId)
+				if (inst == null || inst.creatureTypeId != BaxiaId)
 				{
 					return false;
 				}
@@ -5362,7 +5860,7 @@ namespace FastFix
 				{
 					if (reset)
 					{
-						_obsRegions.SetValue(__instance, was);
+						_obsRegions.SetValue(inst, was);
 					}
 				}
 				if (reset)
@@ -5649,6 +6147,1951 @@ namespace FastFix
 			{
 				Batch2Err("RoseTargetPrefix", e);
 			}
+		}
+
+		// --- mod batch 2026-11-18 (1.49): NothingIs title, MagicalTrio ownerless weapon, Celestial Bunny null attacker ---
+		// NothingIs.HP.Creature.AgentModel_GetTitle (Postfix of AgentModel.GetTitle) reads actor.model.metaInfo.creatureStaticData
+		// Prefix/Suffix; with a link missing every UI refresh throws inside it and its catch calls Debug.LogError (x684 in 4 min,
+		// run mass-breach-2). Its parameters are named __instance/__result (no Harmony 1.0.9.1 patch can bind them) and its body
+		// has try/catch (GL-53), so it is skipped as a whole and NothingTitlePostfix does the same with null checks (title left
+		// as it was when a link is missing, as its catch did).
+		// MagicalTrio.Harmony_Patch.EquipmentScriptBase_OnGiveDamage (Prefix) reads __instance.model.owner unchecked: a weapon
+		// with no owner throws on every hit (x171). TrioCapturePrefix (first Prefix of EquipmentScriptBase.OnGiveDamage) keeps
+		// the script; TrioSkipPrefix skips the mod's Prefix when that script has no model or owner.
+		// WhiteRabbit.WhiteRabbit.IsInRange reads target.GetMovableNode(); CanTakeDamage calls it with a null attacker (x73) and
+		// the hit is lost through the exception. A null target or node counts as out of range.
+		private static Type _nothingAgent;
+		private static FieldInfo _nothingActor;
+		private static EquipmentScriptBase _trioScript;
+
+		private static void InstallNothingTitle(Assembly asm)
+		{
+			const string key = "FastFix.NothingIsTitle";
+			MethodInfo m = Find(asm, "NothingIs.HP.Creature", "AgentModel_GetTitle", new Type[] { typeof(AgentModel), typeof(string).MakeByRefType() });
+			Type agent = asm.GetType("NothingIs.NothingIs_AgentModel");
+			FieldInfo actor = object.ReferenceEquals(agent, null) ? null : agent.GetField("actor", All);
+			MethodInfo title = typeof(AgentModel).GetMethod("GetTitle", Type.EmptyTypes);
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(actor, null) || object.ReferenceEquals(title, null)
+				|| !typeof(CreatureBase).IsAssignableFrom(actor.FieldType))
+			{
+				Missing(key, "NothingIs.HP.Creature.AgentModel_GetTitle / NothingIs_AgentModel.actor");
+				return;
+			}
+			_nothingAgent = agent;
+			_nothingActor = actor;
+			FastFixModule.Harmony.Patch(title, null, new HarmonyMethod(Own("NothingTitlePostfix")));
+			Patched(key, title);
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("NothingTitleSkip")), null);
+			Patched(key, m);
+		}
+
+		public static bool NothingTitleSkip()
+		{
+			return false;
+		}
+
+		public static void NothingTitlePostfix(AgentModel __instance, ref string __result)
+		{
+			try
+			{
+				if (__instance == null || !_nothingAgent.IsInstanceOfType(__instance))
+				{
+					return;
+				}
+				CreatureBase a = _nothingActor.GetValue(__instance) as CreatureBase;
+				CreatureModel c = a == null ? null : a.model;
+				if (c == null || c.metaInfo == null || c.metaInfo.creatureStaticData == null)
+				{
+					return;
+				}
+				CreatureStaticData.ParameterData pre = c.metaInfo.creatureStaticData.GetParam("Prefix");
+				CreatureStaticData.ParameterData suf = c.metaInfo.creatureStaticData.GetParam("Suffix");
+				if (pre == null || suf == null)
+				{
+					return;
+				}
+				__result = pre.desc + "\n" + suf.desc;
+			}
+			catch (Exception e)
+			{
+				Batch2Err("NothingTitlePostfix", e);
+			}
+		}
+
+		private static void InstallTrio(Assembly asm)
+		{
+			const string key = "FastFix.MagicalTrioOwner";
+			MethodInfo m = FindByName(asm.GetType("MagicalTrio.Harmony_Patch"), "EquipmentScriptBase_OnGiveDamage", 4);
+			MethodInfo give = typeof(EquipmentScriptBase).GetMethod("OnGiveDamage", new Type[] { typeof(UnitModel), typeof(UnitModel), typeof(DamageInfo).MakeByRefType() });
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(give, null))
+			{
+				Missing(key, "MagicalTrio.Harmony_Patch.EquipmentScriptBase_OnGiveDamage / EquipmentScriptBase.OnGiveDamage");
+				return;
+			}
+			FastFixModule.Harmony.Patch(give, N.PatchUtil.WithPriority(Own("TrioCapturePrefix"), Priority.First), null);
+			Patched(key, give);
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("TrioSkipPrefix")), null);
+			Patched(key, m);
+		}
+
+		public static void TrioCapturePrefix(EquipmentScriptBase __instance)
+		{
+			_trioScript = __instance;
+		}
+
+		// Taken once: a call that did not pass through TrioCapturePrefix runs the mod's Prefix as before.
+		public static bool TrioSkipPrefix()
+		{
+			EquipmentScriptBase sc = _trioScript;
+			_trioScript = null;
+			return sc == null || (sc.model != null && sc.model.owner != null);
+		}
+
+		private static void InstallRabbitRange(Assembly asm)
+		{
+			const string key = "FastFix.WhiteRabbitRange";
+			MethodInfo m = Find(asm, "WhiteRabbit.WhiteRabbit", "IsInRange", new Type[] { typeof(UnitModel), typeof(float) });
+			if (object.ReferenceEquals(m, null) || !object.ReferenceEquals(m.ReturnType, typeof(bool)))
+			{
+				Missing(key, "WhiteRabbit.WhiteRabbit.IsInRange(UnitModel, float)");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("RabbitRangePrefix")), null);
+			Patched(key, m);
+		}
+
+		public static bool RabbitRangePrefix(UnitModel target, ref bool __result)
+		{
+			try
+			{
+				if (target == null || target.GetMovableNode() == null)
+				{
+					__result = false;
+					return false;
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("RabbitRangePrefix", e);
+			}
+			return true;
+		}
+
+		// ----- 1.50 (2026-11-18): AttackEnd with no damage event, quiet GetPassageRect, "invalid node state" trace -----
+		// AnimatorEventHandler.AttackEnd reads _giveDamageEvent.Target with no null check (Damage() has one): an animator whose
+		// attack has no damage event set throws on the animation event (run mass-breach-3, x1) and the end event is lost. With
+		// no damage event the end event is called, as the original does after its check; otherwise the original runs.
+		private static FieldInfo _aeGive;
+		private static FieldInfo _aeEnd;
+
+		private static void InstallAttackEnd()
+		{
+			const string key = "FastFix.AttackEndNull";
+			if (!N.Config.BindFlag(key, true, "An attack animation of a unit with no damage event set no longer throws at its end (the attack end is still sent). Read at game start.").On)
+			{
+				return;
+			}
+			try
+			{
+				MethodInfo m = typeof(AnimatorEventHandler).GetMethod("AttackEnd", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+				FieldInfo give = typeof(AnimatorEventHandler).GetField("_giveDamageEvent", BindingFlags.NonPublic | BindingFlags.Instance);
+				FieldInfo end = typeof(AnimatorEventHandler).GetField("_attackEndEvent", BindingFlags.NonPublic | BindingFlags.Instance);
+				if (object.ReferenceEquals(m, null) || object.ReferenceEquals(give, null) || object.ReferenceEquals(end, null))
+				{
+					Missing(key, "AnimatorEventHandler.AttackEnd / _giveDamageEvent / _attackEndEvent");
+					return;
+				}
+				_aeGive = give;
+				_aeEnd = end;
+				FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("AttackEndPrefix")), null);
+				Patched(key, m);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
+			}
+		}
+
+		public static bool AttackEndPrefix(AnimatorEventHandler __instance)
+		{
+			AnimatorEventHandler.EventDelegate end;
+			try
+			{
+				if (object.ReferenceEquals(__instance, null) || _aeGive.GetValue(__instance) != null)
+				{
+					return true;
+				}
+				end = _aeEnd.GetValue(__instance) as AnimatorEventHandler.EventDelegate;
+			}
+			catch (Exception e)
+			{
+				Batch2Err("AttackEndPrefix", e);
+				return true;
+			}
+			// Outside the try: an exception in the end event propagates as from the original.
+			if (end != null)
+			{
+				end();
+			}
+			return false;
+		}
+
+		// GetPassageRect(PassageObjectModel pass) helpers copied into many mods (global Extension in NothingIs, Incubator and
+		// others, FourFools' PositionAndSizeInfos) call Debug.LogError and return Rect.zero when the room view or its sprite
+		// is missing; per-frame callers (BingJieXian UpdateNodePosition) wrote 17 lines per call. The prefix returns the same
+		// Rect.zero without the log; every other case runs the helper. Patched only where the body has no exception handler
+		// (GL-53), contains the helper's "GetPassageRect ERROR" text and names its parameter pass.
+		private static void InstallPassageRect()
+		{
+			const string key = "FastFix.PassageRectQuiet";
+			if (!N.Config.BindFlag(key, true, "Mods with a GetPassageRect helper (Nobody Is, Incubator, Four Fools and others): a room whose view or sprite is missing no longer writes an error on every call; the result is the same empty rect. Read at game start.").On)
+			{
+				return;
+			}
+			System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+			int n = 0;
+			Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
+			for (int i = 0; i < all.Length; i++)
+			{
+				string an = "?";
+				Type[] types;
+				try
+				{
+					an = all[i].GetName().Name;
+					if (an == "Assembly-CSharp" || an == "mscorlib" || an.StartsWith("System", StringComparison.Ordinal) || an.StartsWith("Unity", StringComparison.Ordinal)
+						|| an.StartsWith("Mono", StringComparison.Ordinal) || an.StartsWith("NailOptimization", StringComparison.Ordinal) || all[i] is AssemblyBuilder)
+					{
+						continue;
+					}
+					types = all[i].GetTypes();
+				}
+				catch (ReflectionTypeLoadException e)
+				{
+					types = e.Types;
+				}
+				catch (Exception)
+				{
+					continue;
+				}
+				if (object.ReferenceEquals(types, null))
+				{
+					continue;
+				}
+				for (int t = 0; t < types.Length; t++)
+				{
+					if (object.ReferenceEquals(types[t], null))
+					{
+						continue;
+					}
+					try
+					{
+						MethodInfo m = types[t].GetMethod("GetPassageRect", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly,
+							null, new Type[] { typeof(PassageObjectModel) }, null);
+						if (object.ReferenceEquals(m, null) || !object.ReferenceEquals(m.ReturnType, typeof(Rect)))
+						{
+							continue;
+						}
+						MethodBody body = m.GetMethodBody();
+						if (body == null || body.ExceptionHandlingClauses.Count > 0 || m.GetParameters()[0].Name != "pass" || !HasLiteral(m, "GetPassageRect ERROR"))
+						{
+							N.ULog.Info(FastFixModule.Tag, key + " skipped " + types[t].FullName + ".GetPassageRect in " + an + " (not the known helper)");
+							continue;
+						}
+						FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("PassRectPrefix")), null);
+						Patched(key, m);
+						n++;
+					}
+					catch (Exception e)
+					{
+						N.ULog.Error(FastFixModule.Tag, key + " install failed for " + types[t].FullName + ": " + e);
+					}
+				}
+			}
+			N.ULog.Info(FastFixModule.Tag, key + ": " + n + " helper(s) patched, scan " + sw.ElapsedMilliseconds + " ms");
+		}
+
+		public static bool PassRectPrefix(PassageObjectModel pass, ref Rect __result)
+		{
+			try
+			{
+				if (pass == null)
+				{
+					__result = Rect.zero;
+					return false;
+				}
+				SefiraMapLayer layer = SefiraMapLayer.instance;
+				if (layer == null)
+				{
+					return true;
+				}
+				PassageObject po = layer.GetPassageObject(pass);
+				if (po == null || (pass.type != PassageType.ISOLATEROOM && po.shader == null))
+				{
+					__result = Rect.zero;
+					return false;
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("PassRectPrefix", e);
+			}
+			return true;
+		}
+
+		// MovableObjectNode.UpdateCurrentPassage with neither node nor edge only logs "ERROR : invalid node state": the passage
+		// is not assigned, so no enter/exit runs, and only currentScale is set from the current passage. Mods that move a unit
+		// by setting a null node (BingJieXian Yuan Shen traced in mass-breach-4; others in mass-breach-6/7, 300+ lines) fill
+		// the log. 1.51 dropped the line in a Debug.Log Prefix limited to Yuan Shen; it never matched in mass-breach-6/7. The
+		// Prefix does that path without the log for every unit and skips the original; every other path runs the original.
+		// Each distinct owner (creature script, else model type) is written to the Nail log once (16 at most). No handlers.
+		private static FieldInfo _mnModel;
+		private static HashSet<string> _nodeOwners;
+
+		private static void InstallNodeQuiet()
+		{
+			const string key = "FastFix.InvalidNodeLog";
+			if (!N.Config.BindFlag(key, true, "A unit with neither a map node nor an edge (some mods move units this way) no longer writes invalid node state to the log on every move; the game does nothing else on that path. Read at game start.").On)
+			{
+				return;
+			}
+			try
+			{
+				MethodInfo upd = typeof(MovableObjectNode).GetMethod("UpdateCurrentPassage", BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null);
+				FieldInfo model = typeof(MovableObjectNode).GetField("model", BindingFlags.NonPublic | BindingFlags.Instance);
+				if (object.ReferenceEquals(upd, null) || object.ReferenceEquals(model, null) || !typeof(UnitModel).IsAssignableFrom(model.FieldType))
+				{
+					Missing(key, "MovableObjectNode.UpdateCurrentPassage / MovableObjectNode.model");
+					return;
+				}
+				_mnModel = model;
+				_nodeOwners = new HashSet<string>();
+				FastFixModule.Harmony.Patch(upd, new HarmonyMethod(Own("NodeStatePrefix")), null);
+				Patched(key, upd);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
+			}
+		}
+
+		public static bool NodeStatePrefix(MovableObjectNode __instance)
+		{
+			try
+			{
+				if (__instance.currentNode != null || __instance.currentEdge != null)
+				{
+					return true;
+				}
+				PassageObjectModel pass = __instance.currentPassage;
+				__instance.currentScale = pass != null ? pass.scaleFactor : 1f;
+				if (_nodeOwners.Count < 16)
+				{
+					NoteOwner(_nodeOwners, "FastFix.InvalidNodeLog: invalid node state not logged for ", _mnModel.GetValue(__instance) as UnitModel);
+				}
+				return false;
+			}
+			catch (Exception e)
+			{
+				Batch2Err("NodeStatePrefix", e);
+			}
+			return true;
+		}
+
+		private static void NoteOwner(HashSet<string> seen, string text, UnitModel unit)
+		{
+			CreatureModel c = unit as CreatureModel;
+			string name = unit == null ? "(no model)" : (c != null && c.script != null ? c.script.GetType().FullName + " id " + c.metadataId : unit.GetType().FullName);
+			if (seen.Add(name))
+			{
+				N.ULog.Info(FastFixModule.Tag, text + name + " (each owner once)");
+			}
+		}
+
+		// CreatureTypeInfo.name reads dataTable.GetList("name"); a creature type without a name entry (FairyLongLegs' child,
+		// mass-breach-21) makes GetList log "Dictionary error in collection //Not founded name CreatureDataList" and name returns
+		// "Unknown". GlobalHistory.OnNotice reads it on every suppression of such a creature only for a Debug.Log line. The Prefix
+		// returns "Unknown" without the error line when the key is missing; every other case runs the original. No handlers.
+		private static HashSet<long> _noName;
+
+		private static void InstallNoNameQuiet()
+		{
+			const string key = "FastFix.CreatureNoNameLog";
+			if (!N.Config.BindFlag(key, true, "A creature type without a name in its data (some mod child creatures) no longer writes a dictionary error to the log each time its name is read; the game shows Unknown as before. Read at game start.").On)
+			{
+				return;
+			}
+			try
+			{
+				MethodInfo get = typeof(CreatureTypeInfo).GetProperty("name", BindingFlags.Public | BindingFlags.Instance).GetGetMethod();
+				if (object.ReferenceEquals(get, null))
+				{
+					Missing(key, "CreatureTypeInfo.name");
+					return;
+				}
+				_noName = new HashSet<long>();
+				FastFixModule.Harmony.Patch(get, new HarmonyMethod(Own("NoNamePrefix")), null);
+				Patched(key, get);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
+			}
+		}
+
+		public static bool NoNamePrefix(CreatureTypeInfo __instance, ref string __result)
+		{
+			try
+			{
+				if (__instance.dataTable == null || __instance.dataTable.dictionary == null || __instance.dataTable.dictionary.ContainsKey("name"))
+				{
+					return true;
+				}
+				__result = "Unknown";
+				if (_noName.Count < 32 && _noName.Add(__instance.id))
+				{
+					N.ULog.Info(FastFixModule.Tag, "FastFix.CreatureNoNameLog: creature type " + __instance.id + " (" + __instance.script + ") has no name in its data; shown as Unknown (each type once)");
+				}
+				return false;
+			}
+			catch (Exception e)
+			{
+				Batch2Err("NoNamePrefix", e);
+			}
+			return true;
+		}
+
+		// ChildCreatureModel.SetParent makes the unit and observes FixedUpdate at once, but ChildCreatureUnit.Start (which calls
+		// the script's OnViewInit) runs only before the unit's first Update. A child that escapes on the tick it is made gets
+		// OnEscapeUpdate -> UniqueEscape first; mod scripts that set their animation object in OnViewInit throw there
+		// (TheCryingChildrenCreature.UniqueEscape, ReUseChild_1.SetState; mass-breach-23). The escape step waits while the unit is
+		// active and its Start has not run yet; Start then comes before the next Update. An inactive unit (Start cannot run) and a
+		// unit whose Start ran keep the original. Neither patched method has handlers.
+		private static HashSet<int> _childStarted;
+		private static int _childWaits;
+
+		private static void InstallChildViewWait()
+		{
+			const string key = "FastFix.ChildViewWait";
+			if (!N.Config.BindFlag(key, true, "A child creature that escapes on the tick it is made waits for its view to be set up before its first escape step. Some mod children (The Crying Children, ReUse) threw an error there. Read at game start.").On)
+			{
+				return;
+			}
+			try
+			{
+				MethodInfo start = typeof(ChildCreatureUnit).GetMethod("Start", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+				MethodInfo esc = typeof(ChildCreatureModel).GetMethod("OnEscapeUpdate", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+				if (object.ReferenceEquals(start, null) || object.ReferenceEquals(esc, null) || !object.ReferenceEquals(start.DeclaringType, typeof(ChildCreatureUnit)) || !object.ReferenceEquals(esc.DeclaringType, typeof(ChildCreatureModel)))
+				{
+					Missing(key, "ChildCreatureUnit.Start / ChildCreatureModel.OnEscapeUpdate");
+					return;
+				}
+				_childStarted = new HashSet<int>();
+				FastFixModule.Harmony.Patch(start, new HarmonyMethod(Own("ChildStartPrefix")), null);
+				Patched(key, start);
+				FastFixModule.Harmony.Patch(esc, new HarmonyMethod(Own("ChildEscapePrefix")), null);
+				Patched(key, esc);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
+			}
+		}
+
+		public static void ChildStartPrefix(ChildCreatureUnit __instance)
+		{
+			try
+			{
+				_childStarted.Add(__instance.GetInstanceID());
+			}
+			catch (Exception e)
+			{
+				Batch2Err("ChildStartPrefix", e);
+			}
+		}
+
+		public static bool ChildEscapePrefix(ChildCreatureModel __instance)
+		{
+			try
+			{
+				ChildCreatureUnit u = __instance.Unit;
+				if (u == null || !u.isActiveAndEnabled || _childStarted.Contains(u.GetInstanceID()))
+				{
+					return true;
+				}
+				_childWaits++;
+				if (_childWaits <= 10)
+				{
+					N.ULog.Info(FastFixModule.Tag, "FastFix.ChildViewWait: " + (__instance.script == null ? "?" : __instance.script.GetType().FullName) + " escape step waits for its view (unit Start not run yet) (" + _childWaits + ")");
+				}
+				return false;
+			}
+			catch (Exception e)
+			{
+				Batch2Err("ChildEscapePrefix", e);
+			}
+			return true;
+		}
+
+		// Incubator AssetGetter.Return pools a SkeletonAnimation and removes its other MonoBehaviours with DestroyImmediate. Called
+		// from a physics callback (MajoBase.OnSuppressed <- FreischutzBulletCollision.OnTriggerEnter2D, mass-breach-23) Unity refuses,
+		// logs an error and leaves the scripts on the pooled object; the same from an animation event (AnimatorEventHandler.Damage
+		// -> DeathAngelWeapon, mass-breach-24), which cannot be detected. Return has try/catch (GL-53), so the Prefix does the whole
+		// method and always returns false: the same steps in the same order, but the scripts are disabled at once and destroyed
+		// at the end of the frame.
+		private static Type _poolAnimType;
+		private static System.Collections.IDictionary _poolList;
+		private static Type _poolListType;
+		private static int _poolDeferred;
+
+		private static void InstallPool(Assembly asm)
+		{
+			const string key = "FastFix.IncubatorPoolDestroy";
+			Type t = asm.GetType("AssetGetter");
+			MethodInfo ret = object.ReferenceEquals(t, null) ? null : FindByName(t, "Return", 2);
+			FieldInfo list = object.ReferenceEquals(t, null) ? null : t.GetField("_animList", BindingFlags.Public | BindingFlags.Static);
+			if (object.ReferenceEquals(ret, null) || object.ReferenceEquals(list, null) || !ret.IsStatic)
+			{
+				Missing(key, "AssetGetter.Return / _animList");
+				return;
+			}
+			ParameterInfo[] ps = ret.GetParameters();
+			_poolList = list.GetValue(null) as System.Collections.IDictionary;
+			Type[] ga = list.FieldType.IsGenericType ? list.FieldType.GetGenericArguments() : null;
+			if (!object.ReferenceEquals(ps[0].ParameterType, typeof(string)) || !typeof(MonoBehaviour).IsAssignableFrom(ps[1].ParameterType) || _poolList == null || object.ReferenceEquals(ga, null) || ga.Length != 2)
+			{
+				Missing(key, "AssetGetter.Return(string, SkeletonAnimation) / _animList dictionary");
+				return;
+			}
+			_poolAnimType = ps[1].ParameterType;
+			_poolListType = ga[1];
+			FastFixModule.Harmony.Patch(ret, new HarmonyMethod(Own("PoolReturnPrefix")), null);
+			Patched(key, ret);
+		}
+
+		public static bool PoolReturnPrefix(string animName, MonoBehaviour anim)
+		{
+			try
+			{
+				anim.gameObject.SetActive(false);
+				try
+				{
+					anim.transform.SetParent(null);
+				}
+				catch (Exception)
+				{
+				}
+				if (!_poolList.Contains(animName))
+				{
+					_poolList.Add(animName, Activator.CreateInstance(_poolListType));
+				}
+				anim.transform.localScale = Vector3.one;
+				anim.transform.position = Vector3.up * 100f;
+				try
+				{
+					MonoBehaviour[] arr = anim.gameObject.GetComponents<MonoBehaviour>();
+					for (int i = 0; i < arr.Length; i++)
+					{
+						MonoBehaviour mb = arr[i];
+						if (mb == null || _poolAnimType.IsInstanceOfType(mb))
+						{
+							continue;
+						}
+						try
+						{
+							mb.enabled = false;
+							UnityEngine.Object.Destroy(mb);
+							_poolDeferred++;
+							if (_poolDeferred <= 3)
+							{
+								N.ULog.Info(FastFixModule.Tag, "FastFix.IncubatorPoolDestroy: " + mb.GetType().Name + " on pooled " + animName + " disabled, removed at the end of the frame (" + _poolDeferred + ")");
+							}
+						}
+						catch (Exception)
+						{
+						}
+					}
+				}
+				catch (Exception)
+				{
+				}
+				((System.Collections.IList)_poolList[animName]).Add(anim);
+			}
+			catch (Exception e)
+			{
+				Batch2Err("PoolReturnPrefix", e);
+			}
+			return false;
+		}
+
+		// Uncertain Page: UncertainPageScrollVisual.ResolveCreaturePortrait calls TryLoadCreaturePortraitFromInfoXml first on every
+		// use; that walks all of BaseMods (Directory.GetFiles *.xml, all directories) and loads each CreatureInfo XmlDocument until
+		// the id matches. Nothing is cached, so each item use stalls. Resolve gets a per-type cache (Prefix serves a cached result,
+		// Postfix stores it; Resolve has no handlers). The XML lookup (try/catch, GL-53) is replaced whole by a Prefix that always
+		// returns false: an index id -> (file, portrait) is built once in the same file order, and the mod's own
+		// TryLoadCreaturePortrait is called for each match in that order, as before. An unreadable XML file is skipped instead of
+		// ending the search.
+		private static Dictionary<CreatureTypeInfo, Sprite> _upCache;
+		private static Dictionary<string, List<string[]>> _upIndex;
+		private static MethodInfo _upLoad;
+		private static System.Threading.Thread _upThread;
+		private static string _upRoot;
+		private static string _upMsg;
+
+		private static void InstallUpPortrait(Assembly asm)
+		{
+			const string key = "FastFix.UncertainPagePortrait";
+			Type t = asm.GetType("UncertainPageMod.UncertainPageScrollVisual");
+			BindingFlags f = BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static;
+			MethodInfo resolve = object.ReferenceEquals(t, null) ? null : t.GetMethod("ResolveCreaturePortrait", f, null, new Type[] { typeof(CreatureModel) }, null);
+			MethodInfo info = object.ReferenceEquals(t, null) ? null : t.GetMethod("TryLoadCreaturePortraitFromInfoXml", f, null, new Type[] { typeof(CreatureModel) }, null);
+			MethodInfo load = object.ReferenceEquals(t, null) ? null : t.GetMethod("TryLoadCreaturePortrait", f, null, new Type[] { typeof(string), typeof(string) }, null);
+			if (object.ReferenceEquals(resolve, null) || object.ReferenceEquals(info, null) || object.ReferenceEquals(load, null)
+				|| !object.ReferenceEquals(resolve.ReturnType, typeof(Sprite)) || !object.ReferenceEquals(info.ReturnType, typeof(Sprite)) || !object.ReferenceEquals(load.ReturnType, typeof(Sprite)))
+			{
+				Missing(key, "UncertainPageScrollVisual.ResolveCreaturePortrait / TryLoadCreaturePortraitFromInfoXml / TryLoadCreaturePortrait");
+				return;
+			}
+			MethodBody rb = resolve.GetMethodBody();
+			if (rb == null || rb.ExceptionHandlingClauses.Count > 0)
+			{
+				Missing(key, "ResolveCreaturePortrait without exception handlers");
+				return;
+			}
+			_upLoad = load;
+			_upCache = new Dictionary<CreatureTypeInfo, Sprite>();
+			_upRoot = System.IO.Path.Combine(Application.dataPath, "BaseMods");
+			try
+			{
+				_upThread = new System.Threading.Thread(new System.Threading.ThreadStart(UpBuildIndex));
+				_upThread.IsBackground = true;
+				_upThread.Priority = System.Threading.ThreadPriority.BelowNormal;
+				_upThread.Start();
+			}
+			catch (Exception e)
+			{
+				_upThread = null;
+				Batch2Err("UpIndexThread", e);
+			}
+			FastFixModule.Harmony.Patch(info, new HarmonyMethod(Own("UpInfoPrefix")), null);
+			Patched(key, info);
+			FastFixModule.Harmony.Patch(resolve, new HarmonyMethod(Own("UpResolvePrefix")), new HarmonyMethod(Own("UpResolvePostfix")));
+			Patched(key, resolve);
+		}
+
+		public static bool UpResolvePrefix(CreatureModel creature, ref Sprite __result)
+		{
+			try
+			{
+				Sprite s;
+				if (creature == null || creature.metaInfo == null || !_upCache.TryGetValue(creature.metaInfo, out s))
+				{
+					return true;
+				}
+				if (!object.ReferenceEquals(s, null) && s == null)
+				{
+					_upCache.Remove(creature.metaInfo);
+					return true;
+				}
+				__result = s;
+				return false;
+			}
+			catch (Exception e)
+			{
+				Batch2Err("UpResolvePrefix", e);
+			}
+			return true;
+		}
+
+		public static void UpResolvePostfix(CreatureModel creature, Sprite __result)
+		{
+			try
+			{
+				if (creature != null && creature.metaInfo != null)
+				{
+					_upCache[creature.metaInfo] = __result;
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("UpResolvePostfix", e);
+			}
+		}
+
+		public static bool UpInfoPrefix(CreatureModel creature, ref Sprite __result)
+		{
+			__result = null;
+			try
+			{
+				if (_upIndex == null && _upThread != null)
+				{
+					_upThread.Join();
+					_upThread = null;
+				}
+				if (_upIndex == null)
+				{
+					UpBuildIndex();
+				}
+				if (_upMsg != null)
+				{
+					N.ULog.Info(FastFixModule.Tag, _upMsg);
+					_upMsg = null;
+				}
+				List<string[]> list;
+				if (creature != null && creature.metaInfo != null && _upIndex.TryGetValue(creature.metaInfo.id.ToString(), out list))
+				{
+					for (int i = 0; i < list.Count; i++)
+					{
+						Sprite s = _upLoad.Invoke(null, new object[] { list[i][1], "CreatureInfo:" + System.IO.Path.GetFileName(list[i][0]) }) as Sprite;
+						if (s != null)
+						{
+							__result = s;
+							return false;
+						}
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("UpInfoPrefix", e);
+			}
+			return false;
+		}
+
+		// Runs on the background thread started by InstallUpPortrait (no Unity API here; the message is logged on the main
+		// thread at the first use), or on the main thread if that thread could not start.
+		private static void UpBuildIndex()
+		{
+			System.Diagnostics.Stopwatch sw = System.Diagnostics.Stopwatch.StartNew();
+			Dictionary<string, List<string[]>> index = new Dictionary<string, List<string[]>>();
+			int read = 0;
+			int bad = 0;
+			string root = _upRoot;
+			try
+			{
+			if (root != null && System.IO.Directory.Exists(root))
+			{
+				string[] files = System.IO.Directory.GetFiles(root, "*.xml", System.IO.SearchOption.AllDirectories);
+				for (int i = 0; i < files.Length; i++)
+				{
+					if (files[i].Replace("\\", "/").IndexOf("/Creature/CreatureInfo/", StringComparison.OrdinalIgnoreCase) < 0)
+					{
+						continue;
+					}
+					try
+					{
+						read++;
+						System.Xml.XmlDocument doc = new System.Xml.XmlDocument();
+						doc.Load(files[i]);
+						System.Xml.XmlNode node = doc.SelectSingleNode("/creature/info");
+						System.Xml.XmlAttribute id = node == null || node.Attributes == null ? null : node.Attributes["id"];
+						if (id == null)
+						{
+							continue;
+						}
+						System.Xml.XmlNode por = doc.SelectSingleNode("/creature/observe/collection/portrait");
+						if (por == null || string.IsNullOrEmpty(por.InnerText))
+						{
+							continue;
+						}
+						string k = id.Value.Trim();
+						List<string[]> list;
+						if (!index.TryGetValue(k, out list))
+						{
+							list = new List<string[]>();
+							index[k] = list;
+						}
+						list.Add(new string[] { files[i], por.InnerText.Trim() });
+					}
+					catch (Exception)
+					{
+						bad++;
+					}
+				}
+			}
+			}
+			catch (Exception e)
+			{
+				bad++;
+				_upMsg = "FastFix.UncertainPagePortrait: index walk stopped: " + e.Message;
+			}
+			_upIndex = index;
+			_upMsg = (_upMsg == null ? "" : _upMsg + "; ") + "FastFix.UncertainPagePortrait: CreatureInfo index built in the background, " + read + " files, " + index.Count + " ids, " + bad + " unreadable, " + sw.ElapsedMilliseconds + " ms";
+		}
+
+		// Incubator.CheckAgent reads agent.GetMovableNode().currentPassage.type last in its condition; an agent on an edge has no
+		// passage and it throws, which ends Incubator.OnFixedUpdate for the tick (33 times in mass-breach-27). The Prefix skips the
+		// call for such an agent: the original threw before MakeChildQB in that case, so nothing else changes. No handlers.
+		private static void InstallIncCheck(Assembly asm)
+		{
+			const string key = "FastFix.IncubatorCheckAgent";
+			Type t = asm.GetType("Incubator.Incubator");
+			MethodInfo m = object.ReferenceEquals(t, null) ? null : t.GetMethod("CheckAgent", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(AgentModel) }, null);
+			if (object.ReferenceEquals(m, null))
+			{
+				Missing(key, "Incubator.CheckAgent(AgentModel)");
+				return;
+			}
+			MethodBody b = m.GetMethodBody();
+			if (b == null || b.ExceptionHandlingClauses.Count > 0)
+			{
+				Missing(key, "Incubator.CheckAgent without exception handlers");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("IncCheckPrefix")), null);
+			Patched(key, m);
+		}
+
+		public static bool IncCheckPrefix(AgentModel agent)
+		{
+			try
+			{
+				MovableObjectNode n = agent == null ? null : agent.GetMovableNode();
+				return n != null && n.currentPassage != null;
+			}
+			catch (Exception)
+			{
+				return true;
+			}
+		}
+
+		// GirlInRainAnim.PlayAnimation appends "special" to the name one time in ten; the model has no "Escapediespecial", so
+		// SetAnimation throws in PlayDeadMotion and the death motion is lost (mass-breach-27). The Transpiler sends the
+		// SetAnimation call through LadySet, which drops the suffix when the model has no such animation. PlayAnimation has no
+		// handlers.
+		private static MethodInfo _ladySetAnim;
+		private static int _ladyHits;
+		private static bool _ladyLogged;
+
+		private static void InstallLadySpecial(Assembly asm)
+		{
+			const string key = "FastFix.LadyInRainSpecial";
+			Type t = asm.GetType("GirlInRain.GirlInRainAnim");
+			MethodInfo m = object.ReferenceEquals(t, null) ? null : t.GetMethod("PlayAnimation", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(string) }, null);
+			_ladySetAnim = typeof(Spine.AnimationState).GetMethod("SetAnimation", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(int), typeof(string), typeof(bool) }, null);
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(_ladySetAnim, null))
+			{
+				Missing(key, "GirlInRainAnim.PlayAnimation(string) / Spine.AnimationState.SetAnimation(int, string, bool)");
+				return;
+			}
+			MethodBody b = m.GetMethodBody();
+			if (b == null || b.ExceptionHandlingClauses.Count > 0)
+			{
+				Missing(key, "GirlInRainAnim.PlayAnimation without exception handlers");
+				return;
+			}
+			_ladyHits = 0;
+			FastFixModule.Harmony.Patch(m, null, null, new HarmonyMethod(Own("LadyTranspiler")));
+			if (_ladyHits != 1)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + ": expected 1 SetAnimation call, found " + _ladyHits + " (left as it was)");
+				return;
+			}
+			Patched(key, m);
+		}
+
+		public static IEnumerable<CodeInstruction> LadyTranspiler(IEnumerable<CodeInstruction> instructions)
+		{
+			List<CodeInstruction> list = new List<CodeInstruction>(instructions);
+			List<int> at = new List<int>();
+			for (int i = 0; i < list.Count; i++)
+			{
+				if ((list[i].opcode == OpCodes.Call || list[i].opcode == OpCodes.Callvirt) && object.ReferenceEquals(list[i].operand as MethodInfo, _ladySetAnim))
+				{
+					at.Add(i);
+				}
+			}
+			_ladyHits = at.Count;
+			if (at.Count != 1)
+			{
+				return list;
+			}
+			list[at[0]].opcode = OpCodes.Call;
+			list[at[0]].operand = Own("LadySet");
+			return list;
+		}
+
+		public static Spine.TrackEntry LadySet(Spine.AnimationState state, int track, string name, bool loop)
+		{
+			try
+			{
+				if (state != null && name != null && name.EndsWith("special", StringComparison.Ordinal) && state.Data != null && state.Data.SkeletonData != null
+					&& state.Data.SkeletonData.FindAnimation(name) == null)
+				{
+					string plain = name.Substring(0, name.Length - 7);
+					if (state.Data.SkeletonData.FindAnimation(plain) != null)
+					{
+						if (!_ladyLogged)
+						{
+							_ladyLogged = true;
+							N.ULog.Info(FastFixModule.Tag, "FastFix.LadyInRainSpecial: " + name + " not in the model; " + plain + " played (logged once)");
+						}
+						name = plain;
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("LadySet", e);
+			}
+			return state.SetAnimation(track, name, loop);
+		}
+
+		// TiamatEGOreader.Harmony_Patch.Make{Weapon,Armor}Button{left,Right} set GameObject.layer = 999; Unity refuses a layer
+		// outside 0..31, keeps the old one and logs an error each time the abnormality window opens (four per open). The
+		// Transpiler sends set_layer through TmSetLayer, which sets only a valid layer: the same result without the error. The
+		// four methods have no handlers.
+		private static MethodInfo _goSetLayer;
+		private static int _tmLayerHits;
+
+		private static void InstallTiamatLayer(Assembly asm)
+		{
+			Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
+			for (int a = 0; a < all.Length; a++)
+			{
+				Type t = null;
+				try
+				{
+					t = all[a].GetType("TiamatEGOreader.Harmony_Patch", false);
+				}
+				catch (Exception)
+				{
+				}
+				if (!object.ReferenceEquals(t, null))
+				{
+					TiamatLayerOne(t);
+				}
+			}
+		}
+
+		// Several mods ship their own copy of TiamatEGOreader.dll (three in this install); each copy runs its own Postfix, so each
+		// one is patched.
+		private static void TiamatLayerOne(Type t)
+		{
+			const string key = "FastFix.TiamatButtonLayer";
+			_goSetLayer = typeof(GameObject).GetProperty("layer").GetSetMethod();
+			string[] names = new string[] { "MakeWeaponButtonleft", "MakeWeaponButtonRight", "MakeArmorButtonleft", "MakeArmorButtonRight" };
+			for (int i = 0; i < names.Length; i++)
+			{
+				MethodInfo m = object.ReferenceEquals(t, null) ? null : t.GetMethod(names[i], BindingFlags.Public | BindingFlags.Static);
+				if (object.ReferenceEquals(m, null) || object.ReferenceEquals(_goSetLayer, null))
+				{
+					Missing(key, "TiamatEGOreader.Harmony_Patch." + names[i] + " / GameObject.set_layer");
+					continue;
+				}
+				MethodBody b = m.GetMethodBody();
+				if (b == null || b.ExceptionHandlingClauses.Count > 0)
+				{
+					Missing(key, names[i] + " without exception handlers");
+					continue;
+				}
+				_tmLayerHits = 0;
+				FastFixModule.Harmony.Patch(m, null, null, new HarmonyMethod(Own("TmLayerTranspiler")));
+				if (_tmLayerHits != 1)
+				{
+					N.ULog.Error(FastFixModule.Tag, key + ": " + names[i] + ": expected 1 set_layer call, found " + _tmLayerHits + " (left as it was)");
+					continue;
+				}
+				Patched(key, m);
+			}
+		}
+
+		public static IEnumerable<CodeInstruction> TmLayerTranspiler(IEnumerable<CodeInstruction> instructions)
+		{
+			List<CodeInstruction> list = new List<CodeInstruction>(instructions);
+			List<int> at = new List<int>();
+			for (int i = 0; i < list.Count; i++)
+			{
+				if ((list[i].opcode == OpCodes.Call || list[i].opcode == OpCodes.Callvirt) && object.ReferenceEquals(list[i].operand as MethodInfo, _goSetLayer))
+				{
+					at.Add(i);
+				}
+			}
+			_tmLayerHits = at.Count;
+			if (at.Count != 1)
+			{
+				return list;
+			}
+			list[at[0]].opcode = OpCodes.Call;
+			list[at[0]].operand = Own("TmSetLayer");
+			return list;
+		}
+
+		public static void TmSetLayer(GameObject go, int layer)
+		{
+			if (layer >= 0 && layer <= 31)
+			{
+				go.layer = layer;
+			}
+		}
+
+		// FEW_RiskLevel.Harmony_Patch.CreatureSuppressRegion_SetData reads target.observeInfo.GetObserveState and metaInfo.id
+		// without checks. ChildCreatureModel.SetParent sets observeInfo only for a child with its own base meta, so clicking
+		// another escaped child throws (Uncertain Page run, twice). The Prefix skips the postfix for such a target; it only
+		// replaces the risk label text and colour. No handlers.
+		private static void InstallFewSuppress(Assembly asm)
+		{
+			RiskSuppressPatch(asm, "FastFix.FewSuppressChild", "FEW_RiskLevel.Harmony_Patch");
+		}
+
+		// HSLEB RiskLevel (Souls Pawn Shop) has the same postfix as FEW RiskLevel; same NRE on a new day 1 (three times).
+		private static void InstallHslebSuppress(Assembly asm)
+		{
+			RiskSuppressPatch(asm, "FastFix.HslebSuppressChild", "HSLEB_RiskLevel.Harmony_Patch");
+		}
+
+		private static void RiskSuppressPatch(Assembly asm, string key, string typeName)
+		{
+			Type t = asm.GetType(typeName);
+			MethodInfo m = object.ReferenceEquals(t, null) ? null : t.GetMethod("CreatureSuppressRegion_SetData", BindingFlags.Public | BindingFlags.Static);
+			if (object.ReferenceEquals(m, null))
+			{
+				Missing(key, typeName + ".CreatureSuppressRegion_SetData");
+				return;
+			}
+			MethodBody b = m.GetMethodBody();
+			if (b == null || b.ExceptionHandlingClauses.Count > 0)
+			{
+				Missing(key, "CreatureSuppressRegion_SetData without exception handlers");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("FewSuppressPrefix")), null);
+			Patched(key, m);
+		}
+
+		public static bool FewSuppressPrefix(UnitModel target)
+		{
+			try
+			{
+				CreatureModel c = target as CreatureModel;
+				return c == null || (c.observeInfo != null && c.metaInfo != null);
+			}
+			catch (Exception)
+			{
+				return true;
+			}
+		}
+
+		// FourFools.HP_CSUnit.CSUnit_OnExit (postfix of CreatureSelectUnit.OnExit) reads __instance._creatureIdMod.id; Start calls
+		// OnExit before the door gets its abnormality, so _creatureIdMod is null and it throws (new game, twice). The Prefix skips
+		// the postfix while _creatureIdMod is null: it only swaps the frame sprite of the mod's own abnormalities. No handlers.
+		private static FieldInfo _csIdMod;
+
+		private static void InstallFourFoolsSelect(Assembly asm)
+		{
+			const string key = "FastFix.FourFoolsSelect";
+			Type t = asm.GetType("FourFools.HP_CSUnit");
+			MethodInfo m = object.ReferenceEquals(t, null) ? null : t.GetMethod("CSUnit_OnExit", BindingFlags.Public | BindingFlags.Static);
+			_csIdMod = typeof(CreatureSelect.CreatureSelectUnit).GetField("_creatureIdMod", All);
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(_csIdMod, null))
+			{
+				Missing(key, "FourFools.HP_CSUnit.CSUnit_OnExit / CreatureSelectUnit._creatureIdMod");
+				return;
+			}
+			MethodBody b = m.GetMethodBody();
+			if (b == null || b.ExceptionHandlingClauses.Count > 0)
+			{
+				Missing(key, "CSUnit_OnExit without exception handlers");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("FourFoolsSelectPrefix")), null);
+			Patched(key, m);
+		}
+
+		public static bool FourFoolsSelectPrefix(object __instance)
+		{
+			try
+			{
+				return __instance != null && _csIdMod.GetValue(__instance) != null;
+			}
+			catch (Exception)
+			{
+				return true;
+			}
+		}
+
+		// HMI_AgentP_MOD.Harmony_Patch.CreatureInfoOpenArea_OnOverlayEnter_Post reads CreatureInfoWindow.CurrentWindow.MetaInfo.id
+		// without a null check; with the window open and no abnormality set it throws (once in the Uncertain Page run). The
+		// Prefix skips the postfix in that case: it only restyles the cost of the mod's own abnormality (142018). No handlers.
+		private static void InstallHmiHover(Assembly asm)
+		{
+			const string key = "FastFix.HmiInfoHover";
+			Type t = asm.GetType("HMI_AgentP_MOD.Harmony_Patch");
+			MethodInfo m = object.ReferenceEquals(t, null) ? null : t.GetMethod("CreatureInfoOpenArea_OnOverlayEnter_Post", BindingFlags.Public | BindingFlags.Static);
+			if (object.ReferenceEquals(m, null))
+			{
+				Missing(key, "HMI_AgentP_MOD.Harmony_Patch.CreatureInfoOpenArea_OnOverlayEnter_Post");
+				return;
+			}
+			MethodBody b = m.GetMethodBody();
+			if (b == null || b.ExceptionHandlingClauses.Count > 0)
+			{
+				Missing(key, "CreatureInfoOpenArea_OnOverlayEnter_Post without exception handlers");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("HmiHoverPrefix")), null);
+			Patched(key, m);
+		}
+
+		public static bool HmiHoverPrefix()
+		{
+			try
+			{
+				CreatureInfoWindow w = CreatureInfoWindow.CurrentWindow;
+				return w == null || w.MetaInfo != null;
+			}
+			catch (Exception)
+			{
+				return true;
+			}
+		}
+
+		// Ling.Harmony_Patch.UnitMouseEventManager_OnEndDrag_Postfix takes every Collider2D in the drag area and calls
+		// GetComponent<UnitMouseEventTarget>().GetCommandTargetModel() without a null check; a collider without that component
+		// throws (mass-breach-25, twice). The Transpiler sends the call through LingTarget, which gives null for a missing
+		// component; "null is CreatureModel" is false and the loop goes on. The postfix has no handlers (for over an array).
+		private static MethodInfo _lingGetTarget;
+		private static int _lingHits;
+
+		private static void InstallLingDrag(Assembly asm)
+		{
+			const string key = "FastFix.LingDragSelect";
+			Type t = asm.GetType("Ling.Harmony_Patch");
+			MethodInfo m = object.ReferenceEquals(t, null) ? null : t.GetMethod("UnitMouseEventManager_OnEndDrag_Postfix", BindingFlags.Public | BindingFlags.Static);
+			_lingGetTarget = typeof(UnitMouseEventTarget).GetMethod("GetCommandTargetModel", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(_lingGetTarget, null))
+			{
+				Missing(key, "Ling.Harmony_Patch.UnitMouseEventManager_OnEndDrag_Postfix / UnitMouseEventTarget.GetCommandTargetModel");
+				return;
+			}
+			MethodBody b = m.GetMethodBody();
+			if (b == null || b.ExceptionHandlingClauses.Count > 0)
+			{
+				Missing(key, "OnEndDrag_Postfix without exception handlers");
+				return;
+			}
+			_lingHits = 0;
+			FastFixModule.Harmony.Patch(m, null, null, new HarmonyMethod(Own("LingDragTranspiler")));
+			if (_lingHits != 1)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + ": expected 1 GetCommandTargetModel call, found " + _lingHits + " (left as it was)");
+				return;
+			}
+			Patched(key, m);
+		}
+
+		public static IEnumerable<CodeInstruction> LingDragTranspiler(IEnumerable<CodeInstruction> instructions)
+		{
+			List<CodeInstruction> list = new List<CodeInstruction>(instructions);
+			List<int> at = new List<int>();
+			for (int i = 0; i < list.Count; i++)
+			{
+				if ((list[i].opcode == OpCodes.Call || list[i].opcode == OpCodes.Callvirt) && object.ReferenceEquals(list[i].operand as MethodInfo, _lingGetTarget))
+				{
+					at.Add(i);
+				}
+			}
+			_lingHits = at.Count;
+			if (at.Count != 1)
+			{
+				return list;
+			}
+			list[at[0]].opcode = OpCodes.Call;
+			list[at[0]].operand = Own("LingTarget");
+			return list;
+		}
+
+		public static IMouseCommandTargetModel LingTarget(UnitMouseEventTarget c)
+		{
+			return c == null ? null : c.GetCommandTargetModel();
+		}
+
+		// Unity logs "AddComponent asking for invalid type" (no stack) for AddComponent(null) and returns null. Incubator does it on
+		// purpose: Incubator_CreatureBase.OnViewInit adds the type named after AnimName and adds its base script when that type
+		// does not exist (every witch view, mass-breach-26). For a null type the Prefix returns null without the call, as Unity
+		// does, and logs the first caller once. Other types run the original. AddComponent(Type) has no handlers.
+		private static bool _addCompLogged;
+
+		private static void InstallAddCompTrace()
+		{
+			const string key = "FastFix.AddComponentNullQuiet";
+			if (!N.Config.BindFlag(key, true, "AddComponent with no type (Incubator witches do it on purpose and then add their own script) returns nothing at once instead of writing a warning to the log each time. Read at game start.").On)
+			{
+				return;
+			}
+			try
+			{
+				MethodInfo m = typeof(GameObject).GetMethod("AddComponent", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(Type) }, null);
+				if (object.ReferenceEquals(m, null))
+				{
+					Missing(key, "GameObject.AddComponent(Type)");
+					return;
+				}
+				MethodBody b = m.GetMethodBody();
+				if (b == null || b.ExceptionHandlingClauses.Count > 0)
+				{
+					Missing(key, "GameObject.AddComponent(Type) without exception handlers");
+					return;
+				}
+				FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("AddCompPrefix")), null);
+				Patched(key, m);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
+			}
+		}
+
+		public static bool AddCompPrefix(Type componentType, ref Component __result)
+		{
+			if (!object.ReferenceEquals(componentType, null))
+			{
+				return true;
+			}
+			__result = null;
+			if (!_addCompLogged)
+			{
+				_addCompLogged = true;
+				try
+				{
+					N.ULog.Info(FastFixModule.Tag, "FastFix.AddComponentNullQuiet: AddComponent(null) returns null without the warning (logged once); first caller:\n" + new System.Diagnostics.StackTrace(1, false));
+				}
+				catch (Exception)
+				{
+				}
+			}
+			return false;
+		}
+
+		// Diagnostic, temporary (1.54; remove before release). "Invalid Movable State.. Please report this." comes from
+		// MovableObjectNode.ProcessMoveByDistance when the current node is not on the path edge (the node was set while the
+		// unit walked a path); it was seen under ChildMoveNode (child creatures) in mass-breach-7. "Not expected state" comes
+		// from CreatureModel.OnStageStart for a creature not in WAIT at day start. Both owners are unknown: the child moved by
+		// ChildMoveNode and every creature with a state other than WAIT at OnStageStart are written once per type.
+		// OnStageStart has no exception handler. Debug.LogError(object) Prefix only compares the text.
+		private static ChildCreatureModel _moveChild;
+		private static HashSet<string> _moveOwners;
+		private const string MoveStateText = "Invalid Movable State.. Please report this.";
+
+		private static void InstallMoveTrace()
+		{
+			const string key = "FastFix.MoveStateTrace";
+			if (!N.Config.BindFlag(key, true, "Diagnostic (temporary): the creatures behind the game's Invalid Movable State and Not expected state errors are written to the Nail log once per type. Read at game start.").On)
+			{
+				return;
+			}
+			try
+			{
+				MethodInfo err = typeof(Debug).GetMethod("LogError", BindingFlags.Public | BindingFlags.Static, null, new Type[] { typeof(object) }, null);
+				MethodInfo start = typeof(CreatureModel).GetMethod("OnStageStart", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, null, Type.EmptyTypes, null);
+				if (object.ReferenceEquals(err, null) || object.ReferenceEquals(start, null))
+				{
+					Missing(key, "Debug.LogError(object) / CreatureModel.OnStageStart");
+					return;
+				}
+				_moveOwners = new HashSet<string>();
+				FastFixModule.Harmony.Patch(err, new HarmonyMethod(Own("MoveErrPrefix")), null);
+				Patched(key, err);
+				FastFixModule.Harmony.Patch(start, new HarmonyMethod(Own("StageStatePrefix")), null);
+				Patched(key, start);
+				// KnightOfDespair was in ESCAPE at day start (mass-breach-8); its only start is CreatureModel.Escape (no
+				// handlers). Escape while the game is stopped (before the day runs) writes its call stack, 4 at most.
+				MethodInfo esc = typeof(CreatureModel).GetMethod("Escape", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, null, Type.EmptyTypes, null);
+				if (object.ReferenceEquals(esc, null))
+				{
+					Missing(key, "CreatureModel.Escape");
+					return;
+				}
+				FastFixModule.Harmony.Patch(esc, new HarmonyMethod(Own("EarlyEscapePrefix")), null);
+				Patched(key, esc);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
+			}
+		}
+
+		// "Invalid Movable State.. Please report this." (MovableObjectNode.ProcessMoveByDistance): mods that set the node of a
+		// walking unit (kekesi jackk, Joker Sheep and others, runs mass-breach-9/10) write it many times a minute; the game
+		// already stops the move right after the line. Debug.LogError(object) Prefix skips only that exact text.
+		private static void InstallMoveQuiet()
+		{
+			const string key = "FastFix.MovableStateLog";
+			if (!N.Config.BindFlag(key, true, "A unit whose map node was moved by a mod while it walked no longer writes Invalid Movable State to the log; the game stops that move as before. Read at game start.").On)
+			{
+				return;
+			}
+			try
+			{
+				MethodInfo err = typeof(Debug).GetMethod("LogError", BindingFlags.Public | BindingFlags.Static, null, new Type[] { typeof(object) }, null);
+				if (object.ReferenceEquals(err, null))
+				{
+					Missing(key, "Debug.LogError(object)");
+					return;
+				}
+				FastFixModule.Harmony.Patch(err, new HarmonyMethod(Own("MoveQuietPrefix")), null);
+				Patched(key, err);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
+			}
+		}
+
+		public static bool MoveQuietPrefix(object message)
+		{
+			string text = message as string;
+			return text == null || text.Length != MoveStateText.Length || !string.Equals(text, MoveStateText, StringComparison.Ordinal);
+		}
+
+		public static void MoveErrPrefix(object message)
+		{
+			if (_moveOwners == null || _moveOwners.Count >= 32)
+			{
+				return;
+			}
+			string text = message as string;
+			if (text == null || !string.Equals(text, MoveStateText, StringComparison.Ordinal))
+			{
+				return;
+			}
+			try
+			{
+				if (_moveChild != null)
+				{
+					NoteOwner(_moveOwners, "FastFix.MoveStateTrace: Invalid Movable State on child ", _moveChild);
+				}
+				else if (_moveOwners.Add("(not a child): " + Environment.StackTrace))
+				{
+					N.ULog.Info(FastFixModule.Tag, "FastFix.MoveStateTrace: Invalid Movable State outside ChildMoveNode: " + Environment.StackTrace.Replace('\n', '|'));
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("MoveErrPrefix", e);
+			}
+		}
+
+		private static int _earlyEscapes;
+
+		public static void EarlyEscapePrefix(CreatureModel __instance)
+		{
+			if (_earlyEscapes >= 4)
+			{
+				return;
+			}
+			try
+			{
+				GameManager gm = GameManager.currentGameManager;
+				if (gm != null && gm.state != GameState.STOP)
+				{
+					return;
+				}
+				_earlyEscapes++;
+				string who = __instance.script != null ? __instance.script.GetType().FullName : "?";
+				N.ULog.Info(FastFixModule.Tag, "FastFix.MoveStateTrace: Escape before the day runs (" + (gm == null ? "no GameManager" : "state STOP") + ") for "
+					+ who + " id " + __instance.metadataId + ": " + Environment.StackTrace.Replace('\n', '|'));
+			}
+			catch (Exception e)
+			{
+				Batch2Err("EarlyEscapePrefix", e);
+			}
+		}
+
+		public static void StageStatePrefix(CreatureModel __instance)
+		{
+			try
+			{
+				if (_moveOwners != null && _moveOwners.Count < 32 && __instance.state != CreatureState.WAIT)
+				{
+					NoteOwner(_moveOwners, "FastFix.MoveStateTrace: day start with state " + __instance.state + " (Not expected state) for ", __instance);
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("StageStatePrefix", e);
+			}
+		}
+
+		// Joker_MOD.Sheep.OnFixedUpdate calls DamageToPassage_onetarget and DamageToPassage with currentPassage. Both run foreach
+		// over passage.GetEnteredTargets(): a null passage (sheep on a hallway edge between passages) throws at once, IsHostile
+		// reads unit.hp before its null check, and a target killed by TakeDamage leaves the passage list while it is enumerated
+		// ("Collection was modified"); run mass-breach-12/13. Both methods have foreach (GL-53, not patched); OnFixedUpdate has
+		// no exception handler: its Transpiler routes both calls to SheepDamage, which does the same over a copy of the list,
+		// skipping a null passage, node or unit.
+		private static MethodInfo _sheepOne;
+		private static MethodInfo _sheepAll;
+		private static Type _sheepType;
+		private static FieldInfo _sheepJoker;
+		private static ConstructorInfo _sheepPanic;
+		private static int _sheepHits;
+
+		private static void InstallSheep(Assembly asm)
+		{
+			const string key = "FastFix.JokerSheepDamage";
+			Type t = asm.GetType("Joker_MOD.Sheep");
+			Type joker = asm.GetType("Joker_MOD.Joker");
+			Type panic = asm.GetType("Joker_MOD.Sheep+PanicTrans");
+			Type[] dmg = new Type[] { typeof(PassageObjectModel), typeof(RwbpType), typeof(int), typeof(int) };
+			const BindingFlags pi = BindingFlags.Public | BindingFlags.Instance;
+			MethodInfo fixedUpd = object.ReferenceEquals(t, null) ? null : t.GetMethod("OnFixedUpdate", pi | BindingFlags.DeclaredOnly, null, new Type[] { typeof(CreatureModel) }, null);
+			MethodInfo one = object.ReferenceEquals(t, null) ? null : t.GetMethod("DamageToPassage_onetarget", pi, null, dmg, null);
+			MethodInfo all = object.ReferenceEquals(t, null) ? null : t.GetMethod("DamageToPassage", pi, null, dmg, null);
+			FieldInfo jf = object.ReferenceEquals(t, null) ? null : t.GetField("joker", pi);
+			ConstructorInfo ctor = object.ReferenceEquals(panic, null) || object.ReferenceEquals(joker, null) ? null : panic.GetConstructor(new Type[] { joker });
+			if (object.ReferenceEquals(fixedUpd, null) || object.ReferenceEquals(one, null) || object.ReferenceEquals(all, null) || object.ReferenceEquals(jf, null)
+				|| object.ReferenceEquals(ctor, null) || !typeof(UnitBuf).IsAssignableFrom(panic))
+			{
+				Missing(key, "Sheep.OnFixedUpdate / DamageToPassage / DamageToPassage_onetarget / joker / PanicTrans(Joker)");
+				return;
+			}
+			MethodBody body = fixedUpd.GetMethodBody();
+			if (body == null || body.ExceptionHandlingClauses.Count > 0)
+			{
+				Missing(key, "Sheep.OnFixedUpdate without exception handlers");
+				return;
+			}
+			_sheepOne = one;
+			_sheepAll = all;
+			_sheepType = t;
+			_sheepJoker = jf;
+			_sheepPanic = ctor;
+			_sheepHits = 0;
+			FastFixModule.Harmony.Patch(fixedUpd, null, null, new HarmonyMethod(Own("SheepTranspiler")));
+			if (_sheepHits != 2)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + ": expected 2 calls in OnFixedUpdate, found " + _sheepHits + " (calls left as they were)");
+			}
+			Patched(key, fixedUpd);
+		}
+
+		public static IEnumerable<CodeInstruction> SheepTranspiler(IEnumerable<CodeInstruction> instructions)
+		{
+			List<CodeInstruction> list = new List<CodeInstruction>(instructions);
+			List<int> at = new List<int>();
+			for (int i = 0; i < list.Count; i++)
+			{
+				MethodInfo c = list[i].operand as MethodInfo;
+				if ((list[i].opcode == OpCodes.Call || list[i].opcode == OpCodes.Callvirt)
+					&& (object.ReferenceEquals(c, _sheepOne) || object.ReferenceEquals(c, _sheepAll)))
+				{
+					at.Add(i);
+				}
+			}
+			_sheepHits = at.Count;
+			if (at.Count != 2)
+			{
+				return list;
+			}
+			for (int k = 0; k < at.Count; k++)
+			{
+				list[at[k]].opcode = OpCodes.Call;
+				list[at[k]].operand = Own("SheepDamage");
+			}
+			return list;
+		}
+
+		public static void SheepDamage(CreatureBase sheep, PassageObjectModel passage, RwbpType type, int max, int min)
+		{
+			if (sheep == null || passage == null)
+			{
+				return;
+			}
+			System.Collections.ObjectModel.ReadOnlyCollection<MovableObjectNode> entered = passage.GetEnteredTargets();
+			if (entered == null || entered.Count == 0)
+			{
+				return;
+			}
+			MovableObjectNode[] nodes = new MovableObjectNode[entered.Count];
+			entered.CopyTo(nodes, 0);
+			CreatureModel self = sheep.model;
+			object joker = _sheepJoker.GetValue(sheep);
+			object[] arg = new object[] { joker };
+			for (int i = 0; i < nodes.Length; i++)
+			{
+				MovableObjectNode node = nodes[i];
+				UnitModel unit = node == null ? null : node.GetUnit();
+				if (unit == null || unit.hp <= 0f || !unit.IsAttackTargetable() || unit == self)
+				{
+					continue;
+				}
+				CreatureModel cm = unit as CreatureModel;
+				if (cm != null && cm.script != null && _sheepType.IsInstanceOfType(cm.script))
+				{
+					continue;
+				}
+				unit.TakeDamage(self, new DamageInfo(type, max, min));
+				unit.AddUnitBuf((UnitBuf)_sheepPanic.Invoke(arg));
+			}
+		}
+
+		// Incubator sets the static Harmony_Patch.ModID to "Incubator" and builds every LcId/LcIdLong of its own content from it.
+		// BaseMod reads the mod id from Info/<language>/info.xml (falling back to en, then kr); Incubator ships only cn/jp/ru, so
+		// in an en or kr game the folder gets modid "" and its creatures and EGO go into the vanilla tables (saves store them as
+		// ("", id)). Lookups under "Incubator" then fail: MakeLesers throws in BuildCreature_Mod, no witch is made, EGO checks
+		// never match. An Info/en file is no fix: existing saves then resolve ("", 100002) to vanilla Happy Teddy Bear (run
+		// mass-breach-12). ModID is set to the id BaseMod really gave the folder. Incubator.cs also reads _modlist[ModID] to
+		// build Risk_Majos, and there is no "" key there (that method has try/catch, GL-53): with id "" Risk_Majos is built
+		// here the same way from the vanilla list, limited to creatures whose script is a type of the Incubator assembly.
+		private static void InstallIncModId(Assembly asm)
+		{
+			const string key = "FastFix.IncubatorModId";
+			const BindingFlags ps = BindingFlags.Public | BindingFlags.Static;
+			const BindingFlags pi = BindingFlags.Public | BindingFlags.Instance;
+			Type hp = asm.GetType("Harmony_Patch");
+			Type inc = asm.GetType("Incubator.Incubator");
+			Type cb = asm.GetType("Incubator_CreatureBase");
+			Type mp = asm.GetType("Incubator.Majos.Majo_Patch");
+			FieldInfo idf = object.ReferenceEquals(hp, null) ? null : hp.GetField("ModID", ps);
+			FieldInfo risk = object.ReferenceEquals(inc, null) ? null : inc.GetField("Risk_Majos", ps);
+			MethodInfo getBase = object.ReferenceEquals(mp, null) ? null : mp.GetMethod("GetIncubator_CreatureBase", ps, null, new Type[] { typeof(CreatureTypeInfo) }, null);
+			MethodInfo notMajo = object.ReferenceEquals(cb, null) ? null : cb.GetMethod("NotMajo", pi, null, Type.EmptyTypes, null);
+			MethodInfo riskLv = object.ReferenceEquals(cb, null) ? null : cb.GetMethod("GetRiskLevel", pi | BindingFlags.DeclaredOnly, null, Type.EmptyTypes, null);
+			if (object.ReferenceEquals(idf, null) || !object.ReferenceEquals(idf.FieldType, typeof(string)) || idf.IsInitOnly
+				|| object.ReferenceEquals(risk, null) || !object.ReferenceEquals(risk.FieldType, typeof(Dictionary<int, List<long>>))
+				|| object.ReferenceEquals(getBase, null) || object.ReferenceEquals(notMajo, null) || object.ReferenceEquals(riskLv, null)
+				|| !object.ReferenceEquals(riskLv.ReturnType, typeof(int)))
+			{
+				Missing(key, "Harmony_Patch.ModID / Incubator.Risk_Majos / Majo_Patch.GetIncubator_CreatureBase / Incubator_CreatureBase");
+				return;
+			}
+			ModInfo info = IncModInfo(asm);
+			if (info == null)
+			{
+				Missing(key, "ModInfo of the Incubator folder in Add_On.ModList");
+				return;
+			}
+			string cur = idf.GetValue(null) as string;
+			string real = info.modid == null ? string.Empty : info.modid;
+			if (string.Equals(cur, real, StringComparison.Ordinal))
+			{
+				N.ULog.Info(FastFixModule.Tag, key + ": mod id '" + real + "' matches, nothing to do");
+				return;
+			}
+			idf.SetValue(null, real);
+			N.ULog.Info(FastFixModule.Tag, key + ": mod id '" + cur + "' -> '" + real + "' (the id BaseMod gave the folder " + info.modpath.Name + ")");
+			if (real.Length > 0 || risk.GetValue(null) != null)
+			{
+				return;
+			}
+			CreatureTypeList list = CreatureTypeList.instance;
+			CreatureTypeInfo[] all = list == null ? null : list.GetList();
+			if (all == null)
+			{
+				Missing(key, "CreatureTypeList (witch list not built; the Incubator keeps its own behaviour)");
+				return;
+			}
+			HashSet<string> names = new HashSet<string>();
+			Type[] types = asm.GetTypes();
+			for (int i = 0; i < types.Length; i++)
+			{
+				if (typeof(CreatureBase).IsAssignableFrom(types[i]))
+				{
+					names.Add(types[i].Name);
+					names.Add(types[i].FullName);
+				}
+			}
+			Dictionary<int, List<long>> d = new Dictionary<int, List<long>>();
+			object[] arg = new object[1];
+			int count = 0;
+			string text = string.Empty;
+			for (int i = 0; i < all.Length; i++)
+			{
+				CreatureTypeInfo c = all[i];
+				if (c == null || c.id == 100001L || c.id == 100002L || c.id == 100003L || string.IsNullOrEmpty(c.script) || !names.Contains(c.script))
+				{
+					continue;
+				}
+				arg[0] = c;
+				object b = getBase.Invoke(null, arg);
+				int lv;
+				if (b != null)
+				{
+					if ((bool)notMajo.Invoke(b, null))
+					{
+						continue;
+					}
+					lv = (int)riskLv.Invoke(b, null);
+				}
+				else
+				{
+					lv = (int)(CreatureTypeInfo.GetRiskLevelStringToEnum(c.riskLevel) + 1);
+				}
+				List<long> ids;
+				if (!d.TryGetValue(lv, out ids))
+				{
+					ids = new List<long>();
+					d[lv] = ids;
+				}
+				ids.Add(c.id);
+				count++;
+				text += " " + c.id + "(risk " + lv + ")";
+			}
+			if (count == 0)
+			{
+				N.ULog.Info(FastFixModule.Tag, key + ": no witch found in the creature list, Risk_Majos left to the mod");
+				return;
+			}
+			risk.SetValue(null, d);
+			N.ULog.Info(FastFixModule.Tag, key + ": Risk_Majos built from the creature list, " + count + " witches:" + text);
+		}
+
+		private static ModInfo IncModInfo(Assembly asm)
+		{
+			Add_On a = Add_On.instance;
+			if (a == null || a.ModList == null || string.IsNullOrEmpty(asm.Location))
+			{
+				return null;
+			}
+			string dir = System.IO.Path.GetDirectoryName(asm.Location);
+			for (int up = 0; up < 4 && !string.IsNullOrEmpty(dir); up++)
+			{
+				string parent = System.IO.Path.GetDirectoryName(dir);
+				if (!string.IsNullOrEmpty(parent) && string.Equals(System.IO.Path.GetFileName(parent), "BaseMods", StringComparison.OrdinalIgnoreCase))
+				{
+					break;
+				}
+				dir = parent;
+			}
+			if (string.IsNullOrEmpty(dir))
+			{
+				return null;
+			}
+			char[] seps = new char[] { System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar };
+			string want = dir.TrimEnd(seps);
+			for (int i = 0; i < a.ModList.Count; i++)
+			{
+				ModInfo m = a.ModList[i];
+				if (m != null && m.modpath != null && string.Equals(m.modpath.FullName.TrimEnd(seps), want, StringComparison.OrdinalIgnoreCase))
+				{
+					return m;
+				}
+			}
+			return null;
+		}
+
+		// Incubator WalpurgisNight.OnViewInit calls Incubator.AllMajoEscape() and MakeLesers() and then SetEscapeUI, SetNode,
+		// SetCollision. The creature is meant to arrive with its ordeal during the day; kept in containment its view is made
+		// while the day is prepared (GameManager state STOP): AllMajoEscape makes the Knight of Despair transform and escape
+		// before CreatureModel.OnStageStart (vanilla puts it back and logs "Not expected state"), MakeLesers throws in
+		// SpecialEventManager.BuildCreature_Mod, the rest of OnViewInit never runs, _Node stays null and Update throws and
+		// sets a null node every frame (invalid node state spam). Run mass-breach-8/9. OnViewInit has no exception handler;
+		// its Transpiler routes both calls through WalpMajo/WalpLasers: during the day they run as before, while the day is
+		// prepared they are kept and run by the WalpurgisNight.Update Prefix (no handlers) at the first update of the day.
+		// AllMajoEscape and MakeLesers have foreach (GL-53) and are not patched.
+		private static MethodInfo _walpMajo;
+		private static MethodInfo _walpLasers;
+		private static bool _walpMajoPending;
+		private static List<object> _walpPending;
+
+		private static void InstallWalp(Assembly asm)
+		{
+			const string key = "FastFix.WalpurgisDayStart";
+			Type t = asm.GetType("Incubator.WalpurgisNight.WalpurgisNight");
+			Type inc = asm.GetType("Incubator.Incubator");
+			MethodInfo view = object.ReferenceEquals(t, null) ? null : t.GetMethod("OnViewInit", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, null, new Type[] { typeof(CreatureUnit) }, null);
+			MethodInfo upd = object.ReferenceEquals(t, null) ? null : t.GetMethod("Update", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, null, Type.EmptyTypes, null);
+			MethodInfo majo = object.ReferenceEquals(inc, null) ? null : inc.GetMethod("AllMajoEscape", BindingFlags.Public | BindingFlags.Static, null, Type.EmptyTypes, null);
+			MethodInfo lasers = object.ReferenceEquals(t, null) ? null : t.GetMethod("MakeLesers", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+			if (object.ReferenceEquals(view, null) || object.ReferenceEquals(upd, null) || object.ReferenceEquals(majo, null) || object.ReferenceEquals(lasers, null))
+			{
+				Missing(key, "WalpurgisNight.OnViewInit / Update / MakeLesers / Incubator.AllMajoEscape");
+				return;
+			}
+			MethodBody vb = view.GetMethodBody();
+			MethodBody ub = upd.GetMethodBody();
+			if (vb == null || ub == null || vb.ExceptionHandlingClauses.Count > 0 || ub.ExceptionHandlingClauses.Count > 0)
+			{
+				Missing(key, "WalpurgisNight.OnViewInit / Update without exception handlers");
+				return;
+			}
+			_walpMajo = majo;
+			_walpLasers = lasers;
+			_walpPending = new List<object>();
+			_walpHits = 0;
+			FastFixModule.Harmony.Patch(view, null, null, new HarmonyMethod(Own("WalpViewTranspiler")));
+			if (_walpHits != 2)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + ": expected 2 calls in OnViewInit, found " + _walpHits + " (calls left as they were)");
+			}
+			Patched(key, view);
+			FastFixModule.Harmony.Patch(upd, new HarmonyMethod(Own("WalpUpdatePrefix")), null);
+			Patched(key, upd);
+		}
+
+		private static int _walpHits;
+
+		public static IEnumerable<CodeInstruction> WalpViewTranspiler(IEnumerable<CodeInstruction> instructions)
+		{
+			List<CodeInstruction> list = new List<CodeInstruction>(instructions);
+			List<int> at = new List<int>();
+			for (int i = 0; i < list.Count; i++)
+			{
+				MethodInfo c = list[i].operand as MethodInfo;
+				if ((list[i].opcode == OpCodes.Call || list[i].opcode == OpCodes.Callvirt)
+					&& (object.ReferenceEquals(c, _walpMajo) || object.ReferenceEquals(c, _walpLasers)))
+				{
+					at.Add(i);
+				}
+			}
+			_walpHits = at.Count;
+			if (at.Count != 2)
+			{
+				return list;
+			}
+			for (int k = 0; k < at.Count; k++)
+			{
+				int i = at[k];
+				bool majo = object.ReferenceEquals(list[i].operand as MethodInfo, _walpMajo);
+				list[i].opcode = OpCodes.Call;
+				list[i].operand = Own(majo ? "WalpMajo" : "WalpLasers");
+			}
+			return list;
+		}
+
+		private static bool WalpPrep()
+		{
+			GameManager gm = GameManager.currentGameManager;
+			return gm == null || gm.state == GameState.STOP;
+		}
+
+		public static void WalpMajo()
+		{
+			if (WalpPrep())
+			{
+				_walpMajoPending = true;
+				_walpPending.Clear();
+				N.ULog.Info(FastFixModule.Tag, "FastFix.WalpurgisDayStart: Walpurgis Night view made while the day is prepared; witches escape at the first frame of the day");
+				return;
+			}
+			_walpMajo.Invoke(null, null);
+		}
+
+		public static void WalpLasers(object walp)
+		{
+			if (WalpPrep())
+			{
+				_walpPending.Add(walp);
+				return;
+			}
+			_walpLasers.Invoke(walp, null);
+		}
+
+		public static void WalpUpdatePrefix(object __instance)
+		{
+			if (!_walpMajoPending && _walpPending.Count == 0)
+			{
+				return;
+			}
+			GameManager gm = GameManager.currentGameManager;
+			if (gm == null || gm.state != GameState.PLAYING)
+			{
+				return;
+			}
+			try
+			{
+				if (_walpMajoPending)
+				{
+					_walpMajoPending = false;
+					_walpMajo.Invoke(null, null);
+				}
+				int i = _walpPending.IndexOf(__instance);
+				if (i >= 0)
+				{
+					_walpPending.RemoveAt(i);
+					_walpLasers.Invoke(__instance, null);
+				}
+			}
+			catch (Exception e)
+			{
+				Exception inner = e is TargetInvocationException && e.InnerException != null ? e.InnerException : e;
+				N.ULog.Error(FastFixModule.Tag, "FastFix.WalpurgisDayStart: deferred call threw: " + inner);
+			}
+		}
+
+		// Blood Shoes writes marker and error files to BloodShoesCreature.BloodShoes.desktopPath (Desktop/LOG) and never creates
+		// it. Bleedbuf.Init writes BleedIconInit.txt at its end inside a try; with no folder that throws, the catch writes
+		// another file there and throws again, so base.Init is skipped and the exception leaves AddUnitBuf (run mass-breach-6,
+		// RightShoeAnim.AddBleed). Init has try/catch (GL-53, not patched). When the folder is missing the static path is set
+		// once to a LOG folder inside the mod's own folder under BaseMods (created); an existing Desktop/LOG is left as is.
+		private static void InstallShoesDir(Assembly asm)
+		{
+			const string key = "FastFix.BloodShoesLogDir";
+			Type t = asm.GetType("BloodShoesCreature.BloodShoes");
+			FieldInfo f = object.ReferenceEquals(t, null) ? null : t.GetField("desktopPath", BindingFlags.Public | BindingFlags.Static);
+			if (object.ReferenceEquals(f, null) || !object.ReferenceEquals(f.FieldType, typeof(string)) || f.IsInitOnly || f.IsLiteral)
+			{
+				Missing(key, "BloodShoesCreature.BloodShoes.desktopPath");
+				return;
+			}
+			string cur = f.GetValue(null) as string;
+			if (!string.IsNullOrEmpty(cur) && System.IO.Directory.Exists(cur))
+			{
+				N.ULog.Info(FastFixModule.Tag, key + ": " + cur + " exists, left as is");
+				return;
+			}
+			string modDir = System.IO.Path.GetDirectoryName(asm.Location);
+			for (int up = 0; up < 4 && !string.IsNullOrEmpty(modDir); up++)
+			{
+				string parent = System.IO.Path.GetDirectoryName(modDir);
+				if (!string.IsNullOrEmpty(parent) && string.Equals(System.IO.Path.GetFileName(parent), "BaseMods", StringComparison.OrdinalIgnoreCase))
+				{
+					break;
+				}
+				modDir = parent;
+			}
+			if (string.IsNullOrEmpty(modDir))
+			{
+				Missing(key, "Blood Shoes mod folder");
+				return;
+			}
+			string dir = System.IO.Path.Combine(modDir, "LOG");
+			System.IO.Directory.CreateDirectory(dir);
+			f.SetValue(null, dir);
+			N.ULog.Info(FastFixModule.Tag, key + ": " + (cur ?? "(null)") + " missing, files go to " + dir);
+		}
+
+		// Blood Shoes Bleedbuf.FixedUpdate calls Destroy() when the bleed ends (Destroy sets aimUnit to null) and then
+		// ShowIcon(bleedIcon, aimUnit): unit.GetMovableNode() throws and its catch writes Desktop/LOG/BurnShowIconerror.txt at
+		// every bleed end. ShowIcon has try/catch (GL-53, not patched). Destroy has none: its Prefix keeps aimUnit, its Postfix
+		// puts it back, so the last icon update reads the unit; the buf is already removed from it and the icon is destroyed
+		// at the end of the frame as before.
+		private static FieldInfo _bleedAim;
+
+		private static void InstallBleedEnd(Assembly asm)
+		{
+			const string key = "FastFix.BleedIconEnd";
+			Type t = asm.GetType("Bleedbuf");
+			MethodInfo m = object.ReferenceEquals(t, null) ? null : t.GetMethod("Destroy", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, null, Type.EmptyTypes, null);
+			FieldInfo aim = object.ReferenceEquals(t, null) ? null : t.GetField("aimUnit", BindingFlags.NonPublic | BindingFlags.Instance);
+			MethodInfo show = object.ReferenceEquals(t, null) ? null : t.GetMethod("ShowIcon", BindingFlags.NonPublic | BindingFlags.Instance);
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(aim, null) || object.ReferenceEquals(show, null)
+				|| !object.ReferenceEquals(aim.FieldType, typeof(UnitModel)) || !typeof(UnitBuf).IsAssignableFrom(t))
+			{
+				Missing(key, "Bleedbuf.Destroy / Bleedbuf.aimUnit / Bleedbuf.ShowIcon");
+				return;
+			}
+			_bleedAim = aim;
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("BleedDestroyPrefix")), new HarmonyMethod(Own("BleedDestroyPostfix")));
+			Patched(key, m);
+		}
+
+		public static void BleedDestroyPrefix(UnitBuf __instance, out UnitModel __state)
+		{
+			__state = null;
+			try
+			{
+				__state = _bleedAim.GetValue(__instance) as UnitModel;
+			}
+			catch (Exception e)
+			{
+				Batch2Err("BleedDestroyPrefix", e);
+			}
+		}
+
+		public static void BleedDestroyPostfix(UnitBuf __instance, UnitModel __state)
+		{
+			try
+			{
+				if (__state != null && _bleedAim.GetValue(__instance) == null)
+				{
+					_bleedAim.SetValue(__instance, __state);
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("BleedDestroyPostfix", e);
+			}
+		}
+
+		// Incubator ships Pre/GiftFix.dll: GiftFix.Harmony_Patch.UnitModel_AttachEGOgift (Prefix of UnitModel.AttachEGOgift)
+		// rebuilds gift.script when metaInfo.script is set and the script is the plain EquipmentScriptBase. The DLL targets a
+		// newer .NET: CreateScriptInstance uses Type.op_Inequality, missing from the game's mscorlib, so its caller throws
+		// MissingMethodException on every such gift and the exception leaves AttachEGOgift (day load stopped, run
+		// mass-breach-5). The mod's Prefix has no exception handler: it is skipped and GiftScriptPrefix does the same work
+		// (same check, script class looked up by short name in Add_On.AssemList, first match, then Type.GetType; the name
+		// table is built once).
+		private static Dictionary<string, Type> _giftTypes;
+
+		private static void InstallGiftFix(Assembly asm)
+		{
+			const string key = "FastFix.GiftFixScript";
+			MethodInfo m = Find(asm, "GiftFix.Harmony_Patch", "UnitModel_AttachEGOgift", new Type[] { typeof(EGOgiftModel) });
+			if (object.ReferenceEquals(m, null) || m.GetParameters()[0].Name != "gift")
+			{
+				Missing(key, "GiftFix.Harmony_Patch.UnitModel_AttachEGOgift(EGOgiftModel gift)");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("GiftScriptPrefix")), null);
+			Patched(key, m);
+		}
+
+		public static bool GiftScriptPrefix(EGOgiftModel gift)
+		{
+			try
+			{
+				if (gift == null || gift.metaInfo == null || string.IsNullOrEmpty(gift.metaInfo.script) || gift.script == null)
+				{
+					return false;
+				}
+				string have = gift.script.ToString();
+				if (have != "EquipmentScriptBase" || gift.metaInfo.script == have)
+				{
+					return false;
+				}
+				Type t = GiftScriptType(gift.metaInfo.script);
+				EquipmentScriptBase sc = object.ReferenceEquals(t, null) ? new EquipmentScriptBase() : (Activator.CreateInstance(t) as EquipmentScriptBase);
+				if (sc != null)
+				{
+					gift.script = sc;
+					gift.script.SetModel(gift);
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("GiftScriptPrefix", e);
+			}
+			return false;
+		}
+
+		private static Type GiftScriptType(string name)
+		{
+			if (_giftTypes == null)
+			{
+				Dictionary<string, Type> map = new Dictionary<string, Type>(StringComparer.Ordinal);
+				List<Assembly> list = Add_On.instance == null ? null : Add_On.instance.AssemList;
+				for (int i = 0; list != null && i < list.Count; i++)
+				{
+					Type[] types;
+					try
+					{
+						types = list[i].GetTypes();
+					}
+					catch (ReflectionTypeLoadException e)
+					{
+						types = e.Types;
+					}
+					catch (Exception)
+					{
+						continue;
+					}
+					for (int k = 0; !object.ReferenceEquals(types, null) && k < types.Length; k++)
+					{
+						Type t = types[k];
+						if (!object.ReferenceEquals(t, null) && typeof(EquipmentScriptBase).IsAssignableFrom(t) && !map.ContainsKey(t.Name))
+						{
+							map[t.Name] = t;
+						}
+					}
+				}
+				_giftTypes = map;
+			}
+			Type found;
+			if (_giftTypes.TryGetValue(name, out found))
+			{
+				return found;
+			}
+			Type g = Type.GetType(name);
+			return !object.ReferenceEquals(g, null) && typeof(EquipmentScriptBase).IsAssignableFrom(g) ? g : null;
 		}
 
 		// ----- vanilla: second suppression of a child -----
@@ -6032,12 +8475,15 @@ namespace FastFix
 		// Same handling as CreatureModel.OnFixedUpdate: the node already stopped moving; the creature script is told.
 		public static void ChildMoveNode(MovableObjectNode node, float movement, ChildCreatureModel child)
 		{
+			_moveChild = child;
 			try
 			{
 				node.ProcessMoveNode(movement);
+				_moveChild = null;
 			}
 			catch (MovableObjectNode.MovableElevatorStuckException)
 			{
+				_moveChild = null;
 				if (!_childStuckLogged)
 				{
 					_childStuckLogged = true;
@@ -8248,6 +10694,41 @@ namespace FastFix
 			}
 		}
 
+		// ----- Four Fools: Zkbuf icon read before the mod folder is known -----
+
+		private static void InstallFourFools(Assembly asm)
+		{
+			Type hp = asm.GetType("FourFools.Harmony_Patch");
+			Type getter = asm.GetType("Modes_API_CFQYX.AssetGetter");
+			FieldInfo icon = object.ReferenceEquals(hp, null) ? null : hp.GetField("zkBufSprite", BindingFlags.Public | BindingFlags.Static);
+			FieldInfo dir = object.ReferenceEquals(hp, null) ? null : hp.GetField("path", BindingFlags.Public | BindingFlags.Static);
+			MethodInfo load = object.ReferenceEquals(getter, null) ? null : getter.GetMethod("LoadSprite", BindingFlags.Public | BindingFlags.Static, null, new Type[] { typeof(string) }, null);
+			if (object.ReferenceEquals(icon, null) || object.ReferenceEquals(dir, null) || object.ReferenceEquals(load, null)
+				|| !object.ReferenceEquals(icon.FieldType, typeof(Sprite)))
+			{
+				Missing("FastFix.FourFoolsBufIcon", "FourFools.Harmony_Patch.zkBufSprite, path or AssetGetter.LoadSprite");
+				return;
+			}
+			if (!object.ReferenceEquals(icon.GetValue(null), null))
+			{
+				N.ULog.Info(FastFixModule.Tag, "FastFix.FourFoolsBufIcon not needed: zkBufSprite already loaded");
+				return;
+			}
+			if (string.IsNullOrEmpty(dir.GetValue(null) as string))
+			{
+				Missing("FastFix.FourFoolsBufIcon", "FourFools.Harmony_Patch.path value");
+				return;
+			}
+			Sprite sprite = load.Invoke(null, new object[] { "Joker2\\zkBuf" }) as Sprite;
+			if (object.ReferenceEquals(sprite, null))
+			{
+				Missing("FastFix.FourFoolsBufIcon", "Joker2/zkBuf.png");
+				return;
+			}
+			icon.SetValue(null, sprite);
+			N.ULog.Info(FastFixModule.Tag, "FastFix.FourFoolsBufIcon installed: FourFools.Harmony_Patch.zkBufSprite loaded from Assets/Joker2/zkBuf.png");
+		}
+
 		// ----- Isomer: effect picture path -----
 
 		private static void InstallIsomer(Assembly asm)
@@ -10228,6 +12709,67 @@ namespace FastFix
 		public static bool Contains(ReadOnlyCollection<MovableObjectNode> list, MovableObjectNode node)
 		{
 			return list == null || list.Contains(node);
+		}
+	}
+
+	// Endlessgyro's ctor patches EquipmentTypeInfo.get_MaxNum(UnitModel, DamageInfo); the game has only get_MaxNum(), so its
+	// Patch call throws (caught by the mod, written to BaseMods/LCerror.txt) and its EGO 2025411/2025412 keep the normal
+	// limit instead of 1. Its EquipmentTypeInfo_MaxNum is a postfix in shape (ref int __result) and goes on get_MaxNum()
+	// unless that getter already has a patch of the mod's own Harmony id (a fixed mod version). The getter has no handler (GL-53).
+	public static class GyroMaxNumFix
+	{
+		private const string Owner = "Lobotomy.Endlessgyro";
+
+		internal static bool TryInstall(bool last)
+		{
+			Assembly a = WhiteRabbitFix.FindAssembly("Endlessgyro");
+			if (object.ReferenceEquals(a, null))
+			{
+				if (last)
+				{
+					N.ULog.Info(FastFixModule.Tag, "endlessgyro fix not applied: Endlessgyro not loaded");
+				}
+				return last;
+			}
+			N.Flag flag = N.Config.BindFlag("FastFix.EndlessgyroMaxNum", true, "Endlessgyro: its EGO limit of one copy works again (its patch targeted a method that does not exist). Read at game start.");
+			if (!flag.On)
+			{
+				return true;
+			}
+			Type t = a.GetType("Endlessgyro.Harmony_Patch");
+			MethodInfo post = object.ReferenceEquals(t, null) ? null : t.GetMethod("EquipmentTypeInfo_MaxNum", BindingFlags.Public | BindingFlags.Static);
+			MethodInfo target = typeof(EquipmentTypeInfo).GetMethod("get_MaxNum", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+			ParameterInfo[] ps = object.ReferenceEquals(post, null) ? null : post.GetParameters();
+			if (object.ReferenceEquals(target, null) || ps == null || ps.Length != 2 || !object.ReferenceEquals(ps[0].ParameterType, typeof(EquipmentTypeInfo)) || !object.ReferenceEquals(ps[1].ParameterType, typeof(int).MakeByRefType()) || ps[1].Name != "__result")
+			{
+				N.ULog.Warn(FastFixModule.Tag, "endlessgyro fix not applied: EquipmentTypeInfo_MaxNum or get_MaxNum not as expected");
+				return true;
+			}
+			Patches info = PatchProcessor.IsPatched(target);
+			if (info != null && (HasOwner(info.Prefixes) || HasOwner(info.Postfixes)))
+			{
+				N.ULog.Info(FastFixModule.Tag, "endlessgyro fix not needed: get_MaxNum already patched by the mod");
+				return true;
+			}
+			FastFixModule.Harmony.Patch(target, null, new HarmonyMethod(post), null);
+			N.ULog.Info(FastFixModule.Tag, "endlessgyro fix installed (EquipmentTypeInfo_MaxNum as Postfix on get_MaxNum)");
+			return true;
+		}
+
+		private static bool HasOwner(ReadOnlyCollection<Patch> list)
+		{
+			if (list == null)
+			{
+				return false;
+			}
+			for (int i = 0; i < list.Count; i++)
+			{
+				if (list[i].owner == Owner)
+				{
+					return true;
+				}
+			}
+			return false;
 		}
 	}
 
@@ -12764,8 +15306,32 @@ namespace FastFix
 			return null;
 		}
 
-		// NoFrame for a frame of an excluded assembly, null when unresolvable, else the mod method.
+		// Frames whose type could not be read (logged once each).
+		private static readonly Dictionary<string, bool> _badFrames = new Dictionary<string, bool>();
+
+		// A frame's type can fail to load (TypeLoadException from GetMethods on a mod type with a missing reference): that frame is
+		// unknown, as an unresolvable one; not a failure of the guard.
 		private static MethodInfo ResolveFrame(string line)
+		{
+			try
+			{
+				return ResolveFrameCore(line);
+			}
+			catch (Exception e)
+			{
+				int open = line.IndexOf(" (", StringComparison.Ordinal);
+				string where = open > 0 ? line.Substring(0, open) : line;
+				if (!_badFrames.ContainsKey(where) && _badFrames.Count < 64)
+				{
+					_badFrames[where] = true;
+					N.ULog.Info(FastFixModule.Tag, "guard: frame " + where + " unreadable (" + e.GetType().Name + ": " + e.Message + "), frame skipped");
+				}
+				return null;
+			}
+		}
+
+		// NoFrame for a frame of an excluded assembly, null when unresolvable, else the mod method.
+		private static MethodInfo ResolveFrameCore(string line)
 		{
 			bool wrapped = line.StartsWith(WrapperMark, StringComparison.Ordinal);
 			if (wrapped)

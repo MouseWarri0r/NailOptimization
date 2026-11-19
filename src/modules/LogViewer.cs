@@ -54,7 +54,7 @@ namespace LogViewer
 		{
 			get
 			{
-				return "1.8";
+				return "1.9";
 			}
 		}
 
@@ -1290,6 +1290,10 @@ namespace LogViewer
 			top.Add(null);
 			// BgmManager.PlayBgm: logs this and plays a fallback clip.
 			cond.Add("Clip Is Null");
+			top.Add(null);
+			// Four Fools (Modes_API_CFQYX.AssetGetter): static sprite fields load before the mod sets its folder, so the path starts
+			// with \Assets\ (x3 at start). AttackType/AttackType2 are never used; FastFix.FourFoolsBufIcon reloads zkBuf (2026-11-18).
+			cond.Add("Failed To Load Sprite \\Assets\\");
 			top.Add(null);
 			int builtin = cond.Count;
 			int user = 0;

@@ -129,7 +129,7 @@ namespace PerfPack
 		{
 			get
 			{
-				return "1.62";
+				return "1.72";
 			}
 		}
 
@@ -2520,6 +2520,12 @@ namespace PerfPack
 	// on the method. MakeWeapon, MakeGift and LoadScript run the original on an error before any state change (it repeats the
 	// same steps and throws where the game throws; the handler it would lose under Harmony is not reached on those paths);
 	// CreateEquipment_Mod never runs its handler-less copy and logs errors as the game does.
+	// LobotomyBaseMod.ExtenionUtil.GetType(string) (BaseMod helper) does the same scan per call and keeps the first match;
+	// mods call it from get_MaxNum and SetModel patches (FakeBlueBird, EternalFlower[Remake], BingJieXian: 3 full scans per
+	// MaxNum of any equipment that is not theirs, ~1 s per saved item at game start). Replaced by a first-match map; then
+	// Type.GetType as seen from Assembly-CSharp (GameType). A map that cannot be built leaves the call to the original.
+	// SmoothieMachine 1.01 replaces the same method with the same scan (first match, partial types on a load error): its
+	// prefix is not treated as foreign there; ours runs first (Priority.First) and stops the chain on a map answer (GL-01).
 	public static class ScriptTypes
 	{
 		private const string Tag = "PerfPack";
@@ -2535,6 +2541,11 @@ namespace PerfPack
 		private delegate void SpeedSetter(ChildCreatureModel child, float speed);
 		private static SpeedSetter _setSpeed;
 		private static Dictionary<string, Type> _byName;
+		private static Dictionary<string, Type> _firstByName;
+		private static MethodBase _ext;
+		private static int _extState;
+		private static bool _extLogged;
+		private const string SmoothieId = "Amir.SmoothieMachine.160131";
 		private static int _asmCount = -1;
 		private static bool _broken;
 		private static bool _failLogged;
@@ -2556,6 +2567,11 @@ namespace PerfPack
 			bool a = N.PatchUtil.Install(harmony, Tag, _weapon, new HarmonyMethod(typeof(ScriptTypes).GetMethod("PrefixWeapon", BindingFlags.Public | BindingFlags.Static)), null);
 			bool b = N.PatchUtil.Install(harmony, Tag, _gift, new HarmonyMethod(typeof(ScriptTypes).GetMethod("PrefixGift", BindingFlags.Public | BindingFlags.Static)), null);
 			InstallChild(harmony);
+			_ext = N.PatchUtil.Resolve(Tag, typeof(LobotomyBaseMod.ExtenionUtil), "GetType", new Type[] { typeof(string) });
+			if (!object.ReferenceEquals(_ext, null))
+			{
+				N.PatchUtil.Install(harmony, Tag, _ext, N.PatchUtil.WithPriority(typeof(ScriptTypes).GetMethod("PrefixExtGetType", BindingFlags.Public | BindingFlags.Static), Priority.First), null);
+			}
 			_create = N.PatchUtil.Resolve(Tag, typeof(InventoryModel), "CreateEquipment_Mod", new Type[] { typeof(LobotomyBaseMod.LcId), typeof(long) });
 			if (!object.ReferenceEquals(_create, null))
 			{
@@ -2584,6 +2600,41 @@ namespace PerfPack
 				result = null;
 			}
 			__result = result;
+			return false;
+		}
+
+		// Full replacement of LobotomyBaseMod.ExtenionUtil.GetType: first AssemList type with this short name, else GameType
+		// (a null name throws ArgumentNullException as Type.GetType does in the original).
+		public static bool PrefixExtGetType(string typename, ref Type __result)
+		{
+			if (!Usable(ref _extState, _ext, SmoothieId))
+			{
+				return true;
+			}
+			Type t = null;
+			try
+			{
+				Find(null);
+				if (typename != null)
+				{
+					_firstByName.TryGetValue(typename, out t);
+				}
+			}
+			catch (Exception e)
+			{
+				Fail(e);
+				return true;
+			}
+			if (object.ReferenceEquals(t, null))
+			{
+				t = GameType(typename);
+			}
+			__result = t;
+			if (!_extLogged)
+			{
+				_extLogged = true;
+				N.ULog.Info(Tag, "ScriptTypes: ExtenionUtil.GetType answered through the type map (" + _firstByName.Count + " names)");
+			}
 			return false;
 		}
 
@@ -2835,6 +2886,12 @@ namespace PerfPack
 		// First call per method: off when another owner has a Prefix or Transpiler on it (theirs expect the original to run).
 		private static bool Usable(ref int state, MethodBase m)
 		{
+			return Usable(ref state, m, null);
+		}
+
+		// allow: one more owner whose patches do not count as foreign (an equivalent replacement).
+		private static bool Usable(ref int state, MethodBase m, string allow)
+		{
 			if (state == 0)
 			{
 				state = 1;
@@ -2843,10 +2900,10 @@ namespace PerfPack
 					Patches info = _harmony.IsPatched(m);
 					if (info != null)
 					{
-						string other = Foreign(info.Prefixes);
+						string other = Foreign(info.Prefixes, allow);
 						if (other == null)
 						{
-							other = Foreign(info.Transpilers);
+							other = Foreign(info.Transpilers, allow);
 						}
 						if (other != null)
 						{
@@ -2864,7 +2921,7 @@ namespace PerfPack
 			return state == 1;
 		}
 
-		private static string Foreign(System.Collections.ObjectModel.ReadOnlyCollection<Patch> list)
+		private static string Foreign(System.Collections.ObjectModel.ReadOnlyCollection<Patch> list, string allow)
 		{
 			if (list == null)
 			{
@@ -2872,7 +2929,7 @@ namespace PerfPack
 			}
 			for (int i = 0; i < list.Count; i++)
 			{
-				if (list[i].owner != _harmony.Id)
+				if (list[i].owner != _harmony.Id && list[i].owner != allow)
 				{
 					return list[i].owner;
 				}
@@ -2889,6 +2946,7 @@ namespace PerfPack
 			if (_byName == null || count != _asmCount)
 			{
 				Dictionary<string, Type> map = new Dictionary<string, Type>(StringComparer.Ordinal);
+				Dictionary<string, Type> first = new Dictionary<string, Type>(StringComparer.Ordinal);
 				for (int i = 0; i < count; i++)
 				{
 					Type[] types;
@@ -2908,8 +2966,13 @@ namespace PerfPack
 					for (int j = 0; j < types.Length; j++)
 					{
 						map[types[j].Name] = types[j];
+						if (!first.ContainsKey(types[j].Name))
+						{
+							first[types[j].Name] = types[j];
+						}
 					}
 				}
+				_firstByName = first;
 				_byName = map;
 				_asmCount = count;
 			}
@@ -3510,13 +3573,22 @@ namespace PerfPack
 			}
 		}
 
+		// Unity 2017 resets an Animator to its entry state, parameters included, when it is switched on again. A unit that died while
+		// switched off had its Dead trigger set on the off Animator: switched on it stood idle (Standing_1, Dead trigger gone) and
+		// CorpseFreeze then froze it standing (runs mass-breach-15..18, Acacia, Kimhanseul, Anbidam). The death motion is started
+		// again here, as the game's own OnDie did.
 		private static void Exit(Item it)
 		{
+			bool anim = false;
 			for (int i = 0; i < it.Off.Count; i++)
 			{
 				if (it.Off[i] != null)
 				{
 					it.Off[i].enabled = true;
+					if (it.Off[i] is Animator)
+					{
+						anim = true;
+					}
 				}
 			}
 			for (int i = 0; i < it.Hidden.Count; i++)
@@ -3530,6 +3602,34 @@ namespace PerfPack
 			it.Hidden.Clear();
 			it.On = false;
 			_on--;
+			WorkerUnit wu = it.Unit as WorkerUnit;
+			if (anim && wu != null && wu.workerModel != null && wu.workerModel.IsDead())
+			{
+				ReplayDeath(wu);
+			}
+		}
+
+		private static int _replayed;
+
+		private static void ReplayDeath(WorkerUnit wu)
+		{
+			try
+			{
+				UnitAnimatorController ac = CorpseFreeze.GameDeathMotion(wu);
+				if (ac != null)
+				{
+					ac.OnDie();
+					_replayed++;
+					if (_replayed <= 20)
+					{
+						N.ULog.Info(Tag, "ClerkCull: " + wu.workerModel.GetUnitName() + " died while culled; death motion started again (" + _replayed + ")");
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Tag, "ClerkCull: death motion replay failed: " + e.Message);
+			}
 		}
 
 		private static void Clear()
@@ -8649,6 +8749,7 @@ namespace PerfPack
 		internal WorkerModel Model;
 		internal WorkerUnit Unit;
 		internal float DeadSince;
+		internal int Replays;
 		internal bool Frozen;
 		internal readonly List<Behaviour> Off = new List<Behaviour>();
 	}
@@ -8770,6 +8871,12 @@ namespace PerfPack
 			}
 			if (!c.Frozen && c.Unit != null && now - c.DeadSince >= Delay.Value)
 			{
+				if (c.Replays < 2 && Standing(c))
+				{
+					c.Replays++;
+					c.DeadSince = now;
+					return;
+				}
 				Freeze(c);
 			}
 		}
@@ -8777,6 +8884,7 @@ namespace PerfPack
 		private static void Freeze(Corpse c)
 		{
 			GameObject go = c.Unit.gameObject;
+			SettlePose(go);
 			if (!object.ReferenceEquals(_skeleton, null))
 			{
 				OffAll(c, go, _skeleton);
@@ -8817,6 +8925,119 @@ namespace PerfPack
 			c.Unit.transform.localPosition = p;
 			c.Frozen = true;
 			_frozen.Value++;
+		}
+
+		// The game's Spine renderer applies the Animator pose (SkeletonAnimator.Update) and rebuilds the mesh
+		// (SkeletonRenderer.LateUpdate) on 1 frame of 6 when zoomed out and 1 of 8 off camera (optimizeLevel 4/5, set by
+		// AgentUnit.UpdateAnimationQuality), and the two run on different frames. At a very low frame rate the game-time delay
+		// passes in fewer frames, so a body was frozen with the standing mesh and dead eyes (run mass-breach-15, mass death at
+		// ~1 fps). One full pose and mesh update right before the freeze; the level is set back.
+		private static int _standing;
+
+		// A body whose Animator is idle or walking never got its death motion: its controller was replaced or reset after the
+		// Dead trigger (Incubator's Walpurgis kill animation followed by the game's switch back from a special weapon, run
+		// mass-breach-19: Kimhanseul with Justitia, Anbidam with Da Capo). The game's death motion is started again and the
+		// freeze waits another delay. A skeleton driven by its own Spine state (a mod's death animation) is left as it is.
+		// The game's death motion (UnitAnimatorController.OnDie, Dead trigger) can be started again only on a unit still drawn by
+		// a game-style controller: one with a Dead trigger, while no mod drives the skeleton through its own Spine state. Any other
+		// death animation of a mod is left alone. Null when the motion must not be started.
+		internal static UnitAnimatorController GameDeathMotion(Component unit)
+		{
+			UnitAnimatorController ac = unit.GetComponent<UnitAnimatorController>();
+			Animator a = ac == null ? null : ac.anim;
+			if (a == null || !a.isActiveAndEnabled || a.runtimeAnimatorController == null)
+			{
+				return null;
+			}
+			Spine.Unity.SkeletonAnimator[] sk = unit.GetComponentsInChildren<Spine.Unity.SkeletonAnimator>(false);
+			for (int i = 0; i < sk.Length; i++)
+			{
+				if (sk[i] != null && sk[i].UseState)
+				{
+					return null;
+				}
+			}
+			AnimatorControllerParameter[] ps = a.parameters;
+			for (int i = 0; i < ps.Length; i++)
+			{
+				if (ps[i].type == AnimatorControllerParameterType.Trigger && string.Equals(ps[i].name, "Dead", StringComparison.Ordinal))
+				{
+					return ac;
+				}
+			}
+			return null;
+		}
+
+		private static bool Standing(Corpse c)
+		{
+			try
+			{
+				UnitAnimatorController ac = GameDeathMotion(c.Unit);
+				if (ac == null)
+				{
+					return false;
+				}
+				Animator a = ac.anim;
+				AnimatorClipInfo[] ci = a.GetCurrentAnimatorClipInfo(0);
+				if (ci == null || ci.Length == 0 || ci[0].clip == null)
+				{
+					return false;
+				}
+				string clip = ci[0].clip.name;
+				if (!clip.StartsWith("Standing", StringComparison.Ordinal) && !clip.StartsWith("Walk", StringComparison.Ordinal))
+				{
+					return false;
+				}
+				ac.OnDie();
+				_standing++;
+				if (_standing <= 40)
+				{
+					N.ULog.Info(Tag, "CorpseFreeze: " + c.Model.GetUnitName() + " dead but in " + clip + "; death motion started again, freeze delayed (" + _standing + ")");
+				}
+				return true;
+			}
+			catch (Exception e)
+			{
+				_errors++;
+				if (_errors <= 3)
+				{
+					N.ULog.Error(Tag, "CorpseFreeze standing check failed (" + _errors + "/3 logged): " + e);
+				}
+				return false;
+			}
+		}
+
+		private static void SettlePose(GameObject go)
+		{
+			Spine.Unity.SkeletonRenderer[] arr = go.GetComponentsInChildren<Spine.Unity.SkeletonRenderer>(false);
+			for (int i = 0; i < arr.Length; i++)
+			{
+				Spine.Unity.SkeletonRenderer r = arr[i];
+				if (r == null || !r.enabled || !r.valid)
+				{
+					continue;
+				}
+				int level = r.optimizeLevel;
+				r.optimizeLevel = 0;
+				try
+				{
+					Spine.Unity.SkeletonAnimator a = r as Spine.Unity.SkeletonAnimator;
+					if (a != null)
+					{
+						a.Update();
+					}
+					r.LateUpdate();
+				}
+				catch (Exception e)
+				{
+					_errors++;
+					if (_errors <= 3)
+					{
+						N.ULog.Error(Tag, "CorpseFreeze pose update failed (" + _errors + "/3 logged): " + e);
+					}
+				}
+				r.optimizeLevel = level;
+			}
 		}
 
 		private static void OffAll(Corpse c, GameObject go, Type t)
@@ -9862,7 +10083,10 @@ namespace PerfPack
 				}
 				else if (n2.currentEdge == null)
 				{
-					return true; // the original throws here; keep that
+					// The original throws a NullReferenceException in MoveToMovableNode (target with neither node nor edge, such
+					// as an Incubator witch; AmblingPearl.GetNearEnemy in mass-breach-21) and the caller's whole tick stops. Such a
+					// target is not reachable: GetDistance gives 100000 as for one in another passage.
+					answer = false;
 				}
 				else
 				{

@@ -38,7 +38,7 @@ namespace LoadGuard
 	{
 		public const string Id = "LoadGuard";
 		public const string HarmonyId = "Lobotomy.NailOptimization.LoadGuard";
-		private const int Expected = 8;
+		private const int Expected = 9;
 
 		private static N.Flag _enabled;
 		private static N.Flag _repair;
@@ -55,7 +55,7 @@ namespace LoadGuard
 		{
 			get
 			{
-				return "1.8";
+				return "1.12";
 			}
 		}
 
@@ -91,6 +91,11 @@ namespace LoadGuard
 					CrashTrail.Start();
 				}
 			}
+			LecOff.Flag = N.Config.BindFlag("LoadGuard.DisableLoadErrorCheck", true, "LoadErrorCheck (kekesi) is turned off for the session when it is installed: under NailOptimization its error screen at start cannot be left. Load problems are named in the warning list instead. Restart required.");
+			if (LecOff.Flag.On)
+			{
+				LecOff.Start();
+			}
 			if (!_enabled.On)
 			{
 				N.ULog.Info("loadguard", "disabled by LoadGuard.Enabled=false");
@@ -98,6 +103,7 @@ namespace LoadGuard
 			}
 			Guard.RepairOn = _repair.On;
 			TypeLoad.Flag = N.Config.BindFlag("LoadGuard.TypeLoad", true, "With LoadGuard on: a mod DLL whose types cannot all load (missing or later-loaded dependency) loads partially instead of stopping the loading of every later mod; it is named in the log and the warning list. Works for mods after NailOptimization in the load order. Read at game start.");
+			CustomDamageCache.Flag = N.Config.BindFlag("LoadGuard.CustomDamageCache", true, "With LoadGuard on: kekesi_CustomDamageBase finds the script class of a custom damage type through a list built once instead of reading the types of every mod for each weapon (about 6 s at start with many mods). Read at game start.");
 			CreatureLoad.Flag = N.Config.BindFlag("LoadGuard.CreatureLoad", true, "With LoadGuard on: at day load an abnormality whose script class is missing or throws is skipped (or kept with an error) and named in the log and the warning list, instead of stopping the load. Read at game start.");
 			if (Guard.RepairOn)
 			{
@@ -134,6 +140,7 @@ namespace LoadGuard
 			n += Patch(harmony, typeof(CreatureDataLoader), "LoadDoc", typeof(Guard), "PrefixLoadDoc");
 			n += Patch(harmony, typeof(EquipmentDataLoader), "Load", typeof(Guard), "PrefixEquipment");
 			n += Patch(harmony, typeof(GameStaticDataLoader), "LoadModIsolate", typeof(Guard), "PrefixIsolate");
+			n += Patch(harmony, typeof(CreatureGenerate.CreatureGenerateInfoManager), "Init", typeof(GenerateGuard), "PrefixInit");
 			if (CreatureLoad.Flag.On && CreatureLoad.Bind())
 			{
 				int k = Patch(harmony, typeof(CreatureManager), "LoadData", typeof(CreatureLoad), "PrefixLoadData");
@@ -210,6 +217,34 @@ namespace LoadGuard
 		internal static void Summary(string loader, string extra)
 		{
 			N.ULog.Info(Tag, "summary " + loader + " files=" + Files + " skipped=" + Skipped + extra);
+		}
+
+		private static readonly HashSet<string> _bomSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+		// A mod xml saved with two UTF-8 BOMs keeps one U+FEFF after File.ReadAllText and LoadXml rejects it ("Text node cannot
+		// appear in this state"). Leading U+FEFF and whitespace are dropped in memory; a text without a leftover U+FEFF is returned unchanged.
+		internal static string ReadXml(string path)
+		{
+			string text = File.ReadAllText(path);
+			int i = 0;
+			int boms = 0;
+			while (i < text.Length && (text[i] == '\uFEFF' || char.IsWhiteSpace(text[i])))
+			{
+				if (text[i] == '\uFEFF')
+				{
+					boms++;
+				}
+				i++;
+			}
+			if (boms == 0)
+			{
+				return text;
+			}
+			if (_bomSeen.Add(path))
+			{
+				N.ULog.Info(Tag, "repaired in memory: leading BOM x" + (boms + 1) + " " + Rel(path));
+			}
+			return text.Substring(i);
 		}
 
 		internal static string Rel(string path)
@@ -388,6 +423,7 @@ namespace LoadGuard
 			try
 			{
 				Begin();
+				long tLo = BootProfile.T0();
 				string lang = __instance._lang;
 				string[] localizeList = (string[])_getLocalizeList.Invoke(__instance, null);
 				for (int i = 0; i < localizeList.Length; i++)
@@ -415,6 +451,8 @@ namespace LoadGuard
 					}
 				}
 				modPart = true;
+				BootProfile.LoAdd(BootProfile.LoVanilla, tLo);
+				tLo = BootProfile.T0();
 				string current = GlobalGameManager.instance.GetCurrentLanguage();
 				List<DirectoryInfo> dirs = Add_On.instance.DirList;
 				for (int d = 0; d < dirs.Count; d++)
@@ -431,6 +469,8 @@ namespace LoadGuard
 					}
 					CheckDirText(__instance, new DirectoryInfo(root + "/" + use), dictionary);
 				}
+				BootProfile.LoAdd(BootProfile.LoModLocalize, tLo);
+				tLo = BootProfile.T0();
 				for (int d = 0; d < dirs.Count; d++)
 				{
 					DirectoryInfo directoryInfo = EquipmentDataLoader.CheckNamedDir(dirs[d], "Equipment");
@@ -455,9 +495,16 @@ namespace LoadGuard
 						Dictionary<string, string> loaded;
 						try
 						{
+							long tRd = BootProfile.T0();
+							string src2 = Guard.ReadXml(fileInfo.FullName);
+							BootProfile.LoAdd(BootProfile.LoRead, tRd);
+							tRd = BootProfile.T0();
 							XmlDocument xmlDocument2 = new XmlDocument();
-							xmlDocument2.LoadXml(File.ReadAllText(fileInfo.FullName));
+							xmlDocument2.LoadXml(src2);
+							BootProfile.LoAdd(BootProfile.LoParse, tRd);
+							tRd = BootProfile.T0();
 							loaded = __instance.LoadText(xmlDocument2);
+							BootProfile.LoAdd(BootProfile.LoText, tRd);
 						}
 						catch (Exception e)
 						{
@@ -474,7 +521,10 @@ namespace LoadGuard
 						}
 					}
 				}
+				BootProfile.LoAdd(BootProfile.LoModEquip, tLo);
+				tLo = BootProfile.T0();
 				LocalizeTextDataModel.instance.Init(dictionary);
+				BootProfile.LoAdd(BootProfile.LoInit, tLo);
 			}
 			catch (Exception e)
 			{
@@ -496,6 +546,10 @@ namespace LoadGuard
 				return false;
 			}
 			Summary("localize", " texts=" + dictionary.Count);
+			if (BootProfile.Active)
+			{
+				N.ULog.Info(Tag, "boot localize: " + BootProfile.LocalizeText());
+			}
 			return false;
 		}
 
@@ -514,9 +568,16 @@ namespace LoadGuard
 				Dictionary<string, string> loaded;
 				try
 				{
+					long tRd = BootProfile.T0();
+					string src = Guard.ReadXml(files[i].FullName);
+					BootProfile.LoAdd(BootProfile.LoRead, tRd);
+					tRd = BootProfile.T0();
 					XmlDocument xmlDocument = new XmlDocument();
-					xmlDocument.LoadXml(File.ReadAllText(files[i].FullName));
+					xmlDocument.LoadXml(src);
+					BootProfile.LoAdd(BootProfile.LoParse, tRd);
+					tRd = BootProfile.T0();
 					loaded = loader.LoadText(xmlDocument);
+					BootProfile.LoAdd(BootProfile.LoText, tRd);
 				}
 				catch (Exception e)
 				{
@@ -557,7 +618,7 @@ namespace LoadGuard
 			}
 			if (path != null)
 			{
-				xmlDocument.LoadXml(File.ReadAllText(path));
+				xmlDocument.LoadXml(Guard.ReadXml(path));
 			}
 			__result = xmlDocument;
 			return false;
@@ -649,6 +710,7 @@ namespace LoadGuard
 			try
 			{
 				Begin();
+				CustomDamageCache.EnsureInstalled();
 				ModDebug.Log("EDL Load 1");
 				XmlDocument xmlDocument = new XmlDocument();
 				if (!File.Exists(Application.dataPath + "/Managed/BaseMod/BaseEquipment.txt"))
@@ -689,9 +751,13 @@ namespace LoadGuard
 						Dictionary<int, EquipmentTypeInfo> loaded;
 						try
 						{
+							long t0 = BootProfile.Active ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
 							XmlDocument xmlDocument2 = new XmlDocument();
-							xmlDocument2.LoadXml(File.ReadAllText(fileInfo.FullName));
+							xmlDocument2.LoadXml(Guard.ReadXml(fileInfo.FullName));
+							BootProfile.EquipAdd(3, t0);
+							t0 = BootProfile.Active ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
 							loaded = LoadEquips(__instance, xmlDocument2, fileInfo.FullName);
+							BootProfile.EquipAdd(4, t0);
 						}
 						catch (Exception e)
 						{
@@ -734,6 +800,10 @@ namespace LoadGuard
 				return false;
 			}
 			Summary("equipment", " equipment=" + total + RepairText());
+			if (BootProfile.Active)
+			{
+				N.ULog.Info(Tag, "boot equipment: " + BootProfile.EquipText());
+			}
 			return false;
 		}
 
@@ -848,13 +918,17 @@ namespace LoadGuard
 				if (innerText == "weapon")
 				{
 					equipmentTypeInfo.type = EquipmentTypeInfo.EquipmentType.WEAPON;
+					long t0 = BootProfile.Active ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
 					loader.LoadWeapon(equipmentTypeInfo, xmlNode);
+					BootProfile.EquipAdd(0, t0);
 					dictionary.Add(num, equipmentTypeInfo);
 				}
 				else if (innerText == "armor")
 				{
 					equipmentTypeInfo.type = EquipmentTypeInfo.EquipmentType.ARMOR;
+					long t0 = BootProfile.Active ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
 					loader.LoadArmor(equipmentTypeInfo, xmlNode);
+					BootProfile.EquipAdd(1, t0);
 					dictionary.Add(num, equipmentTypeInfo);
 				}
 				else if (innerText == "special")
@@ -864,7 +938,9 @@ namespace LoadGuard
 					{
 						RepairGift(xmlNode, path, num.ToString());
 					}
+					long t0 = BootProfile.Active ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
 					loader.LoadEGOgift(equipmentTypeInfo, xmlNode);
+					BootProfile.EquipAdd(2, t0);
 					dictionary.Add(num, equipmentTypeInfo);
 				}
 			}
@@ -925,7 +1001,7 @@ namespace LoadGuard
 						try
 						{
 							XmlDocument xmlDocument = new XmlDocument();
-							xmlDocument.LoadXml(File.ReadAllText(fileInfo.FullName));
+							xmlDocument.LoadXml(Guard.ReadXml(fileInfo.FullName));
 							if (isAdd)
 							{
 								adds.Add(xmlDocument);
@@ -1003,6 +1079,296 @@ namespace LoadGuard
 		}
 	}
 
+	// kekesi_CustomDamageBase.Harmony_Patch.ConvertToDamageInfo_Custom (called for every weapon damage with a CustomDamage id, also by
+	// kekesi_Buf_Basemod) runs Assembly.GetTypes on every Add_On.AssemList entry per call: about 6.3 s of EquipmentDataLoader.Load with
+	// ~390 mod assemblies (run abnoseal-bootprof-3). The original has try/catch, so GL-53: it is replaced whole by Prefix (always false)
+	// with the same body; the type is looked up in a name map built once per AssemList size (last match wins, as in the original loop).
+	// Installed on the first equipment load, after Add_On has loaded every mod.
+	public static class CustomDamageCache
+	{
+		internal static N.Flag Flag;
+		private static bool _tried;
+		private static Dictionary<string, Type> _types;
+		private static int _typesFor = -1;
+		private static Exception _typesError;
+		private static Type _dataType;
+		private static FieldInfo _script;
+		private static FieldInfo _data;
+		private static ConstructorInfo _ctor;
+		private static Type _infoType;
+
+		internal static void EnsureInstalled()
+		{
+			if (_tried || Flag == null || !Flag.On)
+			{
+				return;
+			}
+			_tried = true;
+			try
+			{
+				Install();
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn("loadguard", "custom damage cache not installed: " + e.Message);
+			}
+		}
+
+		private static void Install()
+		{
+			Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
+			HarmonyInstance harmony = null;
+			int n = 0;
+			for (int i = 0; i < all.Length; i++)
+			{
+				if (all[i].GetName().Name != "kekesi_CustomDamageBase")
+				{
+					continue;
+				}
+				Type hp = all[i].GetType("kekesi_CustomDamageBase.Harmony_Patch");
+				Type cdd = all[i].GetType("kekesi_CustomDamageBase.CustomDamageData");
+				Type cdi = all[i].GetType("kekesi_CustomDamageBase.CustomDamageInfo");
+				MethodInfo target = (object.ReferenceEquals(hp, null) || object.ReferenceEquals(cdd, null)) ? null : hp.GetMethod("ConvertToDamageInfo_Custom", BindingFlags.Public | BindingFlags.Static, null, new Type[] { typeof(XmlNode), cdd }, null);
+				FieldInfo script = object.ReferenceEquals(cdd, null) ? null : cdd.GetField("script", BindingFlags.Public | BindingFlags.Instance);
+				FieldInfo data = object.ReferenceEquals(cdi, null) ? null : cdi.GetField("data", BindingFlags.Public | BindingFlags.Instance);
+				ConstructorInfo ctor = object.ReferenceEquals(cdi, null) ? null : cdi.GetConstructor(new Type[] { typeof(RwbpType), typeof(int), typeof(int) });
+				if (object.ReferenceEquals(target, null) || object.ReferenceEquals(script, null) || object.ReferenceEquals(data, null) || object.ReferenceEquals(ctor, null)
+					|| !object.ReferenceEquals(target.ReturnType, cdi) || !typeof(DamageInfo).IsAssignableFrom(cdi)
+					|| !object.ReferenceEquals(script.FieldType, typeof(string)) || !object.ReferenceEquals(data.FieldType, cdd))
+				{
+					N.ULog.Warn("loadguard", "custom damage cache not applied: kekesi_CustomDamageBase (" + all[i].Location + ") is not the expected version");
+					continue;
+				}
+				Patches info = PatchProcessor.IsPatched(target);
+				if (info != null && info.Prefixes.Count + info.Postfixes.Count + info.Transpilers.Count > 0)
+				{
+					N.ULog.Info("loadguard", "custom damage cache not applied: ConvertToDamageInfo_Custom is already patched by another mod");
+					continue;
+				}
+				if (harmony == null)
+				{
+					harmony = HarmonyInstance.Create(LoadGuardModule.HarmonyId + ".customdamage");
+				}
+				harmony.Patch(target, new HarmonyMethod(typeof(CustomDamageCache).GetMethod("Prefix")), null, null);
+				n++;
+			}
+			if (n > 0)
+			{
+				N.ULog.Info("loadguard", "custom damage cache installed (kekesi_CustomDamageBase ConvertToDamageInfo_Custom replaced by a Prefix with a type map, copies=" + n + ")");
+			}
+		}
+
+		// Replaces the whole original. 'data' is kekesi CustomDamageData, __result the original's CustomDamageInfo result.
+		public static bool Prefix(XmlNode damageNode, object data, ref DamageInfo __result)
+		{
+			__result = Convert(damageNode, data);
+			return false;
+		}
+
+		// Same steps and the same failure result as the original: any exception is logged with Debug.LogError and gives null.
+		private static DamageInfo Convert(XmlNode damageNode, object data)
+		{
+			try
+			{
+				RwbpType rwbpType = EquipmentDataLoader.ConvertToRWBP(damageNode.Attributes.GetNamedItem("type").InnerText);
+				int min = int.Parse(damageNode.Attributes.GetNamedItem("min").InnerText);
+				int max = int.Parse(damageNode.Attributes.GetNamedItem("max").InnerText);
+				if (data == null)
+				{
+					throw new NullReferenceException();
+				}
+				Bind(data.GetType());
+				string script = (string)_script.GetValue(data);
+				DamageInfo damageInfo = null;
+				Type type = FindType(script);
+				if (!object.ReferenceEquals(type, null))
+				{
+					object made = Activator.CreateInstance(type, new object[] { rwbpType, min, max });
+					if (made != null && !_infoType.IsInstanceOfType(made))
+					{
+						throw new InvalidCastException("Cannot cast from source type to destination type.");
+					}
+					damageInfo = (DamageInfo)made;
+				}
+				if (damageInfo == null)
+				{
+					Debug.Log("CustomDamage-Script-null-" + script);
+					damageInfo = (DamageInfo)_ctor.Invoke(new object[] { rwbpType, min, max });
+				}
+				_data.SetValue(damageInfo, data);
+				XmlNode xmlNode = damageNode.SelectSingleNode("soundInfo");
+				if (xmlNode != null)
+				{
+					SoundInfo soundInfo = new SoundInfo();
+					string text = xmlNode.InnerText.Trim();
+					if (xmlNode.Attributes.GetNamedItem("type").InnerText == "damage")
+					{
+						soundInfo.soundType = DamageInfo_EffectType.DAMAGE_INVOKED;
+					}
+					else
+					{
+						soundInfo.soundType = DamageInfo_EffectType.ANIM_START;
+					}
+					soundInfo.soundSrc = text;
+					damageInfo.soundInfo = soundInfo;
+				}
+				List<EffectInfo> list = new List<EffectInfo>();
+				XmlNodeList nodes = damageNode.SelectNodes("effectInfo");
+				for (int i = 0; i < nodes.Count; i++)
+				{
+					XmlNode node = nodes[i];
+					EffectInfo effectInfo = new EffectInfo();
+					if (node.Attributes.GetNamedItem("type").InnerText == "damage")
+					{
+						effectInfo.effectType = DamageInfo_EffectType.DAMAGE_INVOKED;
+					}
+					else
+					{
+						effectInfo.effectType = DamageInfo_EffectType.ANIM_START;
+					}
+					XmlNode attach = node.SelectSingleNode("attach");
+					if (attach != null && attach.InnerText.Trim().ToLower() == "victim")
+					{
+						effectInfo.invokedUnit = EffectInvokedUnit.VICTIM;
+					}
+					else
+					{
+						effectInfo.invokedUnit = EffectInvokedUnit.OWNER;
+					}
+					XmlNode src = node.SelectSingleNode("src");
+					if (src != null)
+					{
+						effectInfo.effectSrc = src.InnerText.Trim();
+					}
+					else
+					{
+						Debug.LogError("Error in Damage effect");
+					}
+					XmlNode pos = node.SelectSingleNode("pos");
+					if (pos != null)
+					{
+						float x = 0f;
+						float y = 0f;
+						float z = 0f;
+						XmlNode nx = pos.SelectSingleNode("x");
+						XmlNode ny = pos.SelectSingleNode("y");
+						XmlNode nz = pos.SelectSingleNode("z");
+						if (nx != null)
+						{
+							x = float.Parse(nx.InnerText.Trim());
+						}
+						if (ny != null)
+						{
+							y = float.Parse(ny.InnerText.Trim());
+						}
+						if (nz != null)
+						{
+							z = float.Parse(nz.InnerText.Trim());
+						}
+						effectInfo.relativePosition = new Vector3(x, y, z);
+					}
+					XmlNode rot = node.SelectSingleNode("rot");
+					if (rot != null)
+					{
+						effectInfo.rotation = float.Parse(rot.InnerText);
+					}
+					XmlNode lifetime = node.SelectSingleNode("lifetime");
+					if (lifetime != null)
+					{
+						effectInfo.lifetime = float.Parse(lifetime.InnerText);
+					}
+					XmlNode unscaled = node.SelectSingleNode("unscaled");
+					if (unscaled != null)
+					{
+						effectInfo.unscaled = bool.Parse(unscaled.InnerText.Trim());
+					}
+					XmlNode once = node.SelectSingleNode("invokeOnce");
+					if (once != null)
+					{
+						effectInfo.invokeOnce = bool.Parse(once.InnerText.Trim());
+					}
+					list.Add(effectInfo);
+				}
+				damageInfo.effectInfos = list;
+				damageInfo.effectInfo = null;
+				return damageInfo;
+			}
+			catch (Exception ex)
+			{
+				Debug.LogError(ex);
+			}
+			return null;
+		}
+
+		// Members of the kekesi copy that 'data' belongs to; checked at Install.
+		private static void Bind(Type dataType)
+		{
+			if (object.ReferenceEquals(dataType, _dataType))
+			{
+				return;
+			}
+			_script = dataType.GetField("script", BindingFlags.Public | BindingFlags.Instance);
+			Assembly a = _script.DeclaringType.Assembly;
+			_infoType = a.GetType("kekesi_CustomDamageBase.CustomDamageInfo");
+			_data = _infoType.GetField("data", BindingFlags.Public | BindingFlags.Instance);
+			_ctor = _infoType.GetConstructor(new Type[] { typeof(RwbpType), typeof(int), typeof(int) });
+			_dataType = dataType;
+		}
+
+		// The original walks AssemList in order and keeps the last type whose Name equals the script; a GetTypes failure aborts
+		// the call. The map keeps the same last match and replays the same failure.
+		private static Type FindType(string script)
+		{
+			List<Assembly> list = Add_On.instance.AssemList;
+			if (_types == null || _typesFor != list.Count)
+			{
+				Build(list);
+			}
+			if (_typesError != null)
+			{
+				throw _typesError;
+			}
+			Type type;
+			if (script != null && _types.TryGetValue(script, out type))
+			{
+				return type;
+			}
+			return null;
+		}
+
+		private static void Build(List<Assembly> list)
+		{
+			_types = new Dictionary<string, Type>();
+			_typesError = null;
+			_typesFor = list.Count;
+			Dictionary<Assembly, Type[]> done = new Dictionary<Assembly, Type[]>();
+			long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+			for (int i = 0; i < list.Count; i++)
+			{
+				Type[] types;
+				if (!done.TryGetValue(list[i], out types))
+				{
+					try
+					{
+						types = list[i].GetTypes();
+					}
+					catch (Exception e)
+					{
+						_typesError = e;
+						N.ULog.Warn("loadguard", "custom damage cache: GetTypes of " + list[i].GetName().Name + " failed, as in the original every custom damage of this session fails: " + e.Message);
+						return;
+					}
+					done[list[i]] = types;
+				}
+				for (int j = 0; j < types.Length; j++)
+				{
+					_types[types[j].Name] = types[j];
+				}
+			}
+			N.ULog.Info("loadguard", "custom damage cache: " + _types.Count + " type names from " + list.Count + " assemblies, " + ((System.Diagnostics.Stopwatch.GetTimestamp() - t0) * 1000 / System.Diagnostics.Stopwatch.Frequency) + " ms");
+		}
+	}
+
 	// CreatureDataLoader.Load / Loading / Loading_Mod replacements.
 	public static class CreatureGuard
 	{
@@ -1036,6 +1402,7 @@ namespace LoadGuard
 			{
 				Guard.Begin();
 				ModDebug.Log("CDL Load 2");
+				long tPh = BootProfile.T0();
 				List<long> list = new List<long>();
 				List<LcIdLong> list2 = new List<LcIdLong>();
 				XmlDocument xmlDocument = new XmlDocument();
@@ -1069,7 +1436,7 @@ namespace LoadGuard
 						try
 						{
 							XmlDocument xmlDocument2 = new XmlDocument();
-							xmlDocument2.LoadXml(File.ReadAllText(fileInfo.FullName));
+							xmlDocument2.LoadXml(Guard.ReadXml(fileInfo.FullName));
 							foreach (object a in xmlDocument2.SelectNodes("/All/add"))
 							{
 								add.Add(int.Parse(((XmlNode)a).InnerText));
@@ -1103,6 +1470,7 @@ namespace LoadGuard
 						}
 					}
 				}
+				BootProfile.CrAdd(BootProfile.CrGen, tPh);
 				ModDebug.Log("CDL Load 3");
 				_genAll.SetValue(null, list.ToArray());
 				CreatureGenerateInfo.all_mod = list2;
@@ -1110,6 +1478,7 @@ namespace LoadGuard
 				{
 					ModDebug.Log("LoadCreatureList >> EquipmentTypeList must be loaded. ");
 				}
+				tPh = BootProfile.T0();
 				__instance.currentLn = GlobalGameManager.instance.GetCurrentLanguage();
 				XmlDocument xmlDocument3 = new XmlDocument();
 				xmlDocument3.LoadXml(File.ReadAllText(Application.dataPath + "/Managed/BaseMod/BaseList.txt"));
@@ -1121,7 +1490,9 @@ namespace LoadGuard
 				Dictionary<long, int> dictionary3 = new Dictionary<long, int>();
 				_curFile = Application.dataPath + "/Managed/BaseMod/BaseList.txt";
 				__instance.Loading(xmlNodeList, list3, list4, dictionary3, false);
+				BootProfile.CrAdd(BootProfile.CrBase, tPh);
 				ModDebug.Log("CDL Load 4");
+				tPh = BootProfile.T0();
 				for (int m = 0; m < mods.Count; m++)
 				{
 					ModInfo modInfo2 = mods[m];
@@ -1152,9 +1523,14 @@ namespace LoadGuard
 						XmlNodeList entries;
 						try
 						{
+							long tRd = BootProfile.T0();
+							string src4 = Guard.ReadXml(fileInfo2.FullName);
+							BootProfile.CrAdd(BootProfile.CrRead, tRd);
+							tRd = BootProfile.T0();
 							XmlDocument xmlDocument4 = new XmlDocument();
-							xmlDocument4.LoadXml(File.ReadAllText(fileInfo2.FullName));
+							xmlDocument4.LoadXml(src4);
 							entries = xmlDocument4.SelectNodes("/creature_list/creature");
+							BootProfile.CrAdd(BootProfile.CrParse, tRd);
 						}
 						catch (Exception e)
 						{
@@ -1168,7 +1544,9 @@ namespace LoadGuard
 							List<CreatureTypeInfo> list5 = new List<CreatureTypeInfo>();
 							List<CreatureSpecialSkillTipTable> list6 = new List<CreatureSpecialSkillTipTable>();
 							Dictionary<long, int> dictionary4 = new Dictionary<long, int>();
+							long tLd = BootProfile.T0();
 							__instance.Loading(entries, list5, list6, dictionary4, true);
+							BootProfile.CrAdd(BootProfile.CrLoading, tLd);
 							foreach (KeyValuePair<long, int> item11 in dictionary4)
 							{
 								if (dictionary3.ContainsKey(item11.Key))
@@ -1209,7 +1587,9 @@ namespace LoadGuard
 						List<CreatureTypeInfo> list7 = new List<CreatureTypeInfo>();
 						List<CreatureSpecialSkillTipTable> list8 = new List<CreatureSpecialSkillTipTable>();
 						Dictionary<long, int> specialTipSize = new Dictionary<long, int>();
+						long tLm = BootProfile.T0();
 						__instance.Loading_Mod(entries, list7, list8, specialTipSize, modInfo2.modid);
+						BootProfile.CrAdd(BootProfile.CrLoading, tLm);
 						for (int i = 0; i < list7.Count; i++)
 						{
 							list7[i].modid = modInfo2.modid;
@@ -1223,9 +1603,12 @@ namespace LoadGuard
 					}
 				}
 				_curFile = null;
+				BootProfile.CrAdd(BootProfile.CrModLoop, tPh);
 				ModDebug.Log("CDL Load 5");
+				tPh = BootProfile.T0();
 				CreatureTypeList.instance.Init_Mod(dictionary, dictionary2);
 				InitTypeList(list3.ToArray(), list4.ToArray(), dictionary3);
+				BootProfile.CrAdd(BootProfile.CrInit, tPh);
 				ModDebug.Log("CDL Load 6");
 				total = list3.Count;
 				foreach (KeyValuePair<string, List<CreatureTypeInfo>> kv in dictionary)
@@ -1241,6 +1624,10 @@ namespace LoadGuard
 				return false;
 			}
 			Guard.Summary("creatures", " creatures=" + total + Guard.RepairText());
+			if (BootProfile.Active)
+			{
+				N.ULog.Info(Guard.Tag, "boot creatures: " + BootProfile.CreatureText());
+			}
 			return false;
 		}
 
@@ -1297,7 +1684,7 @@ namespace LoadGuard
 						try
 						{
 							XmlDocument xmlDocument2 = new XmlDocument();
-							xmlDocument2.LoadXml(File.ReadAllText(fileInfo.FullName));
+							xmlDocument2.LoadXml(Guard.ReadXml(fileInfo.FullName));
 							XmlNodeList xmlNodeList2 = xmlDocument2.SelectNodes("/creature_list/creature");
 							_curFile = fileInfo.FullName;
 							__instance.Loading(xmlNodeList2, list3, list4, dictionary2, true);
@@ -1361,6 +1748,8 @@ namespace LoadGuard
 
 		private static void InitTypeList(CreatureTypeInfo[] list, CreatureSpecialSkillTipTable[] tips, Dictionary<long, int> sizes)
 		{
+			// CreatureTypeList.Init ends with CreatureGenerateInfoManager.Init (decomp CreatureTypeList.cs:46), before mod creature data is set.
+			GenerateGuard.InBoot = true;
 			try
 			{
 				CreatureTypeList.instance.Init(list, tips, sizes);
@@ -1373,6 +1762,10 @@ namespace LoadGuard
 				}
 				// Last step of Init, its top stack frame in every boot seen. Title and GameManager build it again.
 				N.ULog.Info("loadguard", "creature generate info skipped at load, built again later");
+			}
+			finally
+			{
+				GenerateGuard.InBoot = false;
 			}
 		}
 
@@ -1528,6 +1921,7 @@ namespace LoadGuard
 		private static void Entry(CreatureDataLoader loader, XmlNode xmlNode14, List<CreatureTypeInfo> list, List<CreatureSpecialSkillTipTable> list2, Dictionary<long, int> specialTipSize, bool isMod, string modid)
 		{
 			string innerText = xmlNode14.Attributes.GetNamedItem("src").InnerText;
+			long tEn = BootProfile.T0();
 			string xml = "";
 			if (!isMod)
 			{
@@ -1547,7 +1941,7 @@ namespace LoadGuard
 					string statPath = FindStat(xmlNode14.SelectSingleNode("stat").InnerText);
 					if (statPath != null)
 					{
-						xml = File.ReadAllText(statPath);
+						xml = Guard.ReadXml(statPath);
 					}
 				}
 				List<DirectoryInfo> dirs = indexed ? new List<DirectoryInfo>() : Add_On.instance.DirList;
@@ -1563,7 +1957,7 @@ namespace LoadGuard
 							FileInfo fileInfo = files[f];
 							if (fileInfo.Name == xmlNode14.SelectSingleNode("stat").InnerText + ".txt" || fileInfo.Name == xmlNode14.SelectSingleNode("stat").InnerText + ".xml")
 							{
-								xml = File.ReadAllText(fileInfo.FullName);
+								xml = Guard.ReadXml(fileInfo.FullName);
 								flag = true;
 								break;
 							}
@@ -1575,21 +1969,29 @@ namespace LoadGuard
 					}
 				}
 			}
+			BootProfile.CrAdd(BootProfile.CrStatFile, tEn);
+			tEn = BootProfile.T0();
 			XmlDocument xmlDocument = new XmlDocument();
 			XmlDocument doc = loader.LoadDoc(innerText, loader.currentLn, isMod);
 			if (Guard.RepairOn && isMod)
 			{
 				Guard.RepairInfo(doc, CurFile(), innerText);
 			}
+			BootProfile.CrAdd(BootProfile.CrLoadDoc, tEn);
 			xmlDocument.LoadXml(xml);
 			ChildCreatureData childData = null;
+			tEn = BootProfile.T0();
 			CreatureTypeInfo creatureTypeInfo = loader.LoadCreatureTypeInfo(doc, ref list2, ref specialTipSize, out childData);
+			BootProfile.CrAdd(BootProfile.CrTypeInfo, tEn);
+			tEn = BootProfile.T0();
 			XmlNode xmlNode2 = xmlDocument.SelectSingleNode("creature");
 			XmlNode stat = xmlDocument.SelectSingleNode("creature/stat");
 			XmlNode xmlNode3 = xmlNode2.SelectSingleNode("child");
 			LoadStat(loader, stat, xmlNode2, creatureTypeInfo, modid);
+			BootProfile.CrAdd(BootProfile.CrStat, tEn);
 			if (xmlNode3 != null)
 			{
+				tEn = BootProfile.T0();
 				string innerText2 = xmlNode3.InnerText;
 				string text = "";
 				bool walk = true;
@@ -1598,7 +2000,7 @@ namespace LoadGuard
 					string childPath = FindChild(innerText2);
 					if (childPath != null)
 					{
-						text = File.ReadAllText(childPath);
+						text = Guard.ReadXml(childPath);
 					}
 					// An empty file sends the walk on to the next mod, which the index does not know.
 					walk = childPath != null && text == "";
@@ -1615,7 +2017,7 @@ namespace LoadGuard
 					{
 						if (files2[f].Name == innerText2 + ".txt" || files2[f].Name == innerText2 + ".xml")
 						{
-							text = File.ReadAllText(files2[f].FullName);
+							text = Guard.ReadXml(files2[f].FullName);
 							break;
 						}
 					}
@@ -1725,6 +2127,7 @@ namespace LoadGuard
 				childCreatureTypeInfo.soundTable = dictionary2;
 				creatureTypeInfo.childTypeInfo = childCreatureTypeInfo;
 				creatureTypeInfo.childTypeInfo.data = childData;
+				BootProfile.CrAdd(BootProfile.CrChild, tEn);
 			}
 			list.Add(creatureTypeInfo);
 		}
@@ -2177,9 +2580,11 @@ namespace LoadGuard
 				return false;
 			}
 			_inside = true;
+			long tGt = BootProfile.T0();
 			try
 			{
 				__result = __instance.GetTypes();
+				BootProfile.TypesAdd(tGt);
 				return false;
 			}
 			catch (ReflectionTypeLoadException e)
@@ -3280,27 +3685,146 @@ namespace LoadGuard
 			{
 				StreamReader r = new StreamReader(fs);
 				string line;
+				string pend = null;
+				int frames = 0;
 				while ((line = r.ReadLine()) != null)
 				{
+					if (pend != null)
+					{
+						// "Herror - <message>" without the mod: the first mod frame of the stack lines below it names the mod.
+						string s = line.Trim();
+						if (s.StartsWith("at ", StringComparison.Ordinal))
+						{
+							// Up to 4 candidate types; the main thread takes the first that maps to a mod folder.
+							string frame = FrameType(s.Substring(3));
+							if (frame != null)
+							{
+								pend = pend + "\n" + frame;
+								if (++frames >= 4)
+								{
+									Found(found, pend);
+									pend = null;
+								}
+							}
+							continue;
+						}
+						Found(found, pend);
+						pend = null;
+					}
 					int h = line.IndexOf("Herror", StringComparison.Ordinal);
 					if (h < 0)
 					{
 						h = line.IndexOf("AddOn Init error", StringComparison.Ordinal);
 					}
-					if (h >= 0 && found.Count < 200)
+					if (h >= 0)
 					{
 						string t = line.Substring(h);
-						if (!found.Contains(t))
+						if (t.StartsWith("Herror", StringComparison.Ordinal) && t.IndexOf(" / ", StringComparison.Ordinal) < 0)
 						{
-							found.Add(t);
+							pend = t;
+							frames = 0;
+						}
+						else
+						{
+							Found(found, t);
 						}
 					}
+				}
+				if (pend != null)
+				{
+					Found(found, pend);
 				}
 			}
 			finally
 			{
 				fs.Close();
 			}
+		}
+
+		private static void Found(List<string> found, string t)
+		{
+			if (found.Count < 200 && !found.Contains(t))
+			{
+				found.Add(t);
+			}
+		}
+
+		private static readonly string[] SkipFrames = new string[] { "System.", "Mono.", "Harmony.", "HarmonyLib.", "MonoMod.", "UnityEngine.", "LobotomyBaseMod." };
+
+		// "Ns.Type.Method (args) [0x00000] in ..." -> "Ns.Type"; null for runtime, Harmony, Unity and BaseMod frames.
+		private static string FrameType(string frame)
+		{
+			int p = frame.IndexOf(" (", StringComparison.Ordinal);
+			string m = p > 0 ? frame.Substring(0, p) : frame;
+			int d = m.LastIndexOf('.');
+			if (d <= 0 || m.StartsWith("(", StringComparison.Ordinal))
+			{
+				return null;
+			}
+			for (int i = 0; i < SkipFrames.Length; i++)
+			{
+				if (m.StartsWith(SkipFrames[i], StringComparison.Ordinal))
+				{
+					return null;
+				}
+			}
+			string t = m.Substring(0, d).TrimEnd('.');
+			return t.Length > 0 ? t : null;
+		}
+
+		private static Dictionary<string, string> _typeMod;
+
+		// Main thread: frames = '\n'-separated stack frame types, top first. The first type defined in exactly one loaded assembly that lies
+		// in a mod folder names the mod; "-" when none does.
+		private static string ModOfType(string frames)
+		{
+			if (string.IsNullOrEmpty(frames))
+			{
+				return "-";
+			}
+			if (_typeMod == null)
+			{
+				_typeMod = new Dictionary<string, string>();
+			}
+			Assembly[] all = null;
+			string[] names = frames.Split('\n');
+			for (int n = 0; n < names.Length; n++)
+			{
+				string mod;
+				if (!_typeMod.TryGetValue(names[n], out mod))
+				{
+					if (object.ReferenceEquals(all, null))
+					{
+						all = AppDomain.CurrentDomain.GetAssemblies();
+					}
+					mod = "-";
+					int hits = 0;
+					for (int i = 0; i < all.Length && hits < 2; i++)
+					{
+						try
+						{
+							if (!object.ReferenceEquals(all[i].GetType(names[n], false), null))
+							{
+								hits++;
+								mod = ModOf(all[i].Location);
+							}
+						}
+						catch (Exception)
+						{
+						}
+					}
+					if (hits != 1)
+					{
+						mod = "-";
+					}
+					_typeMod[names[n]] = mod;
+				}
+				if (mod != "-")
+				{
+					return mod;
+				}
+			}
+			return "-";
 		}
 
 		// Main thread; true once the scan result was taken.
@@ -3327,10 +3851,17 @@ namespace LoadGuard
 				string t = lines[i];
 				if (t.StartsWith("Herror", StringComparison.Ordinal))
 				{
+					string frame = null;
+					int nl = t.IndexOf('\n');
+					if (nl > 0)
+					{
+						frame = t.Substring(nl + 1);
+						t = t.Substring(0, nl);
+					}
 					// "Herror - <mod> / <file><message>"
 					string rest = t.StartsWith("Herror - ", StringComparison.Ordinal) ? t.Substring(9) : t.Substring(6);
 					int sl = rest.IndexOf(" / ", StringComparison.Ordinal);
-					string mod = sl > 0 ? rest.Substring(0, sl).Trim() : "-";
+					string mod = sl > 0 ? rest.Substring(0, sl).Trim() : ModOfType(frame);
 					string msg = sl > 0 ? rest.Substring(sl + 3) : rest;
 					if (msg.Length > 160)
 					{
@@ -4450,14 +4981,137 @@ namespace LoadGuard
 		private static readonly List<long> _ticks = new List<long>();
 		private static readonly List<Assembly> _asm = new List<Assembly>();
 		private static readonly object _gate = new object();
+		// Equipment load split (main thread only): 0 LoadWeapon, 1 LoadArmor, 2 LoadEGOgift (each with the patches of other mods),
+		// 3 file read + XML parse, 4 whole per-file entry loop.
+		internal static bool Active;
+		private static readonly long[] _eqTicks = new long[5];
+		private static readonly int[] _eqCount = new int[5];
+		private static readonly string[] EqNames = new string[] { "LoadWeapon", "LoadArmor", "LoadEGOgift", "read+parse", "entries" };
+
+		// Creature load split (CreatureGuard.PrefixLoad, main thread). 0-5 and 11 are parts of the Load body; 6-10 are parts of
+		// every Entry (BaseList and mod entries), so they lie inside 1 and 5. walk = 2 minus 3, 4 and 5.
+		internal const int CrGen = 0, CrBase = 1, CrModLoop = 2, CrRead = 3, CrParse = 4, CrLoading = 5, CrStatFile = 6, CrLoadDoc = 7, CrTypeInfo = 8, CrStat = 9, CrChild = 10, CrInit = 11;
+		private static readonly long[] _crTicks = new long[12];
+		private static readonly int[] _crCount = new int[12];
+		private static readonly string[] CrNames = new string[] { "gen", "base list", "mod loop", "read", "parse+select", "Loading", "entry stat file", "entry LoadDoc", "entry TypeInfo", "entry LoadStat", "entry child", "init lists" };
+		// Localize split (Guard.PrefixLocalize, main thread). 3-5 lie inside 1 and 2.
+		internal const int LoVanilla = 0, LoModLocalize = 1, LoModEquip = 2, LoRead = 3, LoParse = 4, LoText = 5, LoInit = 6;
+		private static readonly long[] _loTicks = new long[7];
+		private static readonly int[] _loCount = new int[7];
+		private static readonly string[] LoNames = new string[] { "vanilla files", "mod Localize", "mod Equipment xmls", "read", "parse", "LoadText", "Init" };
+		// GetTypes of mod assemblies through TypeLoad.PrefixGetTypes (any thread): calls and ticks since the last report.
+		private static long _gtTicks;
+		private static int _gtCount;
+
+		internal static long T0()
+		{
+			return Active ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
+		}
+
+		internal static void EquipAdd(int kind, long t0)
+		{
+			if (!Active)
+			{
+				return;
+			}
+			_eqTicks[kind] += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+			_eqCount[kind]++;
+		}
+
+		internal static void CrAdd(int kind, long t0)
+		{
+			if (!Active)
+			{
+				return;
+			}
+			_crTicks[kind] += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+			_crCount[kind]++;
+		}
+
+		internal static void LoAdd(int kind, long t0)
+		{
+			if (!Active)
+			{
+				return;
+			}
+			_loTicks[kind] += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+			_loCount[kind]++;
+		}
+
+		internal static void TypesAdd(long t0)
+		{
+			if (!Active)
+			{
+				return;
+			}
+			System.Threading.Interlocked.Add(ref _gtTicks, System.Diagnostics.Stopwatch.GetTimestamp() - t0);
+			System.Threading.Interlocked.Increment(ref _gtCount);
+		}
+
+		internal static string EquipText()
+		{
+			return SplitText(EqNames, _eqTicks, _eqCount, false);
+		}
+
+		// Text of one split; reset clears it so a later call (language change, ReloadData) reports only its own time.
+		internal static string CreatureText()
+		{
+			return SplitText(CrNames, _crTicks, _crCount, true);
+		}
+
+		internal static string LocalizeText()
+		{
+			return SplitText(LoNames, _loTicks, _loCount, true);
+		}
+
+		private static string SplitText(string[] names, long[] ticks, int[] count, bool reset)
+		{
+			System.Text.StringBuilder sb = new System.Text.StringBuilder();
+			for (int i = 0; i < ticks.Length; i++)
+			{
+				if (i > 0)
+				{
+					sb.Append(", ");
+				}
+				sb.Append(names[i]).Append(' ').Append((ticks[i] * 1000 / System.Diagnostics.Stopwatch.Frequency).ToString()).Append(" ms x").Append(count[i].ToString());
+				if (reset)
+				{
+					ticks[i] = 0;
+					count[i] = 0;
+				}
+			}
+			return sb.ToString();
+		}
+
+		// One line per report point: mod-assembly GetTypes calls since the previous line (the boot line covers start to first frame).
+		internal static void TypesReport(string where)
+		{
+			long t = System.Threading.Interlocked.Exchange(ref _gtTicks, 0);
+			int c = System.Threading.Interlocked.Exchange(ref _gtCount, 0);
+			N.ULog.Info(Guard.Tag, "boot types " + where + ": GetTypes of mod assemblies " + c + " calls, " + (t * 1000 / System.Diagnostics.Stopwatch.Frequency).ToString() + " ms" + (TypeLoad.Flag == null || !TypeLoad.Flag.On ? " (LoadGuard.TypeLoad off: not counted)" : ""));
+		}
+
+		private static void OnDayStart()
+		{
+			try
+			{
+				TypesReport("before day start");
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Guard.Tag, "boot types report failed: " + e.Message);
+			}
+		}
 
 		internal static void Start()
 		{
+			Active = true;
 			_unityAtStart = Time.realtimeSinceStartup;
 			_sw = System.Diagnostics.Stopwatch.StartNew();
 			AppDomain.CurrentDomain.AssemblyLoad += OnLoad;
 			BootTrace.Start(_sw);
 			BootXmlTrace.Start(_sw); BootPrefabTrace.Start(_sw);
+			N.Events.On(NoticeName.OnStageStart, new Action(OnDayStart), Guard.Tag);
 			GameObject go = new GameObject("NailOptimization.BootProfile");
 			UnityEngine.Object.DontDestroyOnLoad(go);
 			go.AddComponent<BootProfileDriver>();
@@ -4486,6 +5140,7 @@ namespace LoadGuard
 			N.ULog.Info(Guard.Tag, "boot: unity time at LoadGuard init " + _unityAtStart.ToString("0.0") + " s, first frame at +" + (end * f).ToString("0") + " ms, loads " + _ticks.Count);
 			BootTrace.Dump(f);
 			BootXmlTrace.Dump(f, end);
+			TypesReport("to first frame");
 			System.Threading.Monitor.Enter(_gate);
 			try
 			{
@@ -4527,6 +5182,272 @@ namespace LoadGuard
 		}
 	}
 
+	// LoadGuard.DisableLoadErrorCheck: kekesi_LoadErrorCheck (harmony id Lobotomy.kekesi.ErrorCheck) stops IntroPlayer.Update while its
+	// error screen is up, and under NailOptimization that screen cannot be left. At the first frame (every mod loaded) its IntroPlayer
+	// prefix methods are skipped by Prefixes of ours (Harmony 1.0.9.1 has no Unpatch), HasError is cleared, its log hook is removed and
+	// an open error screen is closed through its own Next handler (decomp kekesi_LoadErrorCheck.Harmony_Patch.cs:269-279).
+	public static class LecOff
+	{
+		private const string TypeName = "kekesi_LoadErrorCheck.Harmony_Patch";
+		internal static N.Flag Flag;
+
+		internal static void Start()
+		{
+			GameObject go = new GameObject("NailOptimization.LecOff");
+			UnityEngine.Object.DontDestroyOnLoad(go);
+			go.AddComponent<LecOffDriver>();
+		}
+
+		public static bool SkipBool(ref bool __result)
+		{
+			__result = true;
+			return false;
+		}
+
+		public static bool SkipVoid()
+		{
+			return false;
+		}
+
+		internal static void FirstFrame()
+		{
+			Type t = null;
+			Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
+			for (int i = 0; i < all.Length && object.ReferenceEquals(t, null); i++)
+			{
+				try
+				{
+					t = all[i].GetType(TypeName, false);
+				}
+				catch (Exception)
+				{
+				}
+			}
+			if (object.ReferenceEquals(t, null))
+			{
+				return;
+			}
+			BindingFlags bf = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+			MethodInfo update = t.GetMethod("IntroPlayer_Update", bf, null, new Type[] { typeof(IntroPlayer) }, null);
+			MethodInfo awake = t.GetMethod("IntroPlayer_Awake", bf, null, new Type[] { typeof(IntroPlayer) }, null);
+			MethodInfo write = t.GetMethod("WriteError", bf, null, new Type[] { typeof(string), typeof(string), typeof(LogType) }, null);
+			FieldInfo has = t.GetField("HasError", bf);
+			if (object.ReferenceEquals(update, null) || object.ReferenceEquals(awake, null) || object.ReferenceEquals(write, null) || object.ReferenceEquals(has, null)
+				|| !object.ReferenceEquals(update.ReturnType, typeof(bool)) || !object.ReferenceEquals(has.FieldType, typeof(bool)))
+			{
+				N.ULog.Warn(Guard.Tag, "LoadErrorCheck found, layout unknown, left alone");
+				return;
+			}
+			HarmonyInstance harmony = HarmonyInstance.Create(LoadGuardModule.HarmonyId + ".lec");
+			bool gate = N.PatchUtil.Install(harmony, Guard.Tag, update, new HarmonyMethod(typeof(LecOff).GetMethod("SkipBool")), null);
+			bool checks = N.PatchUtil.Install(harmony, Guard.Tag, awake, new HarmonyMethod(typeof(LecOff).GetMethod("SkipVoid")), null);
+			if (!gate || !checks)
+			{
+				N.ULog.Warn(Guard.Tag, "LoadErrorCheck not disabled: patch failed (gate=" + gate + ", checks=" + checks + ")");
+				return;
+			}
+			has.SetValue(null, false);
+			bool unhooked = false;
+			try
+			{
+				Application.LogCallback cb = (Application.LogCallback)Delegate.CreateDelegate(typeof(Application.LogCallback), write);
+				Application.logMessageReceived -= cb;
+				unhooked = !StillHooked(t);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Guard.Tag, "LoadErrorCheck log hook not removed: " + e.Message);
+			}
+			int closed = CloseScreens();
+			N.ULog.Info(Guard.Tag, "LoadErrorCheck disabled: intro gate and checks skipped, log hook " + (unhooked ? "removed" : "still present or not checkable") + ", error screen closed=" + (closed > 0));
+			string loc = null;
+			try
+			{
+				loc = t.Assembly.Location;
+			}
+			catch (Exception)
+			{
+			}
+			LoadAlerts.AddKeySafe(1, LoadAlerts.ModOf(loc), "AlertLecDisabled", "LoadErrorCheck does not work with NailOptimization and was turned off for this session (its error screen could not be left). Load problems are listed here instead.", null);
+		}
+
+		// Application keeps its log handlers in a private static LogCallback field (name not relied on); true when one of them is
+		// still LEC's WriteError, or when no such field is found (removal cannot be confirmed).
+		private static bool StillHooked(Type lec)
+		{
+			FieldInfo[] fs = typeof(Application).GetFields(BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Static);
+			bool seen = false;
+			for (int i = 0; i < fs.Length; i++)
+			{
+				if (!object.ReferenceEquals(fs[i].FieldType, typeof(Application.LogCallback)))
+				{
+					continue;
+				}
+				seen = true;
+				Delegate d = fs[i].GetValue(null) as Delegate;
+				Delegate[] list = d == null ? new Delegate[0] : d.GetInvocationList();
+				for (int k = 0; k < list.Length; k++)
+				{
+					if (object.ReferenceEquals(list[k].Method.DeclaringType, lec) && list[k].Method.Name == "WriteError")
+					{
+						return true;
+					}
+				}
+			}
+			return !seen;
+		}
+
+		// Each open "ErrorCanvas" gets its NextButton clicked: LEC's handler hides it and shows the intro again. UnityEngine.UI by
+		// reflection (this module does not reference it).
+		private static int CloseScreens()
+		{
+			int closed = 0;
+			for (int k = 0; k < 8; k++)
+			{
+				GameObject c = GameObject.Find("ErrorCanvas(Clone)");
+				if (c == null)
+				{
+					break;
+				}
+				Transform nb = c.transform.Find("NextButton");
+				Component btn = nb != null ? nb.GetComponent("Button") : null;
+				if (btn == null)
+				{
+					N.ULog.Warn(Guard.Tag, "LoadErrorCheck screen has no NextButton, left open");
+					break;
+				}
+				try
+				{
+					PropertyInfo p = btn.GetType().GetProperty("onClick", BindingFlags.Public | BindingFlags.Instance);
+					object ev = p.GetValue(btn, null);
+					ev.GetType().GetMethod("Invoke", Type.EmptyTypes).Invoke(ev, null);
+				}
+				catch (Exception e)
+				{
+					// LEC's handler hides the canvas first; an error after that still leaves it closed.
+					if (!c.activeSelf)
+					{
+						closed++;
+					}
+					N.ULog.Warn(Guard.Tag, "LoadErrorCheck screen Next handler failed: " + e.Message);
+					break;
+				}
+				if (c.activeSelf)
+				{
+					break;
+				}
+				closed++;
+			}
+			return closed;
+		}
+	}
+
+	public class LecOffDriver : MonoBehaviour
+	{
+		private void Update()
+		{
+			enabled = false;
+			try
+			{
+				LecOff.FirstFrame();
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(Guard.Tag, "LoadErrorCheck disable failed: " + e);
+			}
+			Destroy(gameObject);
+		}
+	}
+
+	// CreatureGenerateInfoManager.Init (new game, day start) calls GetData(id).GetRiskLevel() for every id of CreatureGenerateInfo.all
+	// and all_mod without a null check (decomp game/CreatureGenerateInfoManager.cs:102-141): an id whose creature data failed to load
+	// stops it with a NullReferenceException and the new game hangs. Ids without data are dropped from the lists before it runs
+	// (Prefix without return value, the original always runs; its foreach handlers are List/array only, GL-53 harmless).
+	public static class GenerateGuard
+	{
+		private static readonly HashSet<string> _seen = new HashSet<string>();
+		internal static bool InBoot;
+
+		public static void PrefixInit()
+		{
+			// The boot call runs before mod creature data exists; title and GameManager call Init again with all data.
+			if (InBoot)
+			{
+				return;
+			}
+			try
+			{
+				CreatureTypeList types = CreatureTypeList.instance;
+				if (types == null)
+				{
+					return;
+				}
+				long[] all = CreatureGenerateInfo.all;
+				if (all != null)
+				{
+					List<long> keep = new List<long>(all.Length);
+					for (int i = 0; i < all.Length; i++)
+					{
+						if (types.GetData(all[i]) != null)
+						{
+							keep.Add(all[i]);
+						}
+						else
+						{
+							Report(all[i].ToString(), "-");
+						}
+					}
+					if (keep.Count < all.Length)
+					{
+						FieldInfo f = typeof(CreatureGenerateInfo).GetField("all", BindingFlags.Public | BindingFlags.Static);
+						f.SetValue(null, keep.ToArray());
+						if (CreatureGenerateInfo.all.Length != keep.Count)
+						{
+							N.ULog.Warn(Guard.Tag, "generate list: CreatureGenerateInfo.all could not be changed");
+						}
+					}
+				}
+				List<LcIdLong> mods = CreatureGenerateInfo.all_mod;
+				for (int i = mods == null ? -1 : mods.Count - 1; i >= 0; i--)
+				{
+					LcIdLong x = mods[i];
+					CreatureTypeInfo d = null;
+					string why = string.Empty;
+					try
+					{
+						if (!object.ReferenceEquals(x, null))
+						{
+							d = types.GetData_Mod(x);
+						}
+					}
+					catch (Exception e)
+					{
+						why = " (" + e.GetType().Name + ")";
+					}
+					if (d == null)
+					{
+						mods.RemoveAt(i);
+						bool bare = object.ReferenceEquals(x, null) || string.IsNullOrEmpty(x.packageId);
+						Report((object.ReferenceEquals(x, null) ? "null" : x.id.ToString()) + why, bare ? "-" : x.packageId);
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(Guard.Tag, "generate list check failed: " + e);
+			}
+		}
+
+		private static void Report(string id, string mod)
+		{
+			if (!_seen.Add(mod + ":" + id))
+			{
+				return;
+			}
+			N.ULog.Warn(Guard.Tag, "generate list: id " + id + " (" + mod + ") has no creature data, removed");
+			LoadAlerts.AddKeySafe(2, mod, "AlertGenerateNoData", "abnormality {0} is in the new-game list but its data did not load; it was left out of the list.", new object[] { id });
+		}
+	}
 	public class LoadAlertsDriver : MonoBehaviour
 	{
 		private bool _started;

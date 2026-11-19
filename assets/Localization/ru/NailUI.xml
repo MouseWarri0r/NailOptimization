@@ -46,6 +46,8 @@
     <s id="AlertDllPartial">{0} загружен частично: {1}. Часть этого мода может не работать; остальные моды загружены нормально.</s>
     <s id="AlertLastCrash">Прошлая сессия завершилась аварийно (последняя запись {0}) на этапе: {1}, начат в {4}. Последняя ошибка в {3}: {2}.</s>
     <s id="AlertBaseModVersion">BaseMod (LMM) {0} не поддерживается: NailOptimization сделан для BaseMod {1}. Стабильная работа не гарантируется.</s>
+    <s id="AlertLecDisabled">LoadErrorCheck не работает с NailOptimization и отключён на эту сессию (из его экрана ошибок нельзя было выйти). Проблемы загрузки перечислены здесь.</s>
+    <s id="AlertGenerateNoData">аномалия {0} есть в списке новой игры, но её данные не загрузились; она убрана из списка.</s>
   </ui>
 
   <sections>
@@ -136,6 +138,10 @@
       <name>Предупреждать о неподдерживаемой версии BaseMod</name>
       <desc>Если версия BaseMod (LMM) не 1.3.9, это указывается в списке предупреждений, который один раз открывается на титульном экране.</desc>
     </option>
+    <option key="LoadGuard.DisableLoadErrorCheck">
+      <name>Отключать LoadErrorCheck</name>
+      <desc>Если установлен мод LoadErrorCheck, он отключается на сессию: под NailOptimization из его экрана ошибок при запуске нельзя выйти. Проблемы загрузки показываются в списке предупреждений.</desc>
+    </option>
     <option key="LoadGuard.CrashTrail">
       <name>Называть причину прошлого вылета</name>
       <desc>Последний шаг перед аварийным закрытием игры (загружаемый мод, сцена, день, последняя ошибка) сохраняется в Logs/LastSession.txt. При следующем запуске он указывается в списке предупреждений, который один раз открывается на титульном экране.</desc>
@@ -187,6 +193,10 @@
     <option key="FastFix.AcaciaBullet" section="ModFixes" group="ModFixList" order="91" restart="1">
       <name>Acacia</name>
       <desc>Проверка пули не вызывает ошибку, если пуля задела не юнита.</desc>
+    </option>
+    <option key="FastFix.EndlessgyroMaxNum" section="ModFixes" group="ModFixList" order="92" restart="1">
+      <name>Endlessgyro</name>
+      <desc>Ограничение его EGO одной копией снова работает (его патч был нацелен на несуществующий метод).</desc>
     </option>
     <option key="FastFix.ElysiaRiskUnit" section="ModFixes" group="ModFixList" order="91" restart="1">
       <name>Elysia RiskLevel</name>
@@ -1156,6 +1166,200 @@
     <option key="PerfPack.WeaponModScript">
       <name>Скрипты оружия модов без одноимённого класса игры</name>
       <desc>При включённом списке скриптов: оружие мода, у класса скрипта которого нет одноимённого класса игры, получает свой скрипт. Игра его не даёт, и особый эффект оружия не работает.</desc>
+    </option>
+    <option key="Gui.Hotkey">
+      <name>Клавиша базовой панели</name>
+      <desc>Клавиша базовой панели настроек (имя Unity KeyCode, например F10).</desc>
+    </option>
+    <option key="Gui.TitleButton">
+      <name>Кнопка на титульном экране</name>
+      <desc>Кнопка-значок на титульных экранах, открывает панель.</desc>
+    </option>
+    <option key="Gui.TitleIcon">
+      <name>Значок кнопки на титуле</name>
+      <desc>PNG для кнопки на титульном экране, путь от папки NailOptimization. Если файла нет, рисуется квадрат-заглушка.</desc>
+    </option>
+    <option key="Gui.Prewarm">
+      <name>Готовить панель при запуске</name>
+      <desc>Панель строится и её символы растеризуются при запуске игры, а не при первом открытии: первое открытие быстрее, запуск чуть дольше.</desc>
+    </option>
+    <option key="Gui.LogEnvironment">
+      <name>Канвасы в лог при открытии панели</name>
+      <desc>При каждом открытии панели список канвасов сцены пишется в лог. Диагностика.</desc>
+    </option>
+    <option key="Gui.OpenTimingFrames">
+      <name>Кадры замера после открытия панели</name>
+      <desc>Сколько времён кадров писать в лог после каждого открытия панели (0 = выкл., не больше 32).</desc>
+    </option>
+    <option key="Detect.Names">
+      <name>Имена других оптимизаторов</name>
+      <desc>Части имён сборок или Harmony id через запятую, о которых сообщается как о других оптимизаторах (только предупреждение).</desc>
+    </option>
+    <option key="Detect.DumpPatches">
+      <name>Все патчи Harmony в лог</name>
+      <desc>На втором кадре каждый найденный патч Harmony пишется в лог. Диагностика.</desc>
+    </option>
+    <option key="LogViewer.BenignPatterns">
+      <name>Дополнительные безвредные сообщения</name>
+      <desc>Расширенный лог: дополнительные части безвредных сообщений, которые скрывает фильтр, через |.</desc>
+    </option>
+    <option key="PerfTools.Key">
+      <name>Клавиша оверлея</name>
+      <desc>Клавиша показа и скрытия оверлея производительности (имя Unity KeyCode; можно Shift+, Ctrl+, Alt+).</desc>
+    </option>
+    <option key="PerfTools.ProfKey">
+      <name>Клавиша профайлера</name>
+      <desc>Клавиша запуска и остановки сессии профайлера (имя Unity KeyCode; можно Shift+, Ctrl+, Alt+).</desc>
+    </option>
+    <option key="LoadGuard.Prefetch">
+      <name>Чтение данных модов заранее</name>
+      <desc>При включённом LoadGuard: файлы данных модов (локализация, снаряжение, существа, sefira isolate) читаются фоновым потоком после загрузки DLL модов; каждый текст используется один раз, если файл не изменился.</desc>
+    </option>
+    <option key="LoadGuard.CustomDamageCache">
+      <name>Список особых типов урона</name>
+      <desc>При включённом LoadGuard: kekesi_CustomDamageBase находит класс скрипта особого типа урона по списку, собранному один раз, а не перебирает типы всех модов для каждого оружия (около 6 с при запуске с большим числом модов).</desc>
+    </option>
+    <option key="FastFix.AttackEndNull">
+      <name>Конец атаки без события урона</name>
+      <desc>Анимация атаки юнита без заданного события урона больше не вызывает ошибку в конце; конец атаки по-прежнему отправляется.</desc>
+    </option>
+    <option key="FastFix.PassageRectQuiet">
+      <name>Спам ошибок GetPassageRect</name>
+      <desc>Моды с помощником GetPassageRect (Nobody Is, Incubator, Four Fools и другие): комната без вида или спрайта больше не пишет ошибку при каждом вызове; результат тот же пустой прямоугольник.</desc>
+    </option>
+    <option key="FastFix.FourFoolsBufIcon">
+      <name>Four Fools: значок Zkbuf</name>
+      <desc>Бафф Zkbuf получает свой значок (мод читает его до того, как узнаёт свою папку).</desc>
+    </option>
+    <option key="FastFix.NothingIsTitle">
+      <name>Nobody Is: титул агента-маскировки</name>
+      <desc>Титул агента-маскировки больше не вызывает ошибку при каждом обновлении интерфейса, когда данных существа нет.</desc>
+    </option>
+    <option key="FastFix.MagicalTrioOwner">
+      <name>Magical Trio: оружие без владельца</name>
+      <desc>Удар оружием без владельца больше не вызывает ошибку в проверке комплекта (бонусу комплекта нужен владелец).</desc>
+    </option>
+    <option key="FastFix.WhiteRabbitRange">
+      <name>Celestial Bunny: урон без атакующего</name>
+      <desc>Урон без атакующего больше не вызывает ошибку в проверке дальности (считается вне дальности).</desc>
+    </option>
+    <option key="FastFix.NodeStateTrace">
+      <name>Трассировка invalid node state (удалена)</name>
+    </option>
+    <!-- Keys left in the cfg file by older versions; no code reads them (2026-11-18). -->
+    <option key="NoPilot.Enabled">
+      <name>Пилотный флаг</name>
+    </option>
+    <option key="NoPilot.Limit">
+      <name>Пилотное целое</name>
+    </option>
+    <option key="NoPilot.Scale">
+      <name>Пилотное дробное</name>
+    </option>
+    <option key="PerfPack.FastDistance">
+      <name>Быстрая дистанция (заменена PathCheck)</name>
+    </option>
+    <option key="Display.Fullscreen">
+      <name>Полный экран (заменён режимом окна)</name>
+    </option>
+    <option key="PerfPack.DayPreload">
+      <name>Предзагрузка дня (удалена)</name>
+    </option>
+    <option key="PerfPack.ReadAheadExperimental">
+      <name>Упреждающее чтение (удалено)</name>
+    </option>
+    <option key="FastFix.SpineMeshes">
+      <name>Старые меши Spine (удалено)</name>
+    </option>
+    <option key="FastFix.BingJieXianNodeLog">
+      <name>BingJieXian: invalid node state (заменено InvalidNodeLog)</name>
+    </option>
+    <option key="FastFix.BleedIconEnd">
+      <name>Blood Shoes: файл ошибки в конце кровотечения</name>
+      <desc>Конец кровотечения больше не вызывает ошибку при обновлении значка и не пишет BurnShowIconerror.txt в папку LOG на рабочем столе.</desc>
+    </option>
+    <option key="FastFix.GiftFixScript">
+      <name>Incubator (GiftFix): скрипт EGO-дара</name>
+      <desc>Выдача EGO-дара без заданного скрипта больше не вызывает ошибку (DLL GiftFix собрана под более новый .NET и останавливала загрузку дня); скрипт ставится так, как задумано модом.</desc>
+    </option>
+    <option key="FastFix.BloodShoesLogDir">
+      <name>Blood Shoes: нет папки LOG</name>
+      <desc>Если папки LOG на рабочем столе нет, мод пишет свои файлы в папку LOG внутри своей папки мода; без этого бафф кровотечения не запускается. Существующая папка LOG на рабочем столе используется как раньше.</desc>
+    </option>
+    <option key="FastFix.CreatureNoNameLog">
+      <name>Существо без имени: спам в логе</name>
+      <desc>Тип существа без имени в данных (дочерние существа некоторых модов) больше не пишет ошибку словаря в лог при каждом чтении имени; игра показывает Unknown, как раньше.</desc>
+    </option>
+    <option key="FastFix.MovableStateLog">
+      <name>Спам Invalid Movable State</name>
+      <desc>Юнит, чей узел на карте мод сдвинул во время ходьбы, больше не пишет Invalid Movable State в лог; игра останавливает это движение, как раньше.</desc>
+    </option>
+    <option key="FastFix.ChildViewWait">
+      <name>Дочернее существо сбегает раньше своего вида</name>
+      <desc>Дочернее существо, которое сбегает в тот же тик, когда создано, ждёт создания своего вида перед первым шагом побега. Дети некоторых модов (The Crying Children, ReUse) здесь выдавали ошибку.</desc>
+    </option>
+    <option key="FastFix.AddComponentNullQuiet">
+      <name>AddComponent без типа: спам в логе</name>
+      <desc>AddComponent без типа (ведьмы Incubator делают так намеренно и затем добавляют свой скрипт) сразу ничего не возвращает, вместо предупреждения в логе каждый раз.</desc>
+    </option>
+    <option key="FastFix.JokerSheepDamage">
+      <name>Penitent Clown: атаки овец</name>
+      <desc>Овцы больше не вызывают ошибку при атаке вне комнаты или когда цель умирает во время атаки; те же цели получают тот же урон и баф паники.</desc>
+    </option>
+    <option key="FastFix.IncubatorModId">
+      <name>Incubator: id мода</name>
+      <desc>Мод ищет свои аномалии и EGO под id, который BaseMod дал его папке (пустой, если для языка игры нет info.xml мода), поэтому лазеры Вальпургиевой ночи, ведьмы Инкубатора и его проверки EGO снова находятся. Сохранения не меняются.</desc>
+    </option>
+    <option key="FastFix.WalpurgisDayStart">
+      <name>Incubator: Вальпургиева ночь в начале дня</name>
+      <desc>Вальпургиева ночь в камере больше не выпускает ведьм и Рыцаря отчаяния и не создаёт лазеры, пока день готовится (лазеры там ломались и оставляли существо без узла); и то и другое происходит в первом кадре дня.</desc>
+    </option>
+    <option key="FastFix.IncubatorPoolDestroy">
+      <name>Incubator: пул анимаций ведьм</name>
+      <desc>Ведьма, подавленная ударом внутри физического колбэка или события анимации, больше не пишет в лог &quot;Destroying components immediately is not permitted&quot;; лишние скрипты на её анимации из пула сразу выключаются и удаляются в конце кадра.</desc>
+    </option>
+    <option key="FastFix.UncertainPagePortrait">
+      <name>Uncertain Page: зависание при использовании</name>
+      <desc>Картинка аномалии на странице ищется один раз для каждой аномалии и сохраняется; мод при каждом использовании обходил все файлы всех модов и читал все файлы CreatureInfo. Выбирается та же картинка.</desc>
+    </option>
+    <option key="FastFix.LingDragSelect">
+      <name>Ling: выделение рамкой</name>
+      <desc>Выделение рамкой (перетаскивание левой кнопкой) поверх объекта, который не является юнитом (коллайдер эффекта или пули), больше не вызывает ошибку в проверке мода на своё существо.</desc>
+    </option>
+    <option key="FastFix.IncubatorCheckAgent">
+      <name>Incubator: агенты между комнатами</name>
+      <desc>Агент между комнатами (на краю коридора или в лифте) больше не вызывает ошибку в проверке Инкубатора на агентов с низким SP; эта проверка каждый раз обрывала весь тик Инкубатора. Агент проверяется снова, когда он в комнате.</desc>
+    </option>
+    <option key="FastFix.LadyInRainSpecial">
+      <name>The Lady in Rain: нет особой анимации</name>
+      <desc>Когда мод выбирает редкую особую версию анимации, которой нет в модели (Escapediespecial), вместо ошибки играется обычная; анимация смерти больше не теряется.</desc>
+    </option>
+    <option key="FastFix.TiamatButtonLayer">
+      <name>Tiamat EGO reader: ошибка слоя</name>
+      <desc>Кнопки смены EGO в окне аномалии больше не пишут ошибку слоя в лог при каждом открытии окна (мод ставит слой 999; Unity его отклоняла и оставляла прежний, как и сейчас).</desc>
+    </option>
+    <option key="FastFix.HmiInfoHover">
+      <name>I-1236 Branch: наведение в окне аномалии</name>
+      <desc>Наведение на закрытую область окна аномалии, когда в окне не задана аномалия, больше не вызывает ошибку в проверке мода.</desc>
+    </option>
+    <option key="FastFix.FewSuppressChild">
+      <name>Goddess of the Stars (FEW RiskLevel): сбежавшие дочерние существа</name>
+      <desc>Клик по сбежавшему дочернему существу без собственных данных наблюдения больше не вызывает ошибку в метке уровня риска окна подавления; окно оставляет игровую метку.</desc>
+    </option>
+    <option key="FastFix.HslebSuppressChild">
+      <name>Souls Pawn Shop (HSLEB RiskLevel): сбежавшие дочерние существа</name>
+      <desc>Клик по сбежавшему дочернему существу без собственных данных наблюдения больше не вызывает ошибку в метке уровня риска окна подавления; окно оставляет игровую метку.</desc>
+    </option>
+    <option key="FastFix.FourFoolsSelect">
+      <name>Four Fools: экран выбора аномалий</name>
+      <desc>Экран выбора аномалий больше не вызывает ошибку, когда дверь выбора появляется раньше, чем ей задана аномалия.</desc>
+    </option>
+    <option key="FastFix.InvalidNodeLog">
+      <name>Спам invalid node state</name>
+      <desc>Юнит без узла и ребра на карте (так перемещают юнитов некоторые моды) больше не пишет invalid node state в лог при каждом движении; больше игра на этом пути ничего не делает.</desc>
+    </option>
+    <option key="FastFix.MoveStateTrace">
+      <name>Трассировка ошибок движения (удалена)</name>
     </option>
   </options>
 </NailUI>
