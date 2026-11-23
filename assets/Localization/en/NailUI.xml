@@ -793,6 +793,14 @@
       <name>Skeletons on pause</name>
       <desc>On pause, characters refresh their pose rarely.</desc>
     </option>
+    <option key="PerfPack.SkeletonFrameSync" section="Performance" group="PerfRender" order="75">
+      <name>Face stays on the head</name>
+      <desc>Fixes a game bug: zoomed out a little, the face of agents and clerks slips on the head. The body is now drawn on the same frames as the pose. Same speed.</desc>
+    </option>
+    <option key="PerfPack.UnitDepth" section="Performance" group="PerfRender" order="76">
+      <name>Characters do not clip</name>
+      <desc>Fixes a game bug: an agent and a clerk could share one depth, and overlapping characters clipped through each other. Takes effect from the next day.</desc>
+    </option>
     <option key="PerfPack.InventoryDefer" section="Performance" group="PerfUi" order="50">
       <name>EGO list build</name>
       <desc>The EGO list builds gradually on the preparation screen; the day loads up to twice as fast.</desc>

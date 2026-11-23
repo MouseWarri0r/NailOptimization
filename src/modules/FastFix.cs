@@ -57,7 +57,7 @@ namespace FastFix
 	public static class ForeignLeaks
 	{
 		private static N.Flag _flag;
-		private static readonly string[] LinkAsm = new string[] { "heavenLinkEGO", "STARRRLinkEGO", "KimLinkEGO" };
+		private static readonly string[] LinkAsm = new string[] { "heavenLinkEGO", "STARRRLinkEGO", "KimLinkEGO", "shoeLinkEGO", "MRFZLinkEGO" };
 
 		internal static void Install(N.Flag flag)
 		{
@@ -78,6 +78,13 @@ namespace FastFix
 				link += PruneDestroyedList(Field(LinkAsm[i], LinkAsm[i] + ".Harmony_Patch", "UI_disgifts") as System.Collections.IList);
 			}
 			string line = "link=" + link;
+			// BloodRose: every BloodMapObject ever made; only blood the Rose collects is removed.
+			int blood = PruneDestroyedList(Field("BloodRose", "BloodRose.RoseGlobalData", "bloodobjects") as System.Collections.IList);
+			if (blood > 0)
+			{
+				link += blood;
+				line += " blood=" + blood;
+			}
 			List<AgentModel> agents = new List<AgentModel>();
 			if (AgentManager.instance != null)
 			{
@@ -106,41 +113,87 @@ namespace FastFix
 				removed += n;
 				line += " gifts=" + n + "/kept " + gifts.Count;
 			}
+			Dictionary<object, bool> units = null;
 			System.Collections.IDictionary damage = Field("MyFormEmpties", "MyFormEmpties.Harmony_Patch", "damageRecords") as System.Collections.IDictionary;
 			if (damage != null && damage.Count > 0)
 			{
-				Dictionary<object, bool> live = new Dictionary<object, bool>();
-				for (int i = 0; i < agents.Count; i++)
-				{
-					live[agents[i]] = true;
-				}
-				if (CreatureManager.instance != null)
-				{
-					CreatureModel[] cs = CreatureManager.instance.GetCreatureList();
-					for (int i = 0; cs != null && i < cs.Length; i++)
-					{
-						if (cs[i] != null)
-						{
-							live[cs[i]] = true;
-						}
-					}
-				}
-				if (OfficerManager.instance != null)
-				{
-					IList<OfficerModel> os = OfficerManager.instance.GetOfficerList();
-					for (int i = 0; os != null && i < os.Count; i++)
-					{
-						if (os[i] != null)
-						{
-							live[os[i]] = true;
-						}
-					}
-				}
-				int n = PruneNotLive(damage, live, "from", "to");
+				units = LiveUnits(agents);
+				int n = PruneNotLive(damage, units, "from", "to");
 				removed += n;
 				line += " damage=" + n + "/kept " + damage.Count;
 			}
+			// KnightTears: victim -> last attacker (removed only on the victim's death) and victim -> death time (1 s dedupe).
+			System.Collections.IDictionary sources = Field("KnightTears", "KnightTearsRuntime", "lastDamageSources") as System.Collections.IDictionary;
+			System.Collections.IDictionary deaths = Field("KnightTears", "KnightTearsRuntime", "deathReportTimes") as System.Collections.IDictionary;
+			if ((sources != null && sources.Count > 0) || (deaths != null && deaths.Count > 0))
+			{
+				if (units == null)
+				{
+					units = LiveUnits(agents);
+				}
+				int n = PruneNotLiveKV(sources, units, true) + PruneNotLiveKV(deaths, units, false);
+				removed += n;
+				line += " knight=" + n + "/kept " + ((sources == null ? 0 : sources.Count) + (deaths == null ? 0 : deaths.Count));
+			}
 			Log(line, removed);
+		}
+
+		// Agents (deployed and spare), creatures and officers of the current day.
+		private static Dictionary<object, bool> LiveUnits(List<AgentModel> agents)
+		{
+			Dictionary<object, bool> live = new Dictionary<object, bool>();
+			for (int i = 0; i < agents.Count; i++)
+			{
+				live[agents[i]] = true;
+			}
+			if (CreatureManager.instance != null)
+			{
+				CreatureModel[] cs = CreatureManager.instance.GetCreatureList();
+				for (int i = 0; cs != null && i < cs.Length; i++)
+				{
+					if (cs[i] != null)
+					{
+						live[cs[i]] = true;
+					}
+				}
+			}
+			if (OfficerManager.instance != null)
+			{
+				IList<OfficerModel> os = OfficerManager.instance.GetOfficerList();
+				for (int i = 0; os != null && i < os.Count; i++)
+				{
+					if (os[i] != null)
+					{
+						live[os[i]] = true;
+					}
+				}
+			}
+			return live;
+		}
+
+		// Entries whose key (and, with checkValue, whose value) is not in 'live'.
+		private static int PruneNotLiveKV(System.Collections.IDictionary d, Dictionary<object, bool> live, bool checkValue)
+		{
+			if (d == null || d.Count == 0)
+			{
+				return 0;
+			}
+			List<object> dead = new List<object>();
+			System.Collections.IDictionaryEnumerator e = d.GetEnumerator();
+			while (e.MoveNext())
+			{
+				object k = e.Key;
+				object v = e.Value;
+				if (!live.ContainsKey(k) || (checkValue && (v == null || !live.ContainsKey(v))))
+				{
+					dead.Add(k);
+				}
+			}
+			for (int i = 0; i < dead.Count; i++)
+			{
+				d.Remove(dead[i]);
+			}
+			return dead.Count;
 		}
 
 		private static void AddAgents(List<AgentModel> to, IList<AgentModel> from)
@@ -186,13 +239,11 @@ namespace FastFix
 		private static object Field(string asmName, string typeName, string field)
 		{
 			Assembly asm = N.ModHooks.Find(asmName);
-			if (object.ReferenceEquals(asm, null))
-			{
-				return null;
-			}
 			try
 			{
-				Type t = asm.GetType(typeName, false);
+				// The assembly name can differ from the dll name (MyFormEmpties_MOD, KnightTears.counterguard.merged):
+				// then the type is looked up in every loaded assembly.
+				Type t = object.ReferenceEquals(asm, null) ? FindType(typeName) : asm.GetType(typeName, false);
 				if (object.ReferenceEquals(t, null))
 				{
 					return null;
@@ -209,6 +260,32 @@ namespace FastFix
 				N.ULog.Warn(FastFixModule.Tag, "ForeignLeaks: " + typeName + "." + field + " unreadable: " + e.Message);
 				return null;
 			}
+		}
+
+		private static readonly Dictionary<string, Type> _types = new Dictionary<string, Type>();
+
+		// Type by full name in any loaded assembly; misses are cached too (one search per name per game).
+		private static Type FindType(string typeName)
+		{
+			Type t;
+			if (_types.TryGetValue(typeName, out t))
+			{
+				return t;
+			}
+			Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
+			for (int i = 0; i < all.Length && object.ReferenceEquals(t, null); i++)
+			{
+				try
+				{
+					t = all[i].GetType(typeName, false);
+				}
+				catch (Exception)
+				{
+					t = null;
+				}
+			}
+			_types[typeName] = t;
+			return t;
 		}
 
 		// Keys that are destroyed Unity objects.
@@ -520,7 +597,7 @@ namespace FastFix
 		{
 			get
 			{
-				return "1.70";
+				return "1.75";
 			}
 		}
 
@@ -4032,6 +4109,7 @@ namespace FastFix
 				InstallPassageRect();
 				InstallNodeQuiet();
 				InstallNoNameQuiet();
+				InstallDeadSlot();
 				InstallChildViewWait();
 				InstallAddCompTrace();
 				InstallMoveQuiet();
@@ -4264,6 +4342,7 @@ namespace FastFix
 		private static bool _upDone;
 		private static bool _lingDone;
 		private static bool _incCheckDone;
+		private static bool _majoTargetDone;
 		private static bool _ladySpecialDone;
 		private static bool _tiamatLayerDone;
 		private static bool _hmiHoverDone;
@@ -4365,11 +4444,15 @@ namespace FastFix
 			}
 			if (!_poolDone)
 			{
-				_poolDone = ModByType("Incubator.Incubator", "FastFix.IncubatorPoolDestroy", "Incubator: a witch suppressed by a hit inside a physics callback (Der Freischutz bullet) no longer logs 'Destroying components immediately is not permitted' when its animation goes back to the pool; the extra scripts on it are removed at the end of the frame instead of staying on the pooled animation. Read at game start.", last, InstallPool);
+				_poolDone = ModByType("Incubator.Incubator", "FastFix.IncubatorPoolDestroy", "Incubator: a witch suppressed by a hit inside a physics callback (Der Freischutz bullet) no longer logs 'Destroying components immediately is not permitted' when its animation goes back to the pool; the extra scripts on it are removed at the end of the frame instead of staying on the pooled animation. Pooled animations destroyed by a scene load are dropped from the pool, so a child that appears after a day restart gets a working animation. Read at game start.", last, InstallPool);
 			}
 			if (!_incCheckDone)
 			{
 				_incCheckDone = ModByType("Incubator.Incubator", "FastFix.IncubatorCheckAgent", "Incubator: an agent between rooms (on a hallway edge or an elevator) no longer throws in the Incubator's check for agents with low SP; the check stopped the Incubator's whole tick each time. That agent is checked again when it is in a room. Read at game start.", last, InstallIncCheck);
+			}
+			if (!_majoTargetDone)
+			{
+				_majoTargetDone = ModByType("Incubator.Majos.MajoBase", "FastFix.IncubatorWitchTarget", "Incubator: escaped witches no longer pick, keep or hit dead agents and clerks (a body that kept its hp counted as a target, so a witch swung at it in place forever, and the hit on a dead agent threw), and drop a target that left their room; they pick a living target in their room as the mod does. Read at game start.", last, InstallMajoTarget);
 			}
 			if (!_ladySpecialDone)
 			{
@@ -4377,7 +4460,7 @@ namespace FastFix
 			}
 			if (!_tiamatLayerDone)
 			{
-				_tiamatLayerDone = ModByType("TiamatEGOreader.Harmony_Patch", "FastFix.TiamatButtonLayer", "Tiamat EGO reader: its EGO switch buttons in the abnormality window no longer write a layer error to the log each time the window opens (the mod sets layer 999; Unity refused it and kept the layer, as now). Read at game start.", last, InstallTiamatLayer);
+				_tiamatLayerDone = ModByType(FirstLoadedType(EgoReaderTypes), "FastFix.EgoReaderButtons", "EGO reader mods (ComEGO EGO packs, Tiamat, Fairy Long Legs, Bamboo-hatted Kim, King in Binds and their copies): opening the abnormality window no longer freezes for up to 1.5 s. EGO switch buttons go only to the abnormality a ComEGO entry was written for: an EGO pack for a game abnormality no longer adds them to a mod abnormality with the same id (Incubator's witch T-01-02 and Mimicry) and the mod's EGO list is no longer changed by it; a mod's own entries stay with its own abnormality. The button picture folder is looked up once instead of on each open; no layer error in the log (Unity refused layer 999 and kept the layer, as now). Read at game start.", last, InstallEgoReader);
 			}
 			if (!_fewSuppressDone)
 			{
@@ -4408,7 +4491,7 @@ namespace FastFix
 				_bleedEndDone = ModByType("Bleedbuf", "FastFix.BleedIconEnd", "Blood Shoes: the end of a bleed no longer throws in its icon update and writes an error file to the desktop. Read at game start.", last, InstallBleedEnd);
 			}
 			return _shoesDone && _queenDone && _raspDone && _pondDone && _turbDone && _heavenDone && _scytheDone && _wrResetDone && _brClearDone && _efDone && _introDone && _bxDone && _tmDone && _roseDone
-				&& _nothingDone && _trioDone && _rabbitRangeDone && _bleedEndDone && _giftFixDone && _shoesDirDone && _walpDone && _incIdDone && _sheepDone && _poolDone && _upDone && _lingDone && _incCheckDone && _ladySpecialDone && _tiamatLayerDone && _hmiHoverDone && _fewSuppressDone && _hslebSuppressDone && _fourFoolsSelectDone;
+				&& _nothingDone && _trioDone && _rabbitRangeDone && _bleedEndDone && _giftFixDone && _shoesDirDone && _walpDone && _incIdDone && _sheepDone && _poolDone && _upDone && _lingDone && _incCheckDone && _majoTargetDone && _ladySpecialDone && _tiamatLayerDone && _hmiHoverDone && _fewSuppressDone && _hslebSuppressDone && _fourFoolsSelectDone;
 		}
 
 		private static readonly HashSet<string> _batchErr = new HashSet<string>();
@@ -6538,6 +6621,88 @@ namespace FastFix
 			}
 		}
 
+		// CommandWindow.AgentSlot.UpdateUI (the agent list of the work and suppression windows) writes hp and mental of a dead
+		// agent as they are; a body that kept its hp (special deaths) shows full bars next to the Dead label. A Postfix sets
+		// both bars to 0 and the texts to 0/max for an agent with IsDead(). The overrides in ManagementSlot and SuppressSlot
+		// call the base method, so one patch covers them. UpdateUI has no handlers; display only.
+		private static void InstallDeadSlot()
+		{
+			const string key = "FastFix.DeadAgentSlotStats";
+			if (!N.Config.BindFlag(key, true, "Work and suppression windows: a dead agent in the agent list shows 0 HP and 0 SP instead of the hp and SP its body kept. Display only. Read at game start.").On)
+			{
+				return;
+			}
+			try
+			{
+				MethodInfo m = typeof(CommandWindow.AgentSlot).GetMethod("UpdateUI", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, null, Type.EmptyTypes, null);
+				if (object.ReferenceEquals(m, null))
+				{
+					Missing(key, "CommandWindow.AgentSlot.UpdateUI");
+					return;
+				}
+				MethodBody body = m.GetMethodBody();
+				if (body == null || body.ExceptionHandlingClauses.Count > 0)
+				{
+					Missing(key, "CommandWindow.AgentSlot.UpdateUI body");
+					return;
+				}
+				FastFixModule.Harmony.Patch(m, null, new HarmonyMethod(Own("DeadSlotPostfix")));
+				Patched(key, m);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
+			}
+		}
+
+		private static readonly Dictionary<int, string> _deadTexts = new Dictionary<int, string>();
+
+		private static string DeadText(int max)
+		{
+			string r;
+			if (!_deadTexts.TryGetValue(max, out r))
+			{
+				r = "0/" + max;
+				_deadTexts[max] = r;
+			}
+			return r;
+		}
+
+		public static void DeadSlotPostfix(CommandWindow.AgentSlot __instance)
+		{
+			try
+			{
+				AgentModel a = __instance.CurrentAgent;
+				if (a == null || !a.IsDead())
+				{
+					return;
+				}
+				// UpdateUI runs every frame: cached texts, and a write only when the value differs (no allocation per frame).
+				if (__instance.HealthFill.fillAmount != 0f)
+				{
+					__instance.HealthFill.fillAmount = 0f;
+				}
+				if (__instance.MentalFill.fillAmount != 0f)
+				{
+					__instance.MentalFill.fillAmount = 0f;
+				}
+				string h = DeadText(a.maxHp);
+				if (!string.Equals(__instance.HealthText.text, h, StringComparison.Ordinal))
+				{
+					__instance.HealthText.text = h;
+				}
+				string mt = DeadText(a.maxMental);
+				if (!string.Equals(__instance.MentalText.text, mt, StringComparison.Ordinal))
+				{
+					__instance.MentalText.text = mt;
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("DeadSlotPostfix", e);
+			}
+		}
+
 		public static bool NoNamePrefix(CreatureTypeInfo __instance, ref string __result)
 		{
 			try
@@ -6586,6 +6751,7 @@ namespace FastFix
 					return;
 				}
 				_childStarted = new HashSet<int>();
+				N.Events.On(NoticeName.OnStageStart, ClearChildStarted, FastFixModule.Tag);
 				FastFixModule.Harmony.Patch(start, new HarmonyMethod(Own("ChildStartPrefix")), null);
 				Patched(key, start);
 				FastFixModule.Harmony.Patch(esc, new HarmonyMethod(Own("ChildEscapePrefix")), null);
@@ -6595,6 +6761,12 @@ namespace FastFix
 			{
 				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
 			}
+		}
+
+		// Units of earlier days are gone; their ids would only pile up.
+		private static void ClearChildStarted()
+		{
+			_childStarted.Clear();
 		}
 
 		public static void ChildStartPrefix(ChildCreatureUnit __instance)
@@ -6666,6 +6838,49 @@ namespace FastFix
 			_poolListType = ga[1];
 			FastFixModule.Harmony.Patch(ret, new HarmonyMethod(Own("PoolReturnPrefix")), null);
 			Patched(key, ret);
+			MethodInfo load = FindByName(t, "LoadCustomEffectAsGameObject", 1);
+			if (object.ReferenceEquals(load, null) || !load.IsStatic || !object.ReferenceEquals(load.GetParameters()[0].ParameterType, typeof(string)))
+			{
+				Missing(key, "AssetGetter.LoadCustomEffectAsGameObject(string)");
+				return;
+			}
+			FastFixModule.Harmony.Patch(load, new HarmonyMethod(Own("PoolLoadPrefix")), null);
+			Patched(key, load);
+		}
+
+		// Return reparents the pooled object to the scene root (SetParent(null)), so a scene load (day restart, title) destroys it
+		// while it stays in _animList. LoadCustomEffectAsGameObject then hands out the destroyed object, gameObject throws, the
+		// child's OnViewInit catch leaves Anim null and Incubator_Child.Leave throws an NRE (097-mem-d49-2 nail.log:1267). The
+		// Prefix drops destroyed entries first; the original (no try/catch) then reuses a live one or creates a new one.
+		private static int _poolStale;
+
+		public static void PoolLoadPrefix(string animName)
+		{
+			try
+			{
+				if (animName == null || !_poolList.Contains(animName))
+				{
+					return;
+				}
+				System.Collections.IList l = (System.Collections.IList)_poolList[animName];
+				for (int i = l.Count - 1; i >= 0; i--)
+				{
+					UnityEngine.Object o = l[i] as UnityEngine.Object;
+					if (o == null)
+					{
+						l.RemoveAt(i);
+						_poolStale++;
+						if (_poolStale <= 3)
+						{
+							N.ULog.Info(FastFixModule.Tag, "FastFix.IncubatorPoolDestroy: destroyed pooled " + animName + " dropped (" + _poolStale + ")");
+						}
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("PoolLoadPrefix", e);
+			}
 		}
 
 		public static bool PoolReturnPrefix(string animName, MonoBehaviour anim)
@@ -6954,6 +7169,152 @@ namespace FastFix
 			}
 		}
 
+		// Incubator witches (NormalAttack_MajoBase: Roberta, Izabel, Kirsten, Gertrud; ElsaMaria) keep their target in
+		// UniqueEscape while InAttackRange(target) is true, and InAttackRange compares x positions only. A dead target's node
+		// stays at the body and a target on another floor can share the x, so the witch swings in place forever.
+		// Incubator_CreatureBase.GetPassageTargets (new target and the hit in AttackEvent) keeps units with hp > 0, and an agent
+		// or clerk killed by a special death or by panic keeps its hp (097-p8-a: 20 of 33 agents dead with hp > 0), so a
+		// witch also picks and hits bodies (the hit on a dead agent is the TakeDamage -> Panic NRE chain from ElsaMariaAnim).
+		// Fix: a replacing Prefix on GetPassageTargets (same rules plus WorkerModel.IsDead(); its foreach handlers do not
+		// matter because the original never runs) and a Prefix on MajoBase.OnFixedUpdate (the only caller of UniqueEscape;
+		// UniqueEscape has foreach, GL-53) that clears a kept target that is dead or outside her passage, so the mod picks
+		// again. Reflection runs only for escaped witches. MajoBase.OnFixedUpdate has no handlers.
+		private static FieldInfo _majoTargetNormal;
+		private static FieldInfo _majoTargetElsa;
+		private static int _majoDrops;
+
+		private static void InstallMajoTarget(Assembly asm)
+		{
+			const string key = "FastFix.IncubatorWitchTarget";
+			Type t = asm.GetType("Incubator.Majos.MajoBase");
+			Type normal = asm.GetType("Incubator.Majos.NormalAttack_MajoBase");
+			Type elsa = asm.GetType("Incubator.Majos.ALEPH.ElsaMaria");
+			MethodInfo m = object.ReferenceEquals(t, null) ? null : t.GetMethod("OnFixedUpdate", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, null, new Type[] { typeof(CreatureModel) }, null);
+			_majoTargetNormal = object.ReferenceEquals(normal, null) ? null : normal.GetField("target", BindingFlags.Public | BindingFlags.Instance);
+			_majoTargetElsa = object.ReferenceEquals(elsa, null) ? null : elsa.GetField("target", BindingFlags.Public | BindingFlags.Instance);
+			if (object.ReferenceEquals(m, null) || object.ReferenceEquals(_majoTargetNormal, null) || object.ReferenceEquals(_majoTargetElsa, null)
+				|| !object.ReferenceEquals(_majoTargetNormal.FieldType, typeof(UnitModel)) || !object.ReferenceEquals(_majoTargetElsa.FieldType, typeof(UnitModel)))
+			{
+				Missing(key, "MajoBase.OnFixedUpdate(CreatureModel) / NormalAttack_MajoBase.target / ElsaMaria.target (UnitModel)");
+				return;
+			}
+			MethodBody b = m.GetMethodBody();
+			if (b == null || b.ExceptionHandlingClauses.Count > 0)
+			{
+				Missing(key, "MajoBase.OnFixedUpdate without exception handlers");
+				return;
+			}
+			Type cbType = asm.GetType("Incubator_CreatureBase");
+			MethodInfo pt = object.ReferenceEquals(cbType, null) ? null : cbType.GetMethod("GetPassageTargets", BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+			if (object.ReferenceEquals(pt, null) || !object.ReferenceEquals(pt.ReturnType, typeof(System.Collections.Generic.List<UnitModel>)))
+			{
+				Missing(key, "Incubator_CreatureBase.GetPassageTargets() : List<UnitModel>");
+				return;
+			}
+			_majoDrops = 0;
+			FastFixModule.Harmony.Patch(pt, new HarmonyMethod(Own("MajoPassagePrefix")), null);
+			Patched(key, pt);
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("MajoTargetPrefix")), null);
+			Patched(key, m);
+		}
+
+		public static void MajoTargetPrefix(object __instance)
+		{
+			try
+			{
+				CreatureBase cb = __instance as CreatureBase;
+				CreatureModel model = cb == null ? null : cb.model;
+				if (model == null || model.state != CreatureState.ESCAPE)
+				{
+					return;
+				}
+				FieldInfo f;
+				if (_majoTargetNormal.DeclaringType.IsInstanceOfType(__instance))
+				{
+					f = _majoTargetNormal;
+				}
+				else if (_majoTargetElsa.DeclaringType.IsInstanceOfType(__instance))
+				{
+					f = _majoTargetElsa;
+				}
+				else
+				{
+					return;
+				}
+				UnitModel target = f.GetValue(__instance) as UnitModel;
+				if (target == null)
+				{
+					return;
+				}
+				MovableObjectNode own = cb.movable;
+				PassageObjectModel ownPassage = own == null ? null : own.currentPassage;
+				if (ownPassage == null)
+				{
+					return;
+				}
+				MovableObjectNode n = target.GetMovableNode();
+				if (!MajoDead(target) && n != null && n.currentPassage == ownPassage)
+				{
+					return;
+				}
+				f.SetValue(__instance, null);
+				_majoDrops++;
+				if (_majoDrops == 1 || _majoDrops % 100 == 0)
+				{
+					N.ULog.Info(FastFixModule.Tag, "FastFix.IncubatorWitchTarget: " + model.metaInfo.name + " dropped a dead or departed target (" + _majoDrops + ")");
+				}
+			}
+			catch (Exception e)
+			{
+				Batch2Err("MajoTarget", e);
+			}
+		}
+
+		private static bool MajoDead(UnitModel unit)
+		{
+			if (unit.hp <= 0f)
+			{
+				return true;
+			}
+			WorkerModel w = unit as WorkerModel;
+			return w != null && w.IsDead();
+		}
+
+		// Replaces Incubator_CreatureBase.GetPassageTargets: hostile units of the creature's passage with hp > 0, now without
+		// dead workers. A creature with no passage goes to the original (it throws there, as before).
+		public static bool MajoPassagePrefix(object __instance, ref System.Collections.Generic.List<UnitModel> __result)
+		{
+			try
+			{
+				CreatureBase cb = __instance as CreatureBase;
+				MovableObjectNode own = cb == null ? null : cb.movable;
+				PassageObjectModel passage = own == null ? null : own.currentPassage;
+				if (passage == null || cb.model == null)
+				{
+					return true;
+				}
+				System.Collections.Generic.List<UnitModel> list = new System.Collections.Generic.List<UnitModel>();
+				System.Collections.ObjectModel.ReadOnlyCollection<MovableObjectNode> entered = passage.GetEnteredTargets();
+				for (int i = 0; i < entered.Count; i++)
+				{
+					MovableObjectNode node = entered[i];
+					UnitModel unit = node == null ? null : node.GetUnit();
+					if (unit == null || MajoDead(unit) || unit == cb.model || !cb.model.IsHostile(unit))
+					{
+						continue;
+					}
+					list.Add(unit);
+				}
+				__result = list;
+				return false;
+			}
+			catch (Exception e)
+			{
+				Batch2Err("MajoPassage", e);
+				return true;
+			}
+		}
+
 		// GirlInRainAnim.PlayAnimation appends "special" to the name one time in ten; the model has no "Escapediespecial", so
 		// SetAnimation throws in PlayDeadMotion and the death motion is lost (mass-breach-27). The Transpiler sends the
 		// SetAnimation call through LadySet, which drops the suffix when the model has no such animation. PlayAnimation has no
@@ -7036,84 +7397,376 @@ namespace FastFix
 			return state.SetAnimation(track, name, loop);
 		}
 
-		// TiamatEGOreader.Harmony_Patch.Make{Weapon,Armor}Button{left,Right} set GameObject.layer = 999; Unity refuses a layer
-		// outside 0..31, keeps the old one and logs an error each time the abnormality window opens (four per open). The
-		// Transpiler sends set_layer through TmSetLayer, which sets only a valid layer: the same result without the error. The
-		// four methods have no handlers.
+		// EGO reader mods (TiamatEGOreader, FairyLongLegsEGOreader, KimEGOreader, SFZWEGOreader; several mods ship their own
+		// copy, six in this install) each read every BaseMods/*/Info/ComEGOInfo.txt and run a Prefix on
+		// CreatureInfoWindow.OnChangeCreature. Per open, for a matching abnormality, each copy builds four buttons; each button
+		// walks every BaseMods folder (GetButtonSpritePath) and sets GameObject.layer = 999, which Unity refuses with an error
+		// (the layer stays as it was). CheckComEgoId matches MetaInfo.id only, so a mod abnormality that shares a vanilla id
+		// (Incubator's Izabel 100005 = Mimicry) gets the vanilla one's EGO buttons and the mod adds its EGO to that list.
+		// Measured: 1.3-1.5 s per open of Izabel (run 097-p4-a). Fix: a Prefix on CheckComEgoId answers false when the game's
+		// own creature with that id is another abnormality (other script); a Transpiler on the four Make methods sends set_layer
+		// through TmSetLayer (only a valid layer) and GetButtonSpritePath through EgoPath (the mod's result, kept per mod copy
+		// and name). The patched methods have no handlers (checked at install).
+		private static readonly string[] EgoReaderTypes = new string[] { "TiamatEGOreader.Harmony_Patch", "FairyLongLegsEGOreader.Harmony_Patch", "KimEGOreader.Harmony_Patch", "SFZWEGOreader.Harmony_Patch", "ComEGOreader.Harmony_Patch" };
 		private static MethodInfo _goSetLayer;
 		private static int _tmLayerHits;
+		private static int _erPathHits;
+		private static int _erCurIdx;
+		private static readonly Dictionary<Type, int> _erIdxByType = new Dictionary<Type, int>();
+		private static readonly List<MethodInfo> _erPathMethods = new List<MethodInfo>();
+		private static readonly Dictionary<string, string> _erPathCache = new Dictionary<string, string>();
+		private static readonly HashSet<long> _erSkipLogged = new HashSet<long>();
 
-		private static void InstallTiamatLayer(Assembly asm)
+		private static string FirstLoadedType(string[] names)
+		{
+			Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
+			for (int n = 0; n < names.Length; n++)
+			{
+				for (int a = 0; a < all.Length; a++)
+				{
+					try
+					{
+						if (!object.ReferenceEquals(all[a].GetType(names[n], false), null))
+						{
+							return names[n];
+						}
+					}
+					catch (Exception)
+					{
+					}
+				}
+			}
+			return names[0];
+		}
+
+		private static void InstallEgoReader(Assembly asm)
 		{
 			Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
 			for (int a = 0; a < all.Length; a++)
 			{
-				Type t = null;
-				try
+				for (int n = 0; n < EgoReaderTypes.Length; n++)
 				{
-					t = all[a].GetType("TiamatEGOreader.Harmony_Patch", false);
-				}
-				catch (Exception)
-				{
-				}
-				if (!object.ReferenceEquals(t, null))
-				{
-					TiamatLayerOne(t);
+					Type t = null;
+					try
+					{
+						t = all[a].GetType(EgoReaderTypes[n], false);
+					}
+					catch (Exception)
+					{
+					}
+					if (!object.ReferenceEquals(t, null))
+					{
+						EgoReaderOne(t);
+					}
 				}
 			}
 		}
 
-		// Several mods ship their own copy of TiamatEGOreader.dll (three in this install); each copy runs its own Postfix, so each
-		// one is patched.
-		private static void TiamatLayerOne(Type t)
+		private static bool NoHandlers(string key, MethodInfo m, string what)
 		{
-			const string key = "FastFix.TiamatButtonLayer";
+			if (object.ReferenceEquals(m, null))
+			{
+				Missing(key, what);
+				return false;
+			}
+			MethodBody b = m.GetMethodBody();
+			if (b == null || b.ExceptionHandlingClauses.Count > 0)
+			{
+				Missing(key, what + " without exception handlers");
+				return false;
+			}
+			return true;
+		}
+
+		private static void EgoReaderOne(Type t)
+		{
+			const string key = "FastFix.EgoReaderButtons";
+			BindingFlags ps = BindingFlags.Public | BindingFlags.Static;
+			MethodInfo check = t.GetMethod("CheckComEgoId", ps);
+			if (NoHandlers(key, check, t.FullName + ".CheckComEgoId"))
+			{
+				FastFixModule.Harmony.Patch(check, new HarmonyMethod(Own("EgoCheckPrefix")), null, null);
+				Patched(key, check);
+			}
 			_goSetLayer = typeof(GameObject).GetProperty("layer").GetSetMethod();
+			MethodInfo path = t.GetMethod("GetButtonSpritePath", ps, null, new Type[] { typeof(string) }, null);
+			if (object.ReferenceEquals(path, null) || object.ReferenceEquals(_goSetLayer, null))
+			{
+				Missing(key, t.FullName + ".GetButtonSpritePath / GameObject.set_layer");
+				return;
+			}
+			_erCurIdx = _erPathMethods.Count;
+			_erPathMethods.Add(path);
+			_erIdxByType[t] = _erCurIdx;
 			string[] names = new string[] { "MakeWeaponButtonleft", "MakeWeaponButtonRight", "MakeArmorButtonleft", "MakeArmorButtonRight" };
 			for (int i = 0; i < names.Length; i++)
 			{
-				MethodInfo m = object.ReferenceEquals(t, null) ? null : t.GetMethod(names[i], BindingFlags.Public | BindingFlags.Static);
-				if (object.ReferenceEquals(m, null) || object.ReferenceEquals(_goSetLayer, null))
+				MethodInfo m = t.GetMethod(names[i], ps);
+				if (!NoHandlers(key, m, t.FullName + "." + names[i]))
 				{
-					Missing(key, "TiamatEGOreader.Harmony_Patch." + names[i] + " / GameObject.set_layer");
-					continue;
-				}
-				MethodBody b = m.GetMethodBody();
-				if (b == null || b.ExceptionHandlingClauses.Count > 0)
-				{
-					Missing(key, names[i] + " without exception handlers");
 					continue;
 				}
 				_tmLayerHits = 0;
-				FastFixModule.Harmony.Patch(m, null, null, new HarmonyMethod(Own("TmLayerTranspiler")));
-				if (_tmLayerHits != 1)
+				_erPathHits = 0;
+				FastFixModule.Harmony.Patch(m, null, null, new HarmonyMethod(Own("EgoMakeTranspiler")));
+				if (_erPathHits < 1)
 				{
-					N.ULog.Error(FastFixModule.Tag, key + ": " + names[i] + ": expected 1 set_layer call, found " + _tmLayerHits + " (left as it was)");
+					N.ULog.Error(FastFixModule.Tag, key + ": " + t.FullName + "." + names[i] + ": no GetButtonSpritePath call found (left as it was)");
 					continue;
 				}
 				Patched(key, m);
 			}
 		}
 
-		public static IEnumerable<CodeInstruction> TmLayerTranspiler(IEnumerable<CodeInstruction> instructions)
+		// Harmony runs a transpiler again on every rebuild of the method (another patch later): the reader copy comes from
+		// the original, not from the install-time statics.
+		public static IEnumerable<CodeInstruction> EgoMakeTranspiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
 		{
 			List<CodeInstruction> list = new List<CodeInstruction>(instructions);
-			List<int> at = new List<int>();
-			for (int i = 0; i < list.Count; i++)
-			{
-				if ((list[i].opcode == OpCodes.Call || list[i].opcode == OpCodes.Callvirt) && object.ReferenceEquals(list[i].operand as MethodInfo, _goSetLayer))
-				{
-					at.Add(i);
-				}
-			}
-			_tmLayerHits = at.Count;
-			if (at.Count != 1)
+			Type rt = object.ReferenceEquals(original, null) ? null : original.DeclaringType;
+			int ri;
+			if (object.ReferenceEquals(rt, null) || !_erIdxByType.TryGetValue(rt, out ri))
 			{
 				return list;
 			}
-			list[at[0]].opcode = OpCodes.Call;
-			list[at[0]].operand = Own("TmSetLayer");
+			List<int> layerAt = new List<int>();
+			List<int> pathAt = new List<int>();
+			for (int i = 0; i < list.Count; i++)
+			{
+				if (list[i].opcode != OpCodes.Call && list[i].opcode != OpCodes.Callvirt)
+				{
+					continue;
+				}
+				MethodInfo mi = list[i].operand as MethodInfo;
+				if (object.ReferenceEquals(mi, null))
+				{
+					continue;
+				}
+				if (object.ReferenceEquals(mi, _goSetLayer) || (string.Equals(mi.Name, "set_layer", StringComparison.Ordinal) && object.ReferenceEquals(mi.DeclaringType, typeof(GameObject))))
+				{
+					layerAt.Add(i);
+				}
+				else if (string.Equals(mi.Name, "GetButtonSpritePath", StringComparison.Ordinal) && object.ReferenceEquals(mi.DeclaringType, rt))
+				{
+					pathAt.Add(i);
+				}
+			}
+			_tmLayerHits = layerAt.Count;
+			_erPathHits = pathAt.Count;
+			if (pathAt.Count < 1)
+			{
+				return list;
+			}
+			for (int i = 0; i < layerAt.Count; i++)
+			{
+				list[layerAt[i]].opcode = OpCodes.Call;
+				list[layerAt[i]].operand = Own("TmSetLayer");
+			}
+			// name is on the stack; push the mod copy's index and call EgoPath(name, idx). Labels move to the pushed constant.
+			// Back to front, so the earlier indexes stay valid after each insert.
+			for (int i = pathAt.Count - 1; i >= 0; i--)
+			{
+				CodeInstruction call = list[pathAt[i]];
+				CodeInstruction idx = new CodeInstruction(OpCodes.Ldc_I4, ri);
+				idx.labels.AddRange(call.labels);
+				call.labels.Clear();
+				call.opcode = OpCodes.Call;
+				call.operand = Own("EgoPath");
+				list.Insert(pathAt[i], idx);
+			}
 			return list;
+		}
+
+		public static string EgoPath(string name, int idx)
+		{
+			string k = idx.ToString() + "|" + name;
+			string r;
+			if (_erPathCache.TryGetValue(k, out r))
+			{
+				return r;
+			}
+			r = (string)_erPathMethods[idx].Invoke(null, new object[] { name });
+			_erPathCache[k] = r;
+			return r;
+		}
+
+		// The original is static and its window parameter is named __instance, which Harmony fills with null for a static
+		// method; the mods call it with the current window, so that one is read.
+		public static bool EgoCheckPrefix(ref bool __result)
+		{
+			try
+			{
+				CreatureInfoWindow w = CreatureInfoWindow.CurrentWindow;
+				CreatureTypeInfo m = object.ReferenceEquals(w, null) ? null : w.MetaInfo;
+				CreatureTypeList l = CreatureTypeList.instance;
+				if (m == null || l == null)
+				{
+					return true;
+				}
+				ScanComEgoFolders();
+				bool forVanilla = _erForVanilla.Contains(m.id);
+				List<string> owners;
+				bool forMod = _erForMod.TryGetValue(m.id, out owners);
+				if (!forVanilla && !forMod)
+				{
+					return true;
+				}
+				bool allow;
+				if (!IsModCreature(m))
+				{
+					// The game's own abnormality: buttons from an EGO pack folder for it, or from no known folder (as before).
+					allow = forVanilla || !forMod;
+				}
+				else
+				{
+					// A mod abnormality: a ComEGO in the folder that declares it; an EGO pack for the game abnormality with the
+					// same id is not for it.
+					// A pack folder id with no game abnormality behind it can only be meant for a mod abnormality (as before).
+					bool twin = Array.IndexOf(CreatureGenerateInfo.all, m.id) >= 0;
+					allow = forMod ? (owners.Contains(m.script) || (!twin && forVanilla)) : (!twin || !forVanilla);
+				}
+				if (allow)
+				{
+					return true;
+				}
+				if (_erSkipLogged.Add(m.id))
+				{
+					N.ULog.Info(FastFixModule.Tag, "FastFix.EgoReaderButtons: " + m.script + " (id " + m.id + ") is not the abnormality its ComEGO entries were written for; EGO switch buttons are not added");
+				}
+				__result = false;
+				return false;
+			}
+			catch (Exception e)
+			{
+				Batch2Err("EgoCheck", e);
+				return true;
+			}
+		}
+
+		// A mod abnormality: its script is not a game class. The id alone does not tell: the type
+		// list can hold a mod's entry under a game id (Incubator's Izabel under 100005, Mimicry's id).
+		private static readonly Dictionary<string, bool> _erGameScript = new Dictionary<string, bool>();
+
+		private static bool IsModCreature(CreatureTypeInfo m)
+		{
+			string s = m.script ?? string.Empty;
+			bool game;
+			if (!_erGameScript.TryGetValue(s, out game))
+			{
+				game = s.Length > 0 && !object.ReferenceEquals(typeof(CreatureBase).Assembly.GetType(s, false), null);
+				_erGameScript[s] = game;
+			}
+			// A mod entry with a game script (a rebalance of a game abnormality) counts as the game's own.
+			return !game;
+		}
+
+		// Ids of ComEGOInfo.txt entries by folder kind, read once: a folder that declares a creature with that id in
+		// Creature/CreatureList (its own abnormality: the script from its stat file) or a folder that does not (an EGO pack for
+		// the game's abnormality with that id).
+		private static bool _erScanned;
+		private static readonly HashSet<long> _erForVanilla = new HashSet<long>();
+		private static readonly Dictionary<long, List<string>> _erForMod = new Dictionary<long, List<string>>();
+
+		private static void ScanComEgoFolders()
+		{
+			if (_erScanned)
+			{
+				return;
+			}
+			_erScanned = true;
+			string[] dirs = System.IO.Directory.GetDirectories(System.IO.Path.Combine(Application.dataPath, "BaseMods"));
+			for (int d = 0; d < dirs.Length; d++)
+			{
+				string info = System.IO.Path.Combine(System.IO.Path.Combine(dirs[d], "Info"), "ComEGOInfo.txt");
+				if (!System.IO.File.Exists(info))
+				{
+					continue;
+				}
+				try
+				{
+					Dictionary<long, string> own = FolderCreatures(dirs[d]);
+					System.Xml.XmlDocument doc = new System.Xml.XmlDocument();
+					doc.LoadXml(System.IO.File.ReadAllText(info));
+					System.Xml.XmlNodeList nodes = doc.GetElementsByTagName("creature");
+					for (int i = 0; i < nodes.Count; i++)
+					{
+						System.Xml.XmlAttribute a = nodes[i].Attributes == null ? null : nodes[i].Attributes["id"];
+						long id;
+						if (a == null || !long.TryParse(a.Value.Trim(), out id))
+						{
+							continue;
+						}
+						string script;
+						if (own.TryGetValue(id, out script))
+						{
+							List<string> list;
+							if (!_erForMod.TryGetValue(id, out list))
+							{
+								list = new List<string>();
+								_erForMod[id] = list;
+							}
+							list.Add(script);
+						}
+						else
+						{
+							_erForVanilla.Add(id);
+						}
+					}
+				}
+				catch (Exception e)
+				{
+					N.ULog.Warn(FastFixModule.Tag, "FastFix.EgoReaderButtons: " + info + " not read: " + e.Message);
+				}
+			}
+			N.ULog.Info(FastFixModule.Tag, "FastFix.EgoReaderButtons: ComEGO ids for game abnormalities " + _erForVanilla.Count + ", for the folder's own " + _erForMod.Count);
+		}
+
+		// id -> script of each creature the folder declares (Creature/CreatureList/*: <creature id><stat>NAME</stat>, then
+		// Creature/Creatures/NAME.txt or .xml: <script>).
+		private static Dictionary<long, string> FolderCreatures(string dir)
+		{
+			Dictionary<long, string> r = new Dictionary<long, string>();
+			string listDir = System.IO.Path.Combine(System.IO.Path.Combine(dir, "Creature"), "CreatureList");
+			if (!System.IO.Directory.Exists(listDir))
+			{
+				return r;
+			}
+			string statDir = System.IO.Path.Combine(System.IO.Path.Combine(dir, "Creature"), "Creatures");
+			string[] files = System.IO.Directory.GetFiles(listDir);
+			for (int f = 0; f < files.Length; f++)
+			{
+				System.Xml.XmlDocument doc = new System.Xml.XmlDocument();
+				doc.LoadXml(System.IO.File.ReadAllText(files[f]));
+				System.Xml.XmlNodeList nodes = doc.GetElementsByTagName("creature");
+				for (int i = 0; i < nodes.Count; i++)
+				{
+					System.Xml.XmlAttribute a = nodes[i].Attributes == null ? null : nodes[i].Attributes["id"];
+					System.Xml.XmlNode stat = nodes[i].SelectSingleNode("stat");
+					long id;
+					if (a == null || stat == null || !long.TryParse(a.Value.Trim(), out id))
+					{
+						continue;
+					}
+					string name = stat.InnerText.Trim();
+					string p = System.IO.Path.Combine(statDir, name + ".txt");
+					if (!System.IO.File.Exists(p))
+					{
+						p = System.IO.Path.Combine(statDir, name + ".xml");
+					}
+					if (!System.IO.File.Exists(p))
+					{
+						continue;
+					}
+					System.Xml.XmlDocument sd = new System.Xml.XmlDocument();
+					sd.LoadXml(System.IO.File.ReadAllText(p));
+					System.Xml.XmlNodeList sc = sd.GetElementsByTagName("script");
+					if (sc.Count > 0)
+					{
+						r[id] = sc[0].InnerText.Trim();
+					}
+				}
+			}
+			return r;
 		}
 
 		public static void TmSetLayer(GameObject go, int layer)
@@ -7362,53 +8015,7 @@ namespace FastFix
 			return false;
 		}
 
-		// Diagnostic, temporary (1.54; remove before release). "Invalid Movable State.. Please report this." comes from
-		// MovableObjectNode.ProcessMoveByDistance when the current node is not on the path edge (the node was set while the
-		// unit walked a path); it was seen under ChildMoveNode (child creatures) in mass-breach-7. "Not expected state" comes
-		// from CreatureModel.OnStageStart for a creature not in WAIT at day start. Both owners are unknown: the child moved by
-		// ChildMoveNode and every creature with a state other than WAIT at OnStageStart are written once per type.
-		// OnStageStart has no exception handler. Debug.LogError(object) Prefix only compares the text.
-		private static ChildCreatureModel _moveChild;
-		private static HashSet<string> _moveOwners;
 		private const string MoveStateText = "Invalid Movable State.. Please report this.";
-
-		private static void InstallMoveTrace()
-		{
-			const string key = "FastFix.MoveStateTrace";
-			if (!N.Config.BindFlag(key, true, "Diagnostic (temporary): the creatures behind the game's Invalid Movable State and Not expected state errors are written to the Nail log once per type. Read at game start.").On)
-			{
-				return;
-			}
-			try
-			{
-				MethodInfo err = typeof(Debug).GetMethod("LogError", BindingFlags.Public | BindingFlags.Static, null, new Type[] { typeof(object) }, null);
-				MethodInfo start = typeof(CreatureModel).GetMethod("OnStageStart", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, null, Type.EmptyTypes, null);
-				if (object.ReferenceEquals(err, null) || object.ReferenceEquals(start, null))
-				{
-					Missing(key, "Debug.LogError(object) / CreatureModel.OnStageStart");
-					return;
-				}
-				_moveOwners = new HashSet<string>();
-				FastFixModule.Harmony.Patch(err, new HarmonyMethod(Own("MoveErrPrefix")), null);
-				Patched(key, err);
-				FastFixModule.Harmony.Patch(start, new HarmonyMethod(Own("StageStatePrefix")), null);
-				Patched(key, start);
-				// KnightOfDespair was in ESCAPE at day start (mass-breach-8); its only start is CreatureModel.Escape (no
-				// handlers). Escape while the game is stopped (before the day runs) writes its call stack, 4 at most.
-				MethodInfo esc = typeof(CreatureModel).GetMethod("Escape", BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly, null, Type.EmptyTypes, null);
-				if (object.ReferenceEquals(esc, null))
-				{
-					Missing(key, "CreatureModel.Escape");
-					return;
-				}
-				FastFixModule.Harmony.Patch(esc, new HarmonyMethod(Own("EarlyEscapePrefix")), null);
-				Patched(key, esc);
-			}
-			catch (Exception e)
-			{
-				N.ULog.Error(FastFixModule.Tag, key + " install failed: " + e);
-			}
-		}
 
 		// "Invalid Movable State.. Please report this." (MovableObjectNode.ProcessMoveByDistance): mods that set the node of a
 		// walking unit (kekesi jackk, Joker Sheep and others, runs mass-breach-9/10) write it many times a minute; the game
@@ -7441,75 +8048,6 @@ namespace FastFix
 		{
 			string text = message as string;
 			return text == null || text.Length != MoveStateText.Length || !string.Equals(text, MoveStateText, StringComparison.Ordinal);
-		}
-
-		public static void MoveErrPrefix(object message)
-		{
-			if (_moveOwners == null || _moveOwners.Count >= 32)
-			{
-				return;
-			}
-			string text = message as string;
-			if (text == null || !string.Equals(text, MoveStateText, StringComparison.Ordinal))
-			{
-				return;
-			}
-			try
-			{
-				if (_moveChild != null)
-				{
-					NoteOwner(_moveOwners, "FastFix.MoveStateTrace: Invalid Movable State on child ", _moveChild);
-				}
-				else if (_moveOwners.Add("(not a child): " + Environment.StackTrace))
-				{
-					N.ULog.Info(FastFixModule.Tag, "FastFix.MoveStateTrace: Invalid Movable State outside ChildMoveNode: " + Environment.StackTrace.Replace('\n', '|'));
-				}
-			}
-			catch (Exception e)
-			{
-				Batch2Err("MoveErrPrefix", e);
-			}
-		}
-
-		private static int _earlyEscapes;
-
-		public static void EarlyEscapePrefix(CreatureModel __instance)
-		{
-			if (_earlyEscapes >= 4)
-			{
-				return;
-			}
-			try
-			{
-				GameManager gm = GameManager.currentGameManager;
-				if (gm != null && gm.state != GameState.STOP)
-				{
-					return;
-				}
-				_earlyEscapes++;
-				string who = __instance.script != null ? __instance.script.GetType().FullName : "?";
-				N.ULog.Info(FastFixModule.Tag, "FastFix.MoveStateTrace: Escape before the day runs (" + (gm == null ? "no GameManager" : "state STOP") + ") for "
-					+ who + " id " + __instance.metadataId + ": " + Environment.StackTrace.Replace('\n', '|'));
-			}
-			catch (Exception e)
-			{
-				Batch2Err("EarlyEscapePrefix", e);
-			}
-		}
-
-		public static void StageStatePrefix(CreatureModel __instance)
-		{
-			try
-			{
-				if (_moveOwners != null && _moveOwners.Count < 32 && __instance.state != CreatureState.WAIT)
-				{
-					NoteOwner(_moveOwners, "FastFix.MoveStateTrace: day start with state " + __instance.state + " (Not expected state) for ", __instance);
-				}
-			}
-			catch (Exception e)
-			{
-				Batch2Err("StageStatePrefix", e);
-			}
 		}
 
 		// Joker_MOD.Sheep.OnFixedUpdate calls DamageToPassage_onetarget and DamageToPassage with currentPassage. Both run foreach
@@ -8475,15 +9013,12 @@ namespace FastFix
 		// Same handling as CreatureModel.OnFixedUpdate: the node already stopped moving; the creature script is told.
 		public static void ChildMoveNode(MovableObjectNode node, float movement, ChildCreatureModel child)
 		{
-			_moveChild = child;
 			try
 			{
 				node.ProcessMoveNode(movement);
-				_moveChild = null;
 			}
 			catch (MovableObjectNode.MovableElevatorStuckException)
 			{
-				_moveChild = null;
 				if (!_childStuckLogged)
 				{
 					_childStuckLogged = true;

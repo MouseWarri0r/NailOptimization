@@ -55,7 +55,7 @@ namespace LoadGuard
 		{
 			get
 			{
-				return "1.12";
+				return "1.13";
 			}
 		}
 
@@ -73,6 +73,19 @@ namespace LoadGuard
 			_enabled = N.Config.BindFlag("LoadGuard.Enabled", true, "Broken mod data files (xml, localization, equipment, creatures, sefira isolate) are skipped one by one instead of breaking the whole loader; each skip is logged. Read at game start.");
 			CreatureGuard.UseIndex = N.Config.BindFlag("LoadGuard.CreatureIndex", true, "With LoadGuard on: creature stat files are found through an index built once instead of reading the folders of all mods for each creature. Off = the old walk. Restart required.").On;
 			_repair = N.Config.BindFlag("LoadGuard.Repair", false, "With LoadGuard on: broken mod creature openLevel values and EGO gift attachPos/attachType/bonus values are repaired in memory instead of skipping the entry; each repair is logged. Read at game start.");
+			// First: every Harmony patch after this point (other mods included) goes through the cache.
+			if (N.Config.BindFlag("LoadGuard.HarmonyCache", true, "Faster start: Harmony keeps the patch list of each patched method and reads it back for every new patch on it; the list is kept ready in memory instead of being decoded again (about 2 s with many mods). Restart required.").On)
+			{
+				HarmonyCache.Start(HarmonyInstance.Create(HarmonyId + ".harmonycache"));
+			}
+			if (N.Config.BindFlag("LoadGuard.HarmonyDefer", true, "Faster start: Harmony rebuilds the whole patched copy of a method for every new patch on it (up to 38 times for one method with many mods); the copy is built once, at the first call or shortly after the patching stops. Restart required.").On)
+			{
+				HarmonyDefer.Start(HarmonyInstance.Create(HarmonyId + ".harmonydefer"));
+			}
+			if (N.Config.BindFlag("LoadGuard.ArtWalk", true, "Faster start: Wondering Fox, QiuNiu, Warma, Faraway Kingdom Branch and Wonderlab load every file of their folder as a picture at start; files that are not pictures (xml, txt, json, mp3) are no longer read and decoded. Restart required.").On)
+			{
+				ArtWalk.Start(HarmonyInstance.Create(HarmonyId + ".artwalk"));
+			}
 			if (N.Config.BindFlag("LoadGuard.BootProfile", false, "Diagnostic: logs the time of every assembly load until the first frame, so the start-up time of each mod can be measured. Read at game start.").On)
 			{
 				BootProfile.Start();
@@ -5468,6 +5481,862 @@ namespace LoadGuard
 			if (!LoadAlerts.TitleTick() && _scanned)
 			{
 				enabled = false;
+			}
+		}
+	}
+
+	// LoadGuard.HarmonyCache (task 097, boot time): Harmony 1.0.9.1 keeps every PatchInfo as BinaryFormatter bytes in a shared
+	// Dictionary<MethodBase, byte[]> and reaches it through GetState (AppDomain.GetAssemblies + GetName per call); each Patch call
+	// deserializes, adds, serializes. Both HarmonySharedState.GetPatchInfo and UpdatePatchInfo (no exception handlers) are replaced:
+	// the dictionary is taken once, Update keeps (stored byte[], copy of the PatchInfo), Get returns a fresh copy while the state
+	// still holds that same byte[] and deserializes otherwise (another Harmony copy wrote it). Serialize stays (other copies read
+	// the bytes). Copies: new PatchInfo with cloned arrays; Patch objects are readonly and shared.
+	public static class HarmonyCache
+	{
+		private delegate byte[] SerializeFn(PatchInfo info);
+		private delegate PatchInfo DeserializeFn(byte[] bytes);
+
+		private sealed class Entry
+		{
+			public byte[] Bytes;
+			public PatchInfo Info;
+		}
+
+		private static Dictionary<MethodBase, byte[]> _state;
+		private static SerializeFn _serialize;
+		private static DeserializeFn _deserialize;
+		private static readonly Dictionary<MethodBase, Entry> _cache = new Dictionary<MethodBase, Entry>();
+		private static readonly object _gate = new object();
+		internal static bool Active;
+		internal static int Hits;
+		internal static int Misses;
+		internal static int Stores;
+
+		internal static void Start(HarmonyInstance harmony)
+		{
+			try
+			{
+				StartCore(harmony);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Guard.Tag, "harmony cache off: " + e);
+			}
+		}
+
+		private static void StartCore(HarmonyInstance harmony)
+		{
+			const BindingFlags Any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+			Type shared = typeof(HarmonySharedState);
+			Type ser = typeof(HarmonyInstance).Assembly.GetType("Harmony.PatchInfoSerialization");
+			MethodInfo getState = shared.GetMethod("GetState", Any, null, Type.EmptyTypes, null);
+			MethodInfo get = shared.GetMethod("GetPatchInfo", Any, null, new Type[] { typeof(MethodBase) }, null);
+			MethodInfo set = shared.GetMethod("UpdatePatchInfo", Any, null, new Type[] { typeof(MethodBase), typeof(PatchInfo) }, null);
+			MethodInfo s = object.ReferenceEquals(ser, null) ? null : ser.GetMethod("Serialize", Any, null, new Type[] { typeof(PatchInfo) }, null);
+			MethodInfo d = object.ReferenceEquals(ser, null) ? null : ser.GetMethod("Deserialize", Any, null, new Type[] { typeof(byte[]) }, null);
+			if (object.ReferenceEquals(getState, null) || object.ReferenceEquals(get, null) || object.ReferenceEquals(set, null) || object.ReferenceEquals(s, null) || object.ReferenceEquals(d, null))
+			{
+				N.ULog.Warn(Guard.Tag, "harmony cache off: Harmony " + typeof(HarmonyInstance).Assembly.GetName().Version + " members not found");
+				return;
+			}
+			_state = getState.Invoke(null, null) as Dictionary<MethodBase, byte[]>;
+			if (_state == null)
+			{
+				N.ULog.Warn(Guard.Tag, "harmony cache off: shared state not found");
+				return;
+			}
+			_serialize = (SerializeFn)Delegate.CreateDelegate(typeof(SerializeFn), s);
+			_deserialize = (DeserializeFn)Delegate.CreateDelegate(typeof(DeserializeFn), d);
+			// UpdatePatchInfo first: patching GetPatchInfo then stores its own PatchInfo through the new Update.
+			if (!N.PatchUtil.Install(harmony, Guard.Tag, set, new HarmonyMethod(typeof(HarmonyCache).GetMethod("UpdatePrefix", BindingFlags.Public | BindingFlags.Static)), null))
+			{
+				return;
+			}
+			Active = N.PatchUtil.Install(harmony, Guard.Tag, get, new HarmonyMethod(typeof(HarmonyCache).GetMethod("GetPrefix", BindingFlags.Public | BindingFlags.Static)), null);
+			N.ULog.Info(Guard.Tag, "harmony cache " + (Active ? "on" : "partly on (Get not patched)") + ", " + _state.Count + " methods patched before it");
+			GameObject go = new GameObject("NailOptimization.HarmonyCache");
+			UnityEngine.Object.DontDestroyOnLoad(go);
+			go.AddComponent<HarmonyCacheDriver>();
+		}
+
+		// Replaces HarmonySharedState.UpdatePatchInfo: GetState()[method] = patchInfo.Serialize().
+		public static bool UpdatePrefix(MethodBase method, PatchInfo patchInfo)
+		{
+			byte[] bytes = _serialize(patchInfo);
+			_state[method] = bytes;
+			Entry e = new Entry();
+			e.Bytes = bytes;
+			e.Info = Copy(patchInfo);
+			System.Threading.Monitor.Enter(_gate);
+			try
+			{
+				_cache[method] = e;
+			}
+			finally
+			{
+				System.Threading.Monitor.Exit(_gate);
+			}
+			Stores++;
+			return false;
+		}
+
+		// Replaces HarmonySharedState.GetPatchInfo: null when the method has no state, else a PatchInfo nobody else holds.
+		public static bool GetPrefix(MethodBase method, ref PatchInfo __result)
+		{
+			byte[] bytes;
+			if (!_state.TryGetValue(method, out bytes) || bytes == null)
+			{
+				__result = null;
+				return false;
+			}
+			Entry e;
+			System.Threading.Monitor.Enter(_gate);
+			try
+			{
+				if (_cache.TryGetValue(method, out e) && object.ReferenceEquals(e.Bytes, bytes))
+				{
+					Hits++;
+					__result = Copy(e.Info);
+					return false;
+				}
+			}
+			finally
+			{
+				System.Threading.Monitor.Exit(_gate);
+			}
+			PatchInfo info = _deserialize(bytes);
+			e = new Entry();
+			e.Bytes = bytes;
+			e.Info = Copy(info);
+			System.Threading.Monitor.Enter(_gate);
+			try
+			{
+				_cache[method] = e;
+			}
+			finally
+			{
+				System.Threading.Monitor.Exit(_gate);
+			}
+			Misses++;
+			__result = info;
+			return false;
+		}
+
+		internal static PatchInfo Copy(PatchInfo p)
+		{
+			if (p == null)
+			{
+				return null;
+			}
+			PatchInfo c = new PatchInfo();
+			c.prefixes = p.prefixes == null ? null : (Patch[])p.prefixes.Clone();
+			c.postfixes = p.postfixes == null ? null : (Patch[])p.postfixes.Clone();
+			c.transpilers = p.transpilers == null ? null : (Patch[])p.transpilers.Clone();
+			return c;
+		}
+	}
+
+	public class HarmonyCacheDriver : MonoBehaviour
+	{
+		private void Update()
+		{
+			enabled = false;
+			N.ULog.Info(Guard.Tag, "harmony cache at first frame: stores " + HarmonyCache.Stores + ", hits " + HarmonyCache.Hits + ", misses " + HarmonyCache.Misses);
+		}
+	}
+
+	// LoadGuard.HarmonyDefer (task 097, boot time): Harmony 1.0.9.1 PatchProcessor.Patch rebuilds the whole wrapper of a method
+	// for every new patch on it (PatchFunctions.UpdateWrapper: copy of the original + all patches, JIT, jump), so a method with
+	// N patches is built N times. For a method that already has a 0Harmony wrapper the rebuild is deferred: the original jumps
+	// to a small stub (same signature: FlushId(id), then call the original again) that builds the final wrapper on its first
+	// call; the driver builds the rest 1 s after the last deferral (4 ms per frame, from the first frame), and all are built
+	// when 12Harmony loads (its first Create swaps 0Harmony's generator, GL-55, so earlier methods keep the 0Harmony one).
+	// A flush builds from the current shared state (other Harmony copies included). A failing build is replayed patch by
+	// patch like vanilla: the failing patch is dropped and the state written back without it (its mod got no exception).
+	// No exception handlers in UpdateWrapper (GL-53 ok). All state is guarded by PatchProcessor.locker.
+	public static class HarmonyDefer
+	{
+		private delegate PatchInfo GetFn(MethodBase method);
+		private delegate void SetFn(MethodBase method, PatchInfo info);
+
+		private sealed class Pending
+		{
+			public MethodBase Original;
+			public int Id;
+			public PatchInfo Basis;
+			public readonly List<PatchInfo> Steps = new List<PatchInfo>();
+		}
+
+		private static object _locker;
+		private static Dictionary<object, object> _wrappers;
+		private static GetFn _get;
+		private static SetFn _set;
+		private static MethodInfo _flushId;
+		private static readonly Dictionary<MethodBase, Pending> _pending = new Dictionary<MethodBase, Pending>();
+		private static readonly Dictionary<int, Pending> _byId = new Dictionary<int, Pending>();
+		private static readonly List<System.Reflection.Emit.DynamicMethod> _stubs = new List<System.Reflection.Emit.DynamicMethod>();
+		[ThreadStatic]
+		private static bool _building;
+		private static bool _warned;
+		private static bool _h12;
+		private static int _nextId;
+		private const int MinIl = 32;
+		internal static bool Active;
+		internal static long LastDefer;
+		internal static int Methods;
+		internal static int Deferred;
+		internal static int Built;
+		internal static int StubCalls;
+		internal static int Dropped;
+		internal static int PrefixErrors;
+
+		internal static int PendingCount
+		{
+			get { return _pending.Count; }
+		}
+
+		internal static void Start(HarmonyInstance harmony)
+		{
+			try
+			{
+				const BindingFlags Any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+				FieldInfo locker = typeof(PatchProcessor).GetField("locker", Any);
+				FieldInfo refs = typeof(PatchTools).GetField("objectReferences", Any);
+				MethodInfo get = typeof(HarmonySharedState).GetMethod("GetPatchInfo", Any, null, new Type[] { typeof(MethodBase) }, null);
+				MethodInfo set = typeof(HarmonySharedState).GetMethod("UpdatePatchInfo", Any, null, new Type[] { typeof(MethodBase), typeof(PatchInfo) }, null);
+				MethodInfo wrap = typeof(PatchFunctions).GetMethod("UpdateWrapper", Any, null, new Type[] { typeof(MethodBase), typeof(PatchInfo) }, null);
+				_flushId = typeof(HarmonyDefer).GetMethod("FlushId", BindingFlags.Public | BindingFlags.Static);
+				_locker = object.ReferenceEquals(locker, null) ? null : locker.GetValue(null);
+				_wrappers = object.ReferenceEquals(refs, null) ? null : refs.GetValue(null) as Dictionary<object, object>;
+				if (_locker == null || _wrappers == null || object.ReferenceEquals(get, null) || object.ReferenceEquals(set, null) || object.ReferenceEquals(wrap, null) || object.ReferenceEquals(_flushId, null))
+				{
+					N.ULog.Warn(Guard.Tag, "harmony defer off: Harmony " + typeof(HarmonyInstance).Assembly.GetName().Version + " members not found");
+					return;
+				}
+				_get = (GetFn)Delegate.CreateDelegate(typeof(GetFn), get);
+				_set = (SetFn)Delegate.CreateDelegate(typeof(SetFn), set);
+				Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
+				for (int i = 0; i < all.Length; i++)
+				{
+					if (Is12Harmony(all[i]))
+					{
+						_h12 = true;
+					}
+				}
+				AppDomain.CurrentDomain.AssemblyLoad += OnLoad;
+				// Last: other prefixes on UpdateWrapper (timing probes) still run before the build is skipped.
+				Active = N.PatchUtil.Install(harmony, Guard.Tag, wrap, N.PatchUtil.WithPriority(typeof(HarmonyDefer).GetMethod("Prefix", BindingFlags.Public | BindingFlags.Static), Priority.Last), null);
+				N.ULog.Info(Guard.Tag, "harmony defer " + (Active ? "on" : "off") + (_h12 ? " (12Harmony already loaded)" : ""));
+				if (Active)
+				{
+					GameObject go = new GameObject("NailOptimization.HarmonyDefer");
+					UnityEngine.Object.DontDestroyOnLoad(go);
+					go.AddComponent<HarmonyDeferDriver>();
+				}
+			}
+			catch (Exception e)
+			{
+				Active = false;
+				N.ULog.Warn(Guard.Tag, "harmony defer off: " + e);
+			}
+		}
+
+		private static bool Is12Harmony(Assembly a)
+		{
+			string n = a.FullName;
+			return n != null && n.StartsWith("12Harmony,", StringComparison.Ordinal);
+		}
+
+		private static void OnLoad(object sender, AssemblyLoadEventArgs e)
+		{
+			if (!_h12 && Is12Harmony(e.LoadedAssembly))
+			{
+				_h12 = true;
+				int n = FlushAll();
+				N.ULog.Info(Guard.Tag, "harmony defer: 12Harmony loaded, " + n + " deferred methods built with the 0Harmony generator");
+			}
+		}
+
+		// Prefix on PatchFunctions.UpdateWrapper(original, patchInfo): false = the build is deferred.
+		public static bool Prefix(MethodBase original, PatchInfo patchInfo)
+		{
+			if (_building || !Active || object.ReferenceEquals(original, null) || patchInfo == null)
+			{
+				return true;
+			}
+			System.Threading.Monitor.Enter(_locker);
+			try
+			{
+				Pending p;
+				bool pending = _pending.TryGetValue(original, out p);
+				// Transpilers and patch factories run mod code while the wrapper is built: keep that inside the mod's Patch call.
+				if (RunsModCode(pending ? p.Steps[p.Steps.Count - 1] : null, patchInfo))
+				{
+					if (pending)
+					{
+						Cancel(p);
+					}
+					return true;
+				}
+				if (!pending)
+				{
+					if (!Eligible(original))
+					{
+						return true;
+					}
+					PatchInfo basis = _get(original);
+					if (basis == null || RunsModCode(basis, patchInfo))
+					{
+						return true;
+					}
+					int id = ++_nextId;
+					long from = Harmony.ILCopying.Memory.GetMethodStart(original);
+					System.Reflection.Emit.DynamicMethod stub = MakeStub((MethodInfo)original, id);
+					long to = Harmony.ILCopying.Memory.GetMethodStart(stub);
+					_stubs.Add(stub);
+					p = new Pending();
+					p.Original = original;
+					p.Id = id;
+					p.Basis = HarmonyCache.Copy(basis);
+					_pending[original] = p;
+					_byId[id] = p;
+					Harmony.ILCopying.Memory.WriteJump(from, to);
+					Methods++;
+				}
+				p.Steps.Add(HarmonyCache.Copy(patchInfo));
+				Deferred++;
+				LastDefer = System.Diagnostics.Stopwatch.GetTimestamp();
+				return false;
+			}
+			catch (Exception e)
+			{
+				PrefixErrors++;
+				if (!_warned)
+				{
+					_warned = true;
+					N.ULog.Warn(Guard.Tag, "harmony defer: " + Name(original) + " built at once: " + e.Message);
+				}
+				return true;
+			}
+			finally
+			{
+				System.Threading.Monitor.Exit(_locker);
+			}
+		}
+
+		private static bool Eligible(MethodBase original)
+		{
+			MethodInfo mi = original as MethodInfo;
+			if (object.ReferenceEquals(mi, null))
+			{
+				return false;
+			}
+			Type t = mi.DeclaringType;
+			if (object.ReferenceEquals(t, null) || !object.ReferenceEquals(mi.ReflectedType, t) || t.IsValueType || t.IsInterface || t.IsGenericType || t.ContainsGenericParameters || mi.IsGenericMethod || mi.ContainsGenericParameters || mi.IsAbstract)
+			{
+				return false;
+			}
+			if ((mi.CallingConvention & CallingConventions.VarArgs) != 0)
+			{
+				return false;
+			}
+			MethodBody body = mi.GetMethodBody();
+			if (body == null || body.GetILAsByteArray().Length < MinIl)
+			{
+				return false;
+			}
+			if (object.ReferenceEquals(t.Assembly, typeof(PatchFunctions).Assembly) || object.ReferenceEquals(t.Assembly, typeof(HarmonyDefer).Assembly))
+			{
+				return false;
+			}
+			return _wrappers.ContainsKey(original);
+		}
+
+		// static R Name_Defer(T this, args...) { HarmonyDefer.FlushId(id); return original(this, args...); }
+		// Mono 2.0 DynamicMethod has no EmitCalli (ModuleBuilder expected, run 097-defer-C1); the plain call cannot be inlined
+		// because Eligible takes only originals of MinIl bytes or more (Mono inlines up to 20).
+		private static System.Reflection.Emit.DynamicMethod MakeStub(MethodInfo mi, int id)
+		{
+			ParameterInfo[] ps = mi.GetParameters();
+			int off = mi.IsStatic ? 0 : 1;
+			Type[] types = new Type[ps.Length + off];
+			if (off == 1)
+			{
+				types[0] = mi.DeclaringType;
+			}
+			for (int i = 0; i < ps.Length; i++)
+			{
+				types[i + off] = ps[i].ParameterType;
+			}
+			System.Reflection.Emit.DynamicMethod dm = new System.Reflection.Emit.DynamicMethod(mi.Name + "_Defer", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard, mi.ReturnType, types, mi.DeclaringType, true);
+			System.Reflection.Emit.ILGenerator il = dm.GetILGenerator();
+			il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4, id);
+			il.Emit(System.Reflection.Emit.OpCodes.Call, _flushId);
+			for (int i = 0; i < types.Length; i++)
+			{
+				il.Emit(System.Reflection.Emit.OpCodes.Ldarg, (short)i);
+			}
+			il.Emit(System.Reflection.Emit.OpCodes.Call, mi);
+			il.Emit(System.Reflection.Emit.OpCodes.Ret);
+			// Mono: compile the method before its start is read (as MethodPatcher does); an unfinished one gives a bad address (run 097-defer-C2 crashed).
+			Harmony.DynamicTools.PrepareDynamicMethod(dm);
+			return dm;
+		}
+
+		// Called by a stub. Must leave the original jumping to a real wrapper: the stub calls the original next.
+		public static void FlushId(int id)
+		{
+			System.Threading.Monitor.Enter(_locker);
+			try
+			{
+				Pending p;
+				if (_byId.TryGetValue(id, out p))
+				{
+					StubCalls++;
+					Build(p);
+				}
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Guard.Tag, "harmony defer: build on first call failed: " + e);
+			}
+			finally
+			{
+				System.Threading.Monitor.Exit(_locker);
+			}
+		}
+
+		// Driver: builds one pending method; false when none is left.
+		internal static bool FlushNext()
+		{
+			System.Threading.Monitor.Enter(_locker);
+			try
+			{
+				Pending p = null;
+				foreach (KeyValuePair<MethodBase, Pending> kv in _pending)
+				{
+					p = kv.Value;
+					break;
+				}
+				if (p == null)
+				{
+					return false;
+				}
+				Build(p);
+				return _pending.Count > 0;
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Guard.Tag, "harmony defer: build failed: " + e);
+				return _pending.Count > 0;
+			}
+			finally
+			{
+				System.Threading.Monitor.Exit(_locker);
+			}
+		}
+
+		private static int FlushAll()
+		{
+			int n = _pending.Count;
+			while (FlushNext())
+			{
+			}
+			return n;
+		}
+
+		// Caller holds _locker.
+		private static void Build(Pending p)
+		{
+			Cancel(p);
+			PatchInfo info = _get(p.Original);
+			PatchInfo lastStep = p.Steps[p.Steps.Count - 1];
+			// The state lags behind the last step while Patch has not stored it yet (a call of the method in that window).
+			if (info == null || Count(lastStep) > Count(info))
+			{
+				info = lastStep;
+			}
+			bool was = _building;
+			_building = true;
+			try
+			{
+				Exception first = null;
+				try
+				{
+					PatchFunctions.UpdateWrapper(p.Original, info);
+					Built++;
+				}
+				catch (Exception e)
+				{
+					first = e;
+				}
+				if (first != null)
+				{
+					Replay(p, first, info);
+				}
+			}
+			finally
+			{
+				_building = was;
+			}
+		}
+
+		// Back to the last real wrapper, then forget the entry: a call after this must not reach the stub again.
+		private static void Cancel(Pending p)
+		{
+			object last;
+			if (_wrappers.TryGetValue(p.Original, out last) && last is MethodBase)
+			{
+				long from = Harmony.ILCopying.Memory.GetMethodStart(p.Original);
+				long to = Harmony.ILCopying.Memory.GetMethodStart((MethodBase)last);
+				Harmony.ILCopying.Memory.WriteJump(from, to);
+			}
+			_pending.Remove(p.Original);
+			_byId.Remove(p.Id);
+		}
+
+		private static int Count(PatchInfo info)
+		{
+			return (info.prefixes == null ? 0 : info.prefixes.Length) + (info.postfixes == null ? 0 : info.postfixes.Length) + (info.transpilers == null ? 0 : info.transpilers.Length);
+		}
+
+		// True when the new patch info adds a transpiler or holds a patch factory (a patch method returning DynamicMethod).
+		private static bool RunsModCode(PatchInfo prev, PatchInfo now)
+		{
+			int before = prev == null || prev.transpilers == null ? 0 : prev.transpilers.Length;
+			if (now.transpilers != null && now.transpilers.Length > before)
+			{
+				return true;
+			}
+			return HasFactory(now.prefixes) || HasFactory(now.postfixes);
+		}
+
+		private static bool HasFactory(Patch[] patches)
+		{
+			if (patches == null)
+			{
+				return false;
+			}
+			for (int i = 0; i < patches.Length; i++)
+			{
+				MethodInfo pm = patches[i].patch;
+				if (!object.ReferenceEquals(pm, null) && object.ReferenceEquals(pm.ReturnType, typeof(System.Reflection.Emit.DynamicMethod)))
+				{
+					return true;
+				}
+			}
+			return false;
+		}
+
+		// Vanilla order: basis + the new patches of each step; a step that fails is dropped as Patch would have thrown.
+		private static void Replay(Pending p, Exception first, PatchInfo info)
+		{
+			if (Count(info) != Count(p.Steps[p.Steps.Count - 1]))
+			{
+				// The state was changed by another Harmony copy or a direct UpdateWrapper caller: keep it and the last wrapper.
+				Dropped++;
+				N.ULog.Warn(Guard.Tag, "harmony defer: " + Name(p.Original) + " build failed (" + first.Message + "), state changed outside Patch; last wrapper kept");
+				return;
+			}
+			N.ULog.Warn(Guard.Tag, "harmony defer: " + Name(p.Original) + " build failed (" + first.Message + "), replaying " + p.Steps.Count + " patch call(s)");
+			PatchInfo good = p.Basis;
+			PatchInfo prev = p.Basis;
+			List<Patch> delta = new List<Patch>();
+			for (int i = 0; i < p.Steps.Count; i++)
+			{
+				PatchInfo s = p.Steps[i];
+				PatchInfo cand = HarmonyCache.Copy(good);
+				delta.Clear();
+				cand.prefixes = AddNew(cand.prefixes, prev.prefixes, s.prefixes, delta);
+				cand.postfixes = AddNew(cand.postfixes, prev.postfixes, s.postfixes, delta);
+				cand.transpilers = AddNew(cand.transpilers, prev.transpilers, s.transpilers, delta);
+				prev = s;
+				if (delta.Count == 0)
+				{
+					continue;
+				}
+				try
+				{
+					PatchFunctions.UpdateWrapper(p.Original, cand);
+					Built++;
+					good = cand;
+				}
+				catch (Exception e)
+				{
+					Dropped++;
+					N.ULog.Warn(Guard.Tag, "harmony defer: patch by " + delta[0].owner + " (" + delta[0].patch + ") on " + Name(p.Original) + " dropped: " + e.Message);
+				}
+			}
+			_set(p.Original, good);
+		}
+
+		private static Patch[] AddNew(Patch[] target, Patch[] prev, Patch[] now, List<Patch> delta)
+		{
+			if (now == null || now.Length == 0)
+			{
+				return target;
+			}
+			List<Patch> list = target == null ? new List<Patch>() : new List<Patch>(target);
+			// Patch only appends, so the new patches are the tail (a second Patch with the same method counts again, as in vanilla).
+			for (int i = prev == null ? 0 : prev.Length; i < now.Length; i++)
+			{
+				list.Add(now[i]);
+				delta.Add(now[i]);
+			}
+			return list.ToArray();
+		}
+
+		private static string Name(MethodBase method)
+		{
+			return object.ReferenceEquals(method, null) ? "?" : (object.ReferenceEquals(method.DeclaringType, null) ? "" : method.DeclaringType.FullName + ".") + method.Name;
+		}
+	}
+
+	public class HarmonyDeferDriver : MonoBehaviour
+	{
+		private bool _first = true;
+		private int _reports;
+
+		private void Update()
+		{
+			if (_first)
+			{
+				_first = false;
+				N.ULog.Info(Guard.Tag, "harmony defer at first frame: " + Summary());
+			}
+			if (HarmonyDefer.PendingCount == 0)
+			{
+				return;
+			}
+			long now = System.Diagnostics.Stopwatch.GetTimestamp();
+			if (now - HarmonyDefer.LastDefer < System.Diagnostics.Stopwatch.Frequency)
+			{
+				return;
+			}
+			long end = now + System.Diagnostics.Stopwatch.Frequency / 250;
+			bool more = true;
+			while (more && System.Diagnostics.Stopwatch.GetTimestamp() < end)
+			{
+				more = HarmonyDefer.FlushNext();
+			}
+			if (!more && _reports < 3)
+			{
+				_reports++;
+				N.ULog.Info(Guard.Tag, "harmony defer: all built at frame " + Time.frameCount + ": " + Summary());
+			}
+		}
+
+		private static string Summary()
+		{
+			return "deferred " + HarmonyDefer.Deferred + " patch calls in " + HarmonyDefer.Methods + " pending entries, built " + HarmonyDefer.Built + " (on first call " + HarmonyDefer.StubCalls + ", dropped " + HarmonyDefer.Dropped + ", prefix errors " + HarmonyDefer.PrefixErrors + "), pending " + HarmonyDefer.PendingCount;
+		}
+	}
+
+	// LoadGuard.ArtWalk (task 097, boot time): five mods load every file of a folder tree as a sprite in their constructor
+	// (GetArtWorks: dirs first, then files; Texture2D(2,2) + LoadImage + Sprite.Create pivot 0,0; ArtWorks[file stem] = sprite),
+	// xml, txt, json and mp3 included. The method is replaced when its mod DLL loads (before the constructor), only with the
+	// expected IL size and field type. Same walk and keys; a file that does not start like a PNG or JPEG (the only formats
+	// LoadImage reads) is not read or decoded: its key gets one sprite per mod made the vanilla way from the first such file.
+	public static class ArtWalk
+	{
+		private static readonly string[] Types = new string[] { "WonderingFox.Harmony_Patch", "QiuNiu.Harmony_Patch", "Warma.HP.Harmony_Patch", "FarawayKingdomBranch.Harmony_Patch2", "DrowndSister_MOD.Harmony_Patch3", "WonderingFox.Harmony_Patch" };
+		private static readonly int[] IlSize = new int[] { 214, 214, 210, 210, 177, 214 };
+		// No reader of ArtWorks in the mod itself (QiuNiu: field never read; WonderingFox: only GetBufIcon, which nothing calls;
+		// task 097 ilscan + byte scan of all BaseMods DLLs): the walk is skipped and ArtWorks stays empty.
+		private static readonly bool[] Unread = new bool[] { true, true, false, false, false, true };
+		private static readonly FieldInfo[] _field = new FieldInfo[6];
+		private static readonly Dictionary<string, Sprite>[] _art = new Dictionary<string, Sprite>[6];
+		private static readonly Sprite[] _blank = new Sprite[6];
+		private static readonly int[] _loaded = new int[6];
+		private static readonly int[] _skipped = new int[6];
+		private static readonly long[] _ticks = new long[6];
+		private static readonly bool[] _done = new bool[6];
+		private static readonly string[] _asm = new string[6];
+		private static HarmonyInstance _harmony;
+		private static int _depth;
+
+		internal static void Start(HarmonyInstance harmony)
+		{
+			_harmony = harmony;
+			Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
+			for (int i = 0; i < all.Length; i++)
+			{
+				Check(all[i]);
+			}
+			AppDomain.CurrentDomain.AssemblyLoad += OnLoad;
+		}
+
+		private static void OnLoad(object sender, AssemblyLoadEventArgs e)
+		{
+			Check(e.LoadedAssembly);
+		}
+
+		private static void Check(Assembly a)
+		{
+			for (int i = 0; i < Types.Length; i++)
+			{
+				// Slot 5: a second mod with the same type name (Drifting Fox ships WonderingFox.Harmony_Patch too).
+				if (_done[i] || (i == 5 && (!_done[0] || string.Equals(_asm[0], a.FullName))))
+				{
+					continue;
+				}
+				try
+				{
+					Type t = a.GetType(Types[i], false);
+					if (!object.ReferenceEquals(t, null))
+					{
+						_done[i] = true;
+						_asm[i] = a.FullName;
+						Install(i, t);
+					}
+				}
+				catch (Exception ex)
+				{
+					N.ULog.Warn(Guard.Tag, "art walk: " + Types[i] + ": " + ex.Message);
+				}
+			}
+		}
+
+		private static void Install(int i, Type t)
+		{
+			MethodInfo m = t.GetMethod("GetArtWorks", BindingFlags.Public | BindingFlags.Static, null, new Type[] { typeof(DirectoryInfo) }, null);
+			FieldInfo f = t.GetField("ArtWorks", BindingFlags.Public | BindingFlags.Static);
+			MethodBody body = object.ReferenceEquals(m, null) ? null : m.GetMethodBody();
+			int size = body == null ? -1 : body.GetILAsByteArray().Length;
+			if (object.ReferenceEquals(f, null) || !object.ReferenceEquals(f.FieldType, typeof(Dictionary<string, Sprite>)) || size != IlSize[i])
+			{
+				N.ULog.Info(Guard.Tag, "art walk: " + Types[i] + " changed (IL " + size + "), left as is");
+				return;
+			}
+			string owner = N.PatchUtil.ForeignAny(m);
+			if (owner != null)
+			{
+				N.ULog.Info(Guard.Tag, "art walk: " + Types[i] + ".GetArtWorks patched by " + owner + ", left as is");
+				return;
+			}
+			_field[i] = f;
+			N.PatchUtil.Install(_harmony, Guard.Tag, m, new HarmonyMethod(typeof(ArtWalk).GetMethod("Prefix" + i, BindingFlags.Public | BindingFlags.Static)), null);
+		}
+
+		public static bool Prefix0(DirectoryInfo dir)
+		{
+			Run(0, dir);
+			return false;
+		}
+
+		public static bool Prefix1(DirectoryInfo dir)
+		{
+			Run(1, dir);
+			return false;
+		}
+
+		public static bool Prefix2(DirectoryInfo dir)
+		{
+			Run(2, dir);
+			return false;
+		}
+
+		public static bool Prefix3(DirectoryInfo dir)
+		{
+			Run(3, dir);
+			return false;
+		}
+
+		public static bool Prefix4(DirectoryInfo dir)
+		{
+			Run(4, dir);
+			return false;
+		}
+
+		public static bool Prefix5(DirectoryInfo dir)
+		{
+			Run(5, dir);
+			return false;
+		}
+
+		private static void Run(int i, DirectoryInfo dir)
+		{
+			if (Unread[i] && _depth == 0)
+			{
+				N.ULog.Info(Guard.Tag, "art walk " + Types[i] + " (" + _asm[i] + "): skipped, nothing reads its sprites");
+				return;
+			}
+			long t0 = System.Diagnostics.Stopwatch.GetTimestamp();
+			_depth++;
+			try
+			{
+				Walk(i, dir);
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(Guard.Tag, "art walk " + Types[i] + " failed: " + e.Message);
+				throw;
+			}
+			finally
+			{
+				_depth--;
+				_ticks[i] += System.Diagnostics.Stopwatch.GetTimestamp() - t0;
+			}
+			if (_depth == 0)
+			{
+				N.ULog.Info(Guard.Tag, "art walk " + Types[i] + " (" + _asm[i] + "): " + _loaded[i] + " images, " + _skipped[i] + " other files not decoded, " + (_ticks[i] * 1000 / System.Diagnostics.Stopwatch.Frequency) + " ms");
+			}
+		}
+
+		private static void Walk(int i, DirectoryInfo dir)
+		{
+			DirectoryInfo[] dirs = dir.GetDirectories();
+			for (int k = 0; k < dirs.Length; k++)
+			{
+				Walk(i, dirs[k]);
+			}
+			if (_art[i] == null)
+			{
+				_art[i] = (Dictionary<string, Sprite>)_field[i].GetValue(null);
+			}
+			Dictionary<string, Sprite> art = _art[i];
+			FileInfo[] files = dir.GetFiles();
+			for (int k = 0; k < files.Length; k++)
+			{
+				string path = files[k].FullName;
+				string name = Path.GetFileNameWithoutExtension(path);
+				// LoadImage returns true on any data (non-images become the error texture), so the file header decides.
+				bool image = IsImage(path);
+				if (!image && _blank[i] != null)
+				{
+					art[name] = _blank[i];
+					_skipped[i]++;
+					continue;
+				}
+				Texture2D tex = new Texture2D(2, 2);
+				tex.LoadImage(File.ReadAllBytes(path));
+				Sprite sprite = Sprite.Create(tex, new Rect(0f, 0f, (float)tex.width, (float)tex.height), new Vector2(0f, 0f));
+				art[name] = sprite;
+				if (image)
+				{
+					_loaded[i]++;
+				}
+				else
+				{
+					_blank[i] = sprite;
+					_skipped[i]++;
+				}
+			}
+		}
+
+		// PNG starts with 89 50, JPEG with FF D8.
+		private static bool IsImage(string path)
+		{
+			FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+			try
+			{
+				int b0 = fs.ReadByte();
+				int b1 = fs.ReadByte();
+				return (b0 == 0x89 && b1 == 0x50) || (b0 == 0xFF && b1 == 0xD8);
+			}
+			finally
+			{
+				fs.Close();
 			}
 		}
 	}

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.7-beta - 2026-11-23
+
+Faster start with many mods, a faster abnormality window with EGO readers, character depth and face fixes, two vanilla fixes and Incubator fixes. LoadGuard 1.13, FastFix 1.75, PerfPack 1.74, NailUI 1.16, GameFix 1.0 (new option); the other modules are unchanged.
+
+- LoadGuard 1.13: `HarmonyDefer`: Harmony rebuilt the patched copy of a method after every single patch; with many mods one method can be patched dozens of times. Nail now builds it once, at the method's first call or shortly after patching stops. Restart required.
+- FastFix 1.75: `EgoReaderButtons`: the EGO switch buttons of ComEGO readers (EGO packs, Tiamat, Fairy Long Legs, Bamboo-hatted Kim, The King in Binds and their copies) no longer freeze the abnormality window for up to 1.5 s on each open (the button picture folder is looked up once), and no longer log a layer error. An EGO pack written for a game abnormality no longer adds its buttons to, or changes the EGO list of, a mod abnormality with the same id (Incubator's T-01-02, Mimicry).
+- PerfPack 1.73-1.74: `SkeletonFrameSync`: characters build their picture on the same frames as their pose, so the face no longer slips on the head at medium zoom (game bug). `UnitDepth`: agents and clerks get separate depths, so overlapping characters no longer clip through each other (game bug; applies from the next day). `ModTexturesExperimental` (off): large mod textures that never change drop their readable copy in memory (about 700 MB on a day-49 test save). The RenderDiag diagnostic was removed.
+- NailUI 1.16: borderless fullscreen uses the monitor the window is on.
+- Vanilla: `DeadAgentSlotStats` (FastFix 1.74, on): work and suppression windows show 0 HP and 0 SP for a dead agent (display only). `GameFix.BigBirdTrumpet` (off): after Big Bird is suppressed, the second trumpet lets it out again only when the alarm has left that level.
+- Mod fixes (FastFix 1.71-1.73, each only active with its mod): Incubator escaped witches no longer pick, keep or hit dead agents and clerks and drop a target that left their room (`IncubatorWitchTarget`); pooled Incubator animations destroyed by a day restart are dropped (`IncubatorPoolDestroy`, error in Incubator_Child.Leave). `ForeignLeaks` cleans more mod memory leaks at day change (Link EGO, Blood Rose, Knight's Tears and others).
+
 ## 0.9.6-beta - 2026-11-19
 
 Agents frozen after death, faster loading of large mod lists, configurable panel keys, six vanilla fixes and fixes for many abnormality mods. FastFix 1.70, PerfPack 1.72, LoadGuard 1.12, LogViewer 1.9, core panel options; the other modules are unchanged.

@@ -56,8 +56,19 @@ namespace GameFix
 			N.Flag teddy = N.Config.BindFlag("GameFix.TeddyDayEnd", false, "Rule change: an agent caught in Happy Teddy's hug when the day ends dies, as the hug would have ended. In the game he survives. Read at game start.");
 			N.Flag tiphereth = N.Config.BindFlag("GameFix.TipherethLower", false, "Rule change: agents of the lower Central Command team get the continued-service stat bonus, as the upper team does. Read at game start.");
 			N.Flag dragon = N.Config.BindFlag("GameFix.ApostleDragon", false, "Rule change: the Yin and Yang dragon passes WhiteNight's apostles, as it passes WhiteNight. Read at game start.");
+			N.Flag bird = N.Config.BindFlag("GameFix.BigBirdTrumpet", false, "Fix: after Big Bird is suppressed, the second trumpet lets it out again only when the alarm has dropped below the second trumpet or risen higher. In the game its own escape keeps the trumpet up, so it can escape again and again. Read at game start.");
 			Harmony = HarmonyInstance.Create(HarmonyId);
 			Install(teddy, tiphereth, dragon);
+			if (bird.On)
+			{
+				InstallBird();
+			}
+		}
+
+		[MethodImpl(MethodImplOptions.NoInlining)]
+		private static void InstallBird()
+		{
+			BigBirdTrumpet.Install(Harmony);
 		}
 
 		[MethodImpl(MethodImplOptions.NoInlining)]
@@ -232,6 +243,115 @@ namespace GameFix
 					N.ULog.Error(GameFixModule.Tag, "apostle dragon fix error (logged once): " + e);
 				}
 				return true;
+			}
+		}
+	}
+
+	// Big Bird (vanilla BigBird). OnFixedUpdate sets the Qliphoth counter to 0 (escape) whenever escapeCoolTimer is not running
+	// and the emergency level is LEVEL2 or higher; the cooldown after a suppression is 30-40 s. Its own escape adds emergency
+	// score and blocks the score recovery for 30 s, so the second trumpet can outlast every cooldown (input/Buglist.txt:37-39).
+	// Fix: after a suppression the bird is held while the level stays at or below the level it had then (and at LEVEL2 or more):
+	// a Prefix keeps escapeCoolTimer running in 5 s steps, so vanilla takes its timer branch. A drop below LEVEL2 or a rise above
+	// that level releases the hold. Escapes from work results are untouched.
+	public static class BigBirdTrumpet
+	{
+		private const float HoldStep = 5f;
+		private static FieldInfo _coolField;
+		private static readonly System.Collections.Generic.Dictionary<BigBird, Hold> _held = new System.Collections.Generic.Dictionary<BigBird, Hold>();
+		private static bool _errorLogged;
+		private static int _holds;
+
+		private class Hold
+		{
+			public Timer Cool;
+			public EmergencyLevel Level;
+			public bool Logged;
+		}
+
+		internal static void Install(HarmonyInstance harmony)
+		{
+			_coolField = typeof(BigBird).GetField("escapeCoolTimer", BindingFlags.NonPublic | BindingFlags.Instance);
+			MethodBase tick = N.PatchUtil.Resolve(GameFixModule.Tag, typeof(BigBird), "OnFixedUpdate", new Type[] { typeof(CreatureModel) });
+			MethodBase suppressed = N.PatchUtil.Resolve(GameFixModule.Tag, typeof(BigBird), "OnAfterSuppressed", Type.EmptyTypes);
+			MethodBase start = N.PatchUtil.Resolve(GameFixModule.Tag, typeof(BigBird), "OnStageStart", Type.EmptyTypes);
+			if (object.ReferenceEquals(_coolField, null) || object.ReferenceEquals(tick, null) || object.ReferenceEquals(suppressed, null) || object.ReferenceEquals(start, null))
+			{
+				N.ULog.Warn(GameFixModule.Tag, "big bird trumpet fix not applied: members not found");
+				return;
+			}
+			N.PatchUtil.Install(harmony, GameFixModule.Tag, suppressed, null, new HarmonyMethod(typeof(BigBirdTrumpet).GetMethod("SuppressedPostfix", BindingFlags.Public | BindingFlags.Static)));
+			N.PatchUtil.Install(harmony, GameFixModule.Tag, start, null, new HarmonyMethod(typeof(BigBirdTrumpet).GetMethod("StartPostfix", BindingFlags.Public | BindingFlags.Static)));
+			N.PatchUtil.Install(harmony, GameFixModule.Tag, tick, new HarmonyMethod(typeof(BigBirdTrumpet).GetMethod("TickPrefix", BindingFlags.Public | BindingFlags.Static)), null);
+		}
+
+		public static void SuppressedPostfix(BigBird __instance)
+		{
+			try
+			{
+				Timer cool = _coolField.GetValue(__instance) as Timer;
+				if (cool == null)
+				{
+					return;
+				}
+				Hold h = new Hold();
+				h.Cool = cool;
+				h.Level = PlayerModel.emergencyController.currentLevel;
+				_held[__instance] = h;
+			}
+			catch (Exception e)
+			{
+				LogError(e);
+			}
+		}
+
+		public static void StartPostfix()
+		{
+			_held.Clear();
+		}
+
+		public static void TickPrefix(BigBird __instance)
+		{
+			if (_held.Count == 0)
+			{
+				return;
+			}
+			try
+			{
+				Hold h;
+				if (!_held.TryGetValue(__instance, out h))
+				{
+					return;
+				}
+				EmergencyLevel level = PlayerModel.emergencyController.currentLevel;
+				if (level < EmergencyLevel.LEVEL2 || level > h.Level)
+				{
+					_held.Remove(__instance);
+					return;
+				}
+				if (h.Cool.started)
+				{
+					return;
+				}
+				h.Cool.StartTimer(HoldStep);
+				if (!h.Logged)
+				{
+					h.Logged = true;
+					_holds++;
+					N.ULog.Info(GameFixModule.Tag, "big bird held: emergency level " + level + " has not dropped since its suppression (" + _holds + ")");
+				}
+			}
+			catch (Exception e)
+			{
+				LogError(e);
+			}
+		}
+
+		private static void LogError(Exception e)
+		{
+			if (!_errorLogged)
+			{
+				_errorLogged = true;
+				N.ULog.Error(GameFixModule.Tag, "big bird trumpet fix error (logged once): " + e);
 			}
 		}
 	}

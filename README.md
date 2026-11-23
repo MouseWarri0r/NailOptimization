@@ -1,6 +1,6 @@
 # Nail Optimization
 
-Version 0.9.6-beta. A modular performance and stability mod for Lobotomy Corporation. It is built on BaseMod (Lobotomy Mod Manager, LMM) and Harmony 1.0.9.1 and runs on the game's Unity 2017 Mono runtime.
+Version 0.9.7-beta. A modular performance and stability mod for Lobotomy Corporation. It is built on BaseMod (Lobotomy Mod Manager, LMM) and Harmony 1.0.9.1 and runs on the game's Unity 2017 Mono runtime.
 
 It targets large mod lists, where the game starts slowly, runs out of memory, stutters on late days and can lose a save because of one broken mod file. Most optimizations work on the game's own code, so they also help a vanilla game. Every feature has its own switch, and the mod writes what it installed, skipped or fixed to `NailOptimization.log`.
 

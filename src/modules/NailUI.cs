@@ -227,6 +227,42 @@ namespace NailUI
 		[DllImport("user32.dll")]
 		private static extern int GetSystemMetrics(int index);
 
+		[StructLayout(LayoutKind.Sequential)]
+		private struct Rect32
+		{
+			public int Left;
+			public int Top;
+			public int Right;
+			public int Bottom;
+		}
+
+		[StructLayout(LayoutKind.Sequential)]
+		private struct MonitorInfo
+		{
+			public int Size;
+			public Rect32 Monitor;
+			public Rect32 Work;
+			public uint Flags;
+		}
+
+		[DllImport("user32.dll")]
+		private static extern IntPtr MonitorFromWindow(IntPtr window, uint flags);
+
+		[DllImport("user32.dll")]
+		private static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
+
+		[DllImport("user32.dll")]
+		private static extern bool GetClientRect(IntPtr window, out Rect32 rect);
+
+		[DllImport("user32.dll")]
+		private static extern IntPtr GetDC(IntPtr window);
+
+		[DllImport("user32.dll")]
+		private static extern int ReleaseDC(IntPtr window, IntPtr dc);
+
+		[DllImport("gdi32.dll")]
+		private static extern int GetDeviceCaps(IntPtr dc, int index);
+
 		private static N.IntParam _resolution;
 		private static N.IntParam _quality;
 		private static N.IntParam _cap;
@@ -425,18 +461,38 @@ namespace NailUI
 		}
 
 		// Unity 2017 has no borderless mode of its own. The monitor size is known only after an exclusive mode has ended, hence the steps a tick apart.
+		// Size and position come from the monitor that holds the game window (the primary one if unknown), task 097 P3.
 		private static void StepBorderless()
 		{
-			int width = GetSystemMetrics(0);
-			int height = GetSystemMetrics(1);
+			IntPtr window = GameWindow();
+			MonitorInfo info;
+			bool monitor = MonitorOf(window, out info);
+			int x = monitor ? info.Monitor.Left : 0;
+			int y = monitor ? info.Monitor.Top : 0;
+			int width = monitor ? info.Monitor.Right - info.Monitor.Left : GetSystemMetrics(0);
+			int height = monitor ? info.Monitor.Bottom - info.Monitor.Top : GetSystemMetrics(1);
 			if (_borderlessStep == 1)
 			{
 				Screen.SetResolution(width, height, false);
 				_borderlessStep = 2;
 				return;
 			}
+			if (_borderlessStep == 3)
+			{
+				_borderlessStep = 0;
+				Rect32 client;
+				string clientText = window != IntPtr.Zero && GetClientRect(window, out client) ? (client.Right - client.Left) + "x" + (client.Bottom - client.Top) : "?";
+				int dpi = 0;
+				IntPtr dc = GetDC(IntPtr.Zero);
+				if (dc != IntPtr.Zero)
+				{
+					dpi = GetDeviceCaps(dc, 88);
+					ReleaseDC(IntPtr.Zero, dc);
+				}
+				N.ULog.Info("nailui", "display: borderless check: monitor " + (monitor ? x + "," + y + " " + width + "x" + height + ", work " + info.Work.Left + "," + info.Work.Top + "," + info.Work.Right + "," + info.Work.Bottom : "unknown") + ", primary " + GetSystemMetrics(0) + "x" + GetSystemMetrics(1) + ", client " + clientText + ", unity " + Screen.width + "x" + Screen.height + ", dpi " + dpi);
+				return;
+			}
 			_borderlessStep = 0;
-			IntPtr window = GameWindow();
 			if (window == IntPtr.Zero)
 			{
 				N.ULog.Warn("nailui", "display: game window not found, borderless not applied");
@@ -448,8 +504,21 @@ namespace NailUI
 				_savedStyle = style;
 			}
 			SetWindowLong(window, GwlStyle, style & ~BorderStyles);
-			SetWindowPos(window, IntPtr.Zero, 0, 0, width, height, SwpNoZOrder | SwpFrameChanged | SwpShowWindow);
-			N.ULog.Info("nailui", "display: borderless " + width + "x" + height);
+			SetWindowPos(window, IntPtr.Zero, x, y, width, height, SwpNoZOrder | SwpFrameChanged | SwpShowWindow);
+			N.ULog.Info("nailui", "display: borderless " + width + "x" + height + (x != 0 || y != 0 ? " at " + x + "," + y : ""));
+			_borderlessStep = 3;
+		}
+
+		private static bool MonitorOf(IntPtr window, out MonitorInfo info)
+		{
+			info = new MonitorInfo();
+			info.Size = Marshal.SizeOf(typeof(MonitorInfo));
+			if (window == IntPtr.Zero)
+			{
+				return false;
+			}
+			IntPtr monitor = MonitorFromWindow(window, 2u);
+			return monitor != IntPtr.Zero && GetMonitorInfo(monitor, ref info) && info.Monitor.Right > info.Monitor.Left && info.Monitor.Bottom > info.Monitor.Top;
 		}
 
 		private static void RestoreBorder()

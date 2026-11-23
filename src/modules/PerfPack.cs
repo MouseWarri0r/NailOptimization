@@ -129,7 +129,7 @@ namespace PerfPack
 		{
 			get
 			{
-				return "1.72";
+				return "1.74";
 			}
 		}
 
@@ -375,8 +375,12 @@ namespace PerfPack
 				ok += ScriptTypes.Install(harmony);
 			}
 			N.Flag pauseSkeletons = N.Config.BindFlag("PerfPack.PauseSkeletons", true, "While the game is paused, characters refresh their pose rarely instead of every frame; cutscenes are not affected.");
+			N.Flag skeletonFrameSync = N.Config.BindFlag("PerfPack.SkeletonFrameSync", true, "Characters build their picture on the same frames as their pose, so the face no longer slips on the head when zoomed out a little (game bug).");
 			want++;
-			ok += PauseSkeletons.Install(harmony, pauseSkeletons);
+			ok += PauseSkeletons.Install(harmony, pauseSkeletons, skeletonFrameSync);
+			N.Flag unitDepth = N.Config.BindFlag("PerfPack.UnitDepth", true, "Agents and clerks get separate depths, so overlapping characters no longer clip through each other (game bug). Applies to characters placed after the change (next day).");
+			want++;
+			ok += UnitDepth.Install(harmony, unitDepth);
 			N.Flag agentAnimLod = N.Config.BindFlag("PerfPack.AgentAnimLod", true, "Zoomed out, agents refresh their animation one step less often than the game already does.");
 			want++;
 			ok += AgentAnimLod.Install(harmony, agentAnimLod);
@@ -498,6 +502,11 @@ namespace PerfPack
 			{
 				want++;
 				ok += CreatureTextures.Install(harmony);
+			}
+			if (N.Config.BindFlag("PerfPack.ModTexturesExperimental", false, "EXPERIMENTAL. Large pictures that mods load themselves (corridor backgrounds and similar) keep one copy in memory instead of two, after they stayed unchanged for a while. Mods that read these pictures may break. Read at game start.").On)
+			{
+				want++;
+				ok += ModTextures.Install();
 			}
 			if (LazyPictures.ChildHoodPresent() && N.Config.BindFlag("PerfPack.CatLazyExperimental", true, "EXPERIMENTAL. ChildHood cat animations load when a cat first appears, not at game start. Faster start, less memory, a short stutter on first use. Read at game start.").On)
 			{
@@ -5436,9 +5445,21 @@ namespace PerfPack
 		private static int _paused;
 		private static bool _active;
 		private static int _initFrame = -1;
+		// SkeletonFrameSync: vanilla SkeletonAnimator.Update tests _optCount before LateUpdate increments it, so at optimizeLevel 1-5
+		// the mesh is built one frame after the pose. Face sprites follow the bones at once, head and hair wait for the mesh: the face
+		// slips on the head (worst just outside max zoom, level 1). Here the mesh is built on the pose frames instead; same counts.
+		private static N.Flag _sync;
+		private delegate int CountGetter(Spine.Unity.SkeletonRenderer r);
+		private delegate void CountSetter(Spine.Unity.SkeletonRenderer r, int value);
+		private static CountGetter _getCount;
+		private static CountSetter _setCount;
+		private static Spine.Unity.SkeletonRenderer _restore;
+		private static int _restoreLevel;
+		private static Spine.Unity.SkeletonRenderer _initRenderer;
+		private static bool _syncSeen;
 
 		[MethodImpl(MethodImplOptions.NoInlining)]
-		internal static int Install(HarmonyInstance harmony, N.Flag flag)
+		internal static int Install(HarmonyInstance harmony, N.Flag flag, N.Flag sync)
 		{
 			MethodBase init = N.PatchUtil.Resolve(Tag, typeof(Spine.Unity.SkeletonRenderer), "Initialize", new Type[] { typeof(bool) });
 			MethodBase mesh = N.PatchUtil.Resolve(Tag, typeof(Spine.Unity.SkeletonRenderer), "LateUpdate", Type.EmptyTypes);
@@ -5458,13 +5479,46 @@ namespace PerfPack
 				return 0;
 			}
 			_flag = flag;
+			_sync = sync;
+			FieldInfo count = typeof(Spine.Unity.SkeletonRenderer).GetField("_optCount", BindingFlags.Instance | BindingFlags.NonPublic);
+			if (object.ReferenceEquals(count, null) || !object.ReferenceEquals(count.FieldType, typeof(int)))
+			{
+				N.ULog.Error(Tag, "SkeletonFrameSync off: SkeletonRenderer._optCount not found");
+			}
+			else
+			{
+				try
+				{
+				DynamicMethod get = new DynamicMethod("SkeletonFrameSync_Get", typeof(int), new Type[] { typeof(Spine.Unity.SkeletonRenderer) }, typeof(Spine.Unity.SkeletonRenderer), true);
+				ILGenerator il = get.GetILGenerator();
+				il.Emit(OpCodes.Ldarg_0);
+				il.Emit(OpCodes.Ldfld, count);
+				il.Emit(OpCodes.Ret);
+				DynamicMethod set = new DynamicMethod("SkeletonFrameSync_Set", typeof(void), new Type[] { typeof(Spine.Unity.SkeletonRenderer), typeof(int) }, typeof(Spine.Unity.SkeletonRenderer), true);
+				il = set.GetILGenerator();
+				il.Emit(OpCodes.Ldarg_0);
+				il.Emit(OpCodes.Ldarg_1);
+				il.Emit(OpCodes.Stfld, count);
+				il.Emit(OpCodes.Ret);
+				_getCount = (CountGetter)get.CreateDelegate(typeof(CountGetter));
+				_setCount = (CountSetter)set.CreateDelegate(typeof(CountSetter));
+				}
+				catch (Exception e)
+				{
+					_getCount = null;
+					_setCount = null;
+					N.ULog.Error(Tag, "SkeletonFrameSync off: " + e);
+				}
+			}
 			HarmonyMethod prefix = new HarmonyMethod(typeof(PauseSkeletons).GetMethod("Prefix", BindingFlags.Public | BindingFlags.Static));
+			HarmonyMethod meshPrefix = new HarmonyMethod(typeof(PauseSkeletons).GetMethod("MeshPrefix", BindingFlags.Public | BindingFlags.Static));
+			HarmonyMethod meshPostfix = new HarmonyMethod(typeof(PauseSkeletons).GetMethod("MeshPostfix", BindingFlags.Public | BindingFlags.Static));
 			HarmonyMethod initPrefix = new HarmonyMethod(typeof(PauseSkeletons).GetMethod("InitPrefix", BindingFlags.Public | BindingFlags.Static));
-			if (!N.PatchUtil.Install(harmony, Tag, init, initPrefix, null) || !N.PatchUtil.Install(harmony, Tag, pose, prefix, null) || !N.PatchUtil.Install(harmony, Tag, mesh, prefix, null))
+			if (!N.PatchUtil.Install(harmony, Tag, init, initPrefix, null) || !N.PatchUtil.Install(harmony, Tag, pose, prefix, null) || !N.PatchUtil.Install(harmony, Tag, mesh, meshPrefix, meshPostfix))
 			{
 				return 0;
 			}
-			N.ULog.Info(Tag, "PauseSkeletons installed");
+			N.ULog.Info(Tag, "PauseSkeletons installed" + (_getCount != null ? " (with SkeletonFrameSync)" : ""));
 			return 1;
 		}
 
@@ -5475,6 +5529,7 @@ namespace PerfPack
 			if (overwrite || !__instance.valid)
 			{
 				_initFrame = Time.frameCount;
+				_initRenderer = __instance;
 			}
 		}
 
@@ -5484,6 +5539,7 @@ namespace PerfPack
 			if (frame != _frame)
 			{
 				_frame = frame;
+				Restore();
 				GameManager gm = GameManager.currentGameManager;
 				_paused = (Time.timeScale == 0f && _flag.On && gm != null && gm.state != GameState.STOP) ? _paused + 1 : 0;
 				_active = _paused > Grace;
@@ -5499,6 +5555,141 @@ namespace PerfPack
 				return true;
 			}
 			return false;
+		}
+
+		public static bool MeshPrefix(Spine.Unity.SkeletonRenderer __instance)
+		{
+			// The previous LateUpdate threw before the postfix.
+			Restore();
+			if (!Prefix(__instance))
+			{
+				return false;
+			}
+			int level = __instance.optimizeLevel;
+			if (level < 1 || level > 5 || _getCount == null || !_sync.On || !__instance.valid
+				|| (Time.frameCount == _initFrame && object.ReferenceEquals(__instance, _initRenderer))
+				|| !object.ReferenceEquals(__instance.GetType(), typeof(Spine.Unity.SkeletonAnimator)))
+			{
+				return true;
+			}
+			int c = _getCount(__instance);
+			if (!Posed(level, c))
+			{
+				_setCount(__instance, c + 1);
+				return false;
+			}
+			// Level 0 for this call: vanilla increments the count and builds the mesh of the pose applied this frame.
+			if (!_syncSeen)
+			{
+				_syncSeen = true;
+				N.ULog.Info(Tag, "SkeletonFrameSync active (first synced mesh, level " + level + ")");
+			}
+			_restore = __instance;
+			_restoreLevel = level;
+			__instance.optimizeLevel = 0;
+			return true;
+		}
+
+		public static void MeshPostfix()
+		{
+			Restore();
+		}
+
+		private static void Restore()
+		{
+			if (!object.ReferenceEquals(_restore, null))
+			{
+				if (_restore != null)
+				{
+					_restore.optimizeLevel = _restoreLevel;
+				}
+				_restore = null;
+			}
+		}
+
+		// The test of SkeletonAnimator.Update on the count before LateUpdate increments it.
+		private static bool Posed(int level, int c)
+		{
+			switch (level)
+			{
+				case 1: return c % 4 != 0;
+				case 2: return c % 2 == 0;
+				case 3: return c % 4 == 0;
+				case 4: return c % 6 == 0;
+				case 5: return c % 8 == 0;
+			}
+			return true;
+		}
+	}
+
+	// ---------- UnitDepth ----------
+	// Vanilla AgentLayer.AddAgent and OfficerLayer.AddOfficer give unit k the depth -k * 0.001, each layer counting from 0, so agent k
+	// and clerk k share one depth. A unit's parts and face sprites span up to 0.0018 in z (steps of 0.0001), so neighbours also cross.
+	// Units, their parts and doors all sort by z alone (layer Default, order 0): bodies of overlapping units clip and flicker.
+	// Here agents take the even and clerks the odd places of one grid with a step of 0.0025; the range stays within vanilla's -1.
+	public static class UnitDepth
+	{
+		private const string Tag = "PerfPack";
+		private const float Step = 0.0025f;
+		private const int Places = 200;
+		private static N.Flag _flag;
+		private static bool _logged;
+
+		[MethodImpl(MethodImplOptions.NoInlining)]
+		internal static int Install(HarmonyInstance harmony, N.Flag flag)
+		{
+			// WorkerUnit.SetDefaultZValue is two stores and Mono inlines it into the callers, so a patch on it never runs [Observed: run p2-depth-boot].
+			MethodBase agent = N.PatchUtil.Resolve(Tag, typeof(AgentLayer), "AddAgent", new Type[] { typeof(AgentModel) });
+			MethodBase officer = N.PatchUtil.Resolve(Tag, typeof(OfficerLayer), "AddOfficer", new Type[] { typeof(OfficerModel) });
+			if (object.ReferenceEquals(agent, null) || object.ReferenceEquals(officer, null))
+			{
+				return 0;
+			}
+			_flag = flag;
+			if (!N.PatchUtil.Install(harmony, Tag, agent, null, new HarmonyMethod(typeof(UnitDepth).GetMethod("AgentPostfix", BindingFlags.Public | BindingFlags.Static)))
+				|| !N.PatchUtil.Install(harmony, Tag, officer, null, new HarmonyMethod(typeof(UnitDepth).GetMethod("OfficerPostfix", BindingFlags.Public | BindingFlags.Static))))
+			{
+				return 0;
+			}
+			N.ULog.Info(Tag, "UnitDepth installed");
+			return 1;
+		}
+
+		public static void AgentPostfix(AgentModel model)
+		{
+			if (_flag.On && model != null)
+			{
+				Remap(model.GetUnit(), 0f);
+			}
+		}
+
+		public static void OfficerPostfix(OfficerModel model)
+		{
+			if (_flag.On && model != null)
+			{
+				Remap(model.GetUnit(), Step);
+			}
+		}
+
+		private static void Remap(WorkerUnit unit, float offset)
+		{
+			if (unit == null)
+			{
+				return;
+			}
+			// Only the vanilla grid (-k * 0.001); a depth another mod gave stays.
+			float k = -unit.zValue * 1000f;
+			int place = Mathf.RoundToInt(k);
+			if (place < 0 || Mathf.Abs(k - place) > 0.01f)
+			{
+				return;
+			}
+			if (!_logged)
+			{
+				_logged = true;
+				N.ULog.Info(Tag, "UnitDepth: " + unit.name + " place " + place + " z " + unit.zValue + " -> " + (-(place % Places) * (2f * Step) - offset));
+			}
+			unit.SetDefaultZValue(-(place % Places) * (2f * Step) - offset);
 		}
 	}
 
@@ -6508,6 +6699,11 @@ namespace PerfPack
 			// The sign keeps the picture as baked now; a later flip of the parent mirrors it like the skeleton.
 			it.Quad.transform.localScale = new Vector3(1f / scale.x, 1f / scale.y, 1f);
 			it.Quad.transform.position = center;
+			// The bounds take in the shadow (about 10 behind the clerk), so their centre z would draw the quad behind doors and rooms:
+			// all of them sort by z alone (layer Default, order 0). The quad keeps the skeleton's depth instead.
+			Vector3 local = it.Quad.transform.localPosition;
+			local.z = 0f;
+			it.Quad.transform.localPosition = local;
 			it.Quad.SetActive(false);
 			it.Baked = true;
 			return true;
@@ -6997,6 +7193,173 @@ namespace PerfPack
 				}
 			}
 			return true;
+		}
+	}
+
+	// ---------- ModTextures ----------
+	// Experimental. Drops the readable copy of large unnamed textures that mods load from their own folders (passage backgrounds, CG pictures).
+	// A texture qualifies after it showed the same sampled pixels at two checkpoints, so a buffer a mod keeps rewriting is never touched.
+	// Spine atlas pages are skipped: the pixel readers of this mod set (AtlasUtilities copies, agent sprite readers) read those.
+	public static class ModTextures
+	{
+		private const string Tag = "PerfPack";
+		private const long MinPixels = 1000000;
+
+		// Instance ids only: a reference here would keep a texture of an earlier day alive.
+		private static readonly Dictionary<int, int> Prints = new Dictionary<int, int>();
+		private static readonly HashSet<int> Skip = new HashSet<int>();
+
+		internal static int Install()
+		{
+			GameObject go = new GameObject("NailOptimization.ModTextures");
+			UnityEngine.Object.DontDestroyOnLoad(go);
+			go.AddComponent<ModTexturesDriver>();
+			N.ULog.Info(Tag, "ModTextures installed");
+			return 1;
+		}
+
+		internal static void Sweep(string point)
+		{
+			float start = Time.realtimeSinceStartup;
+			int released = 0;
+			int candidates = 0;
+			double mb = 0;
+			try
+			{
+				HashSet<int> spine = new HashSet<int>();
+				UnityEngine.Object[] mats = Resources.FindObjectsOfTypeAll(typeof(Material));
+				for (int i = 0; i < mats.Length; i++)
+				{
+					Material m = (Material)mats[i];
+					Shader sh = m.shader;
+					Texture mt = sh != null && sh.name.IndexOf("Spine", StringComparison.Ordinal) >= 0 ? m.mainTexture : null;
+					if (mt != null)
+					{
+						spine.Add(mt.GetInstanceID());
+					}
+				}
+				if (Prints.Count > 20000)
+				{
+					Prints.Clear();
+				}
+				UnityEngine.Object[] all = Resources.FindObjectsOfTypeAll(typeof(Texture2D));
+				for (int i = 0; i < all.Length; i++)
+				{
+					Texture2D t = (Texture2D)all[i];
+					if ((long)t.width * t.height < MinPixels || t.name.Length != 0)
+					{
+						continue;
+					}
+					// GetPixel on a compressed format logs an error instead of throwing.
+					TextureFormat f = t.format;
+					if (f != TextureFormat.ARGB32 && f != TextureFormat.RGBA32 && f != TextureFormat.RGB24)
+					{
+						continue;
+					}
+					int id = t.GetInstanceID();
+					if (Skip.Contains(id) || spine.Contains(id))
+					{
+						continue;
+					}
+					int print;
+					try
+					{
+						print = Print(t);
+					}
+					catch (Exception)
+					{
+						// GPU only already (another feature or the mod itself).
+						Skip.Add(id);
+						continue;
+					}
+					candidates++;
+					int old;
+					if (!Prints.TryGetValue(id, out old) || old != print)
+					{
+						Prints[id] = print;
+						continue;
+					}
+					Prints.Remove(id);
+					Skip.Add(id);
+					t.Apply(false, true);
+					released++;
+					mb += t.width * (double)t.height * 4 / 1048576;
+				}
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(Tag, "ModTextures " + point + ": " + e);
+			}
+			N.ULog.Info(Tag, "ModTextures " + point + ": " + candidates + " readable candidates, " + released + " released, " + (long)mb + " MB of readable copies freed, " + (int)((Time.realtimeSinceStartup - start) * 1000f) + " ms");
+		}
+
+		// 25 sampled pixels; throws for a texture that is not readable.
+		private static int Print(Texture2D t)
+		{
+			int h = t.width * 31 + t.height;
+			for (int i = 1; i <= 5; i++)
+			{
+				for (int j = 1; j <= 5; j++)
+				{
+					Color32 c = t.GetPixel(t.width * i / 6, t.height * j / 6);
+					h = h * 31 + ((c.r << 24) | (c.g << 16) | (c.b << 8) | c.a);
+				}
+			}
+			return h;
+		}
+	}
+
+	public class ModTexturesDriver : MonoBehaviour
+	{
+		private float _next;
+		private string _scene;
+		private float _sceneSince;
+		private bool _titleDone;
+		private float _playSince = -1f;
+		private int _daySweeps;
+
+		private void Update()
+		{
+			float now = Time.realtimeSinceStartup;
+			if (now < _next)
+			{
+				return;
+			}
+			_next = now + 5f;
+			string scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+			if (scene != _scene)
+			{
+				_scene = scene;
+				_sceneSince = now;
+				_titleDone = false;
+			}
+			if (!_titleDone && scene.IndexOf("Title", StringComparison.Ordinal) >= 0 && now - _sceneSince >= 10f)
+			{
+				_titleDone = true;
+				ModTextures.Sweep("title");
+			}
+			GameManager gm = GameManager.currentGameManager;
+			bool running = gm != null && (gm.state == GameState.PLAYING || gm.state == GameState.PAUSE);
+			if (!running)
+			{
+				_playSince = -1f;
+				_daySweeps = 0;
+				return;
+			}
+			if (_playSince < 0f)
+			{
+				_playSince = now;
+			}
+			if (_daySweeps == 0 && now - _playSince >= 5f)
+			{
+				_daySweeps = 1;
+				ModTextures.Sweep("day start");
+			}
+			else if (_daySweeps == 1 && now - _playSince >= 60f)
+			{
+				_daySweeps = 2;
+				ModTextures.Sweep("day +60 s");
+			}
 		}
 	}
 
