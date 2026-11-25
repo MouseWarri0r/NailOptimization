@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.8-beta - 2026-11-25
+
+Protection against hidden or stuck characters, three community-mod fixes and a safer deferred patch build. Includes the 0.9.7.1 hotfix. PerfPack 1.75, FastFix 1.77, LoadGuard 1.16 with LoadGuardH1, NailUI 1.17; the other modules are unchanged.
+
+- PerfPack 1.75: `CullKeepAnimState` (on): agents and clerks hidden outside the view keep their animator running state; before, the animator was switched off and came back at the default pose. `VisibilityGuard` (on): a unit in view still marked hidden is shown again within a second; a feature repaired 3 times in a day is switched off for the session; a unit that vanished after it was drawn is named in the log. `ControlWatch` (on): an agent uncontrollable for over 120 s is named in the log (no automatic release). These lines also go to `Logs/NailReport.txt`.
+- LoadGuardH1: `HarmonyDefer` registers a method only after its jump is written, a method left without a wrapper throws an error instead of crashing the game, and a failed rebuild names the mods whose patches may be lost. The build now has a `LoadGuardH1` project (`modules/h1/LoadGuardH1.dll`).
+- Mod fixes (FastFix 1.76-1.77): `VbfYield` (Vanilla Bug Fixes Void Dream fix skipped while ours is on), `PeiPeiLogWrite` (PeiPeiEGO stun file write per tick), `FengYunMoveLoop` (FengYun knock-back freeze), `HengMingAttack` (HengMing weapon attack error).
+- 0.9.7.1 hotfix: LoadGuard 1.14-1.16: base-game abnormalities no longer disappear on a day restart when another mod patches the abnormality build; `ModId` keeps a mod's GlobalInfo ID in every language (Incubator no longer overwrites Mimicry); abnormality ids without data are dropped from the extraction screen (Pinel Luti). NailUI 1.17: `HideAgentTitles` keeps titles hidden.
+- Known: a red TV/scanline screen filter seen in one test run is not caused by Nail; cause open.
+
 ## 0.9.7-beta - 2026-11-23
 
 Faster start with many mods, a faster abnormality window with EGO readers, character depth and face fixes, two vanilla fixes and Incubator fixes. LoadGuard 1.13, FastFix 1.75, PerfPack 1.74, NailUI 1.16, GameFix 1.0 (new option); the other modules are unchanged.

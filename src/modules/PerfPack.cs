@@ -129,7 +129,7 @@ namespace PerfPack
 		{
 			get
 			{
-				return "1.74";
+				return "1.75c";
 			}
 		}
 
@@ -441,7 +441,9 @@ namespace PerfPack
 			N.Flag clerkCull = N.Config.BindFlag("PerfPack.ClerkCull", true, "Calm clerks outside the view stop animating and drawing; clerks in panic, in combat or on a task stay normal. Applied at once; clerks stay normal while ClerkImpostor is on.");
 			N.Flag agentCull = N.Config.BindFlag("PerfPack.AgentCull", true, "Calm agents outside the view stop animating and drawing; agents in panic, in combat or at work stay normal. Applied at once.");
 			want++;
-			ok += ClerkCull.Install(harmony, clerkCull, agentCull, !impostor.On);
+			int cullOk = ClerkCull.Install(harmony, clerkCull, agentCull, !impostor.On);
+			ok += cullOk;
+			UnitGuard.Install(harmony, cullOk > 0);
 			N.Flag advanced = N.Config.BindFlag("LogViewer.AdvancedLog", false, "Own log in Logs/ next to NailOptimization.dll instead of BaseMod Log.txt (5 files kept), a column of warnings, errors and mod file diagnostics, an alert badge on the Logs buttons. Needs LogViewer.Enabled. Read at game start.");
 			N.Flag quietLog = N.Config.BindFlag("PerfPack.QuietLog", true, "Ordinary game and BaseMod log lines are not written; warnings and errors stay. Does nothing while the advanced log is on. Read at game start.");
 			if (quietLog.On && !advanced.On)
@@ -3270,6 +3272,9 @@ namespace PerfPack
 			public int Seen;
 			public List<Behaviour> Off = new List<Behaviour>();
 			public List<Renderer> Hidden = new List<Renderer>();
+			// Animators left on with CullCompletely (KeepAnimState) and their own culling modes.
+			public List<Animator> Culled = new List<Animator>();
+			public List<AnimatorCullingMode> Modes = new List<AnimatorCullingMode>();
 		}
 
 		private static readonly Dictionary<Component, Item> _items = new Dictionary<Component, Item>();
@@ -3280,6 +3285,8 @@ namespace PerfPack
 		private static readonly List<MeshRenderer> _renderers = new List<MeshRenderer>();
 		private static N.Flag _flag;
 		private static N.Flag _agentFlag;
+		private static N.Flag _keepFlag;
+		private static bool _quarantined;
 		private static bool _clerksAllowed;
 		private static N.Counter _entered;
 		private static N.Counter _enteredAgents;
@@ -3306,6 +3313,7 @@ namespace PerfPack
 			}
 			_flag = flag;
 			_agentFlag = agentFlag;
+			_keepFlag = N.Config.BindFlag("PerfPack.CullKeepAnimState", true, "Culled agents and clerks keep their animation state: the animator is paused by Unity's culling instead of switched off, so a pose or state set by the game or a mod (death, dual weapons, custom idles) is still there when the unit comes back into view. Applied at once.");
 			_clerksAllowed = clerksAllowed;
 			_entered = N.Counters.Get(Tag, "clerksCulled");
 			_enteredAgents = N.Counters.Get(Tag, "agentsCulled");
@@ -3332,7 +3340,7 @@ namespace PerfPack
 					break;
 				}
 			}
-			N.ULog.Info(Tag, "ClerkCull installed");
+			N.ULog.Info(Tag, "ClerkCull installed (keep anim state " + _keepFlag.On + ")");
 			return 1;
 		}
 
@@ -3359,13 +3367,14 @@ namespace PerfPack
 
 		public static void Prefix(GameManager __instance)
 		{
+			UnitGuard.Tick(__instance);
 			if (_failed)
 			{
 				return;
 			}
 			try
 			{
-				if (__instance.state == GameState.STOP || !((_flag.On && _clerksAllowed) || AgentsOn()))
+				if (__instance.state == GameState.STOP || _quarantined || !((_flag.On && _clerksAllowed) || AgentsOn()))
 				{
 					if (_all.Count > 0)
 					{
@@ -3544,12 +3553,26 @@ namespace PerfPack
 				_entered.Value++;
 			}
 			it.Unit.GetComponentsInChildren<Animator>(false, _animators);
+			bool keep = _keepFlag != null && _keepFlag.On;
 			for (int i = 0; i < _animators.Count; i++)
 			{
-				if (_animators[i].enabled)
+				Animator a = _animators[i];
+				if (!a.enabled)
 				{
-					_animators[i].enabled = false;
-					it.Off.Add(_animators[i]);
+					continue;
+				}
+				// Unity 2017 resets a re-enabled Animator to its entry state and default parameters; a culled one keeps both.
+				// All its renderers are off or out of view, so Unity skips its update as when it was switched off.
+				if (keep)
+				{
+					it.Culled.Add(a);
+					it.Modes.Add(a.cullingMode);
+					a.cullingMode = AnimatorCullingMode.CullCompletely;
+				}
+				else
+				{
+					a.enabled = false;
+					it.Off.Add(a);
 				}
 			}
 			it.Unit.GetComponentsInChildren<Spine.Unity.SkeletonRenderer>(false, _skeletons);
@@ -3589,6 +3612,17 @@ namespace PerfPack
 		private static void Exit(Item it)
 		{
 			bool anim = false;
+			// Modes go back first: with the renderers on again the animator must not stay culled for a frame.
+			for (int i = 0; i < it.Culled.Count; i++)
+			{
+				// A mode another mod set meanwhile stays.
+				if (it.Culled[i] != null && it.Culled[i].cullingMode == AnimatorCullingMode.CullCompletely)
+				{
+					it.Culled[i].cullingMode = it.Modes[i];
+				}
+			}
+			it.Culled.Clear();
+			it.Modes.Clear();
 			for (int i = 0; i < it.Off.Count; i++)
 			{
 				if (it.Off[i] != null)
@@ -3641,18 +3675,487 @@ namespace PerfPack
 			}
 		}
 
+		// Each unit on its own: one Exit that throws must not leave the rest hidden until day end.
 		private static void Clear()
 		{
 			for (int i = 0; i < _all.Count; i++)
 			{
 				if (_all[i].On)
 				{
-					Exit(_all[i]);
+					try
+					{
+						Exit(_all[i]);
+					}
+					catch (Exception e)
+					{
+						N.ULog.Warn(Tag, "ClerkCull restore of one unit failed: " + e.Message);
+					}
 				}
 			}
 			_all.Clear();
 			_items.Clear();
 			_on = 0;
+		}
+
+		internal static void CountCulled(out int agents, out int clerks)
+		{
+			agents = 0;
+			clerks = 0;
+			for (int i = 0; i < _all.Count; i++)
+			{
+				if (_all[i].On)
+				{
+					if (_all[i].Unit is AgentUnit)
+					{
+						agents++;
+					}
+					else
+					{
+						clerks++;
+					}
+				}
+			}
+		}
+
+		internal static bool IsCulled(Component unit)
+		{
+			Item it;
+			return _on > 0 && unit != null && _items.TryGetValue(unit, out it) && it.On;
+		}
+
+		// UnitGuard: a unit in view and alive that the sweep still holds culled is brought back. True when it was culled.
+		internal static bool ForceExit(Component unit)
+		{
+			Item it;
+			if (unit == null || !_items.TryGetValue(unit, out it) || !it.On)
+			{
+				return false;
+			}
+			Exit(it);
+			return true;
+		}
+
+		// UnitGuard quarantine: culling stays off for the rest of the session.
+		internal static void Quarantine()
+		{
+			_quarantined = true;
+			Clear();
+		}
+	}
+
+	// ---------- UnitGuard ----------
+	// Safety net for the culling and a source of facts for player reports (little else comes back from players). Once per second
+	// of real time, from ClerkCull's GameManager.Update Prefix:
+	//   VisibilityGuard  a living unit inside the camera view that the cull sweep still holds for two checks in a row is brought
+	//                    back (Warn); after RepairLimit repairs in one day culling is off for the session (Alert). An agent in view
+	//                    whose skeleton, mesh renderer or mesh is off or missing for two checks gets one diag line; no change, a
+	//                    mod or a creature may hide units on purpose.
+	//   ControlWatch     an agent with an uncontrollable action (not panic) for StuckSec of game time gets one line with the
+	//                    action type, the current command and the Harmony owners of the action's Execute. No release.
+	// The lines also go to Logs/NailReport.txt (new file per session, at most MaxReport lines): one small file to send.
+	public static class UnitGuard
+	{
+		private const string Tag = "PerfPack";
+		private const float Interval = 1f;
+		private const int RepairLimit = 3;
+		private const float StuckSec = 120f;
+		private const int MaxReport = 200;
+
+		private static N.Flag _flag;
+		private static N.Flag _ctlFlag;
+		private static HarmonyInstance _harmony;
+		private static bool _failed;
+		private static float _next;
+		private static int _tick;
+		private static int _repairs;
+		private static bool _quarantined;
+		private static bool _wasStop = true;
+		// Key: unit instance id (cull) or its complement (diag). Value: tick of the last finding and the streak length.
+		private static readonly Dictionary<int, int> _stamp = new Dictionary<int, int>();
+		private static readonly Dictionary<int, int> _streak = new Dictionary<int, int>();
+		private static readonly Dictionary<int, bool> _reported = new Dictionary<int, bool>();
+		// Agents seen drawn today: diag only for a body that vanished after it was drawn (at day start meshes are off for ~2 s).
+		private static readonly Dictionary<int, bool> _drawn = new Dictionary<int, bool>();
+		private static readonly Dictionary<AgentModel, float> _since = new Dictionary<AgentModel, float>();
+		private static readonly Dictionary<AgentModel, object> _sinceAction = new Dictionary<AgentModel, object>();
+		private static bool _active;
+		private static float _nextCount;
+		private static int _lastAgents = -1;
+		private static int _lastClerks = -1;
+		private static readonly Dictionary<AgentModel, bool> _ctlReported = new Dictionary<AgentModel, bool>();
+		private static readonly List<Spine.Unity.SkeletonRenderer> _skeletons = new List<Spine.Unity.SkeletonRenderer>();
+		private static string _reportPath;
+		private static int _reportLines;
+
+		// hosted: ClerkCull's GameManager.Update Prefix is installed (Tick runs only from there).
+		internal static void Install(HarmonyInstance harmony, bool hosted)
+		{
+			_harmony = harmony;
+			_active = hosted;
+			// A session without findings must not leave the previous session's report for a player to send.
+			try
+			{
+				string old = Path.Combine(Path.Combine(N.UiHost.RootDir, "Logs"), "NailReport.txt");
+				if (File.Exists(old))
+				{
+					File.Delete(old);
+				}
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Tag, "old NailReport.txt not removed: " + e.Message);
+			}
+			_flag = N.Config.BindFlag("PerfPack.VisibilityGuard", true, "Once a second: an agent or clerk in view that the culling still keeps hidden is shown again; after 3 such repairs in a day culling is off for the session. An agent in view without a drawn body is noted in Logs/NailReport.txt.");
+			_ctlFlag = N.Config.BindFlag("PerfPack.ControlWatch", true, "An agent that stays uncontrollable (not panic) for 120 s of game time is noted in the log and Logs/NailReport.txt with the action and the mods that patch it. Nothing is changed.");
+			N.ULog.Info(Tag, hosted ? "UnitGuard on" : "UnitGuard off: no GameManager.Update host");
+		}
+
+		// ClerkCull.Prefix (GameManager.Update), before its own checks.
+		internal static void Tick(GameManager gm)
+		{
+			if (_failed || !_active || _flag == null || (!_flag.On && !_ctlFlag.On))
+			{
+				return;
+			}
+			try
+			{
+				if (gm.state == GameState.STOP)
+				{
+					if (!_wasStop)
+					{
+						_wasStop = true;
+						DayReset();
+					}
+					return;
+				}
+				_wasStop = false;
+				float now = Time.realtimeSinceStartup;
+				if (now < _next)
+				{
+					return;
+				}
+				_next = now + Interval;
+				_tick++;
+				if (AgentManager.instance == null)
+				{
+					return;
+				}
+				if (_flag.On)
+				{
+					Camera cam = Camera.main;
+					if (cam != null)
+					{
+						CheckView(cam);
+					}
+				}
+				if (_ctlFlag.On)
+				{
+					CheckControl();
+				}
+				// Culled units now, for live checks and player logs: at most once a minute and only when changed.
+				if (now >= _nextCount)
+				{
+					_nextCount = now + 60f;
+					int agents;
+					int clerks;
+					ClerkCull.CountCulled(out agents, out clerks);
+					if (agents != _lastAgents || clerks != _lastClerks)
+					{
+						_lastAgents = agents;
+						_lastClerks = clerks;
+						N.ULog.Info(Tag, "culled now: agents " + agents + ", clerks " + clerks);
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				_failed = true;
+				N.ULog.Warn(Tag, "UnitGuard failed, off for the session: " + e);
+			}
+		}
+
+		private static void DayReset()
+		{
+			_stamp.Clear();
+			_streak.Clear();
+			_reported.Clear();
+			_drawn.Clear();
+			_since.Clear();
+			_sinceAction.Clear();
+			_ctlReported.Clear();
+			_repairs = 0;
+		}
+
+		private static void CheckView(Camera cam)
+		{
+			Vector3 pos = cam.transform.position;
+			float h = cam.orthographicSize;
+			float w = h * cam.aspect;
+			IList<AgentModel> agents = AgentManager.instance.GetAgentList();
+			for (int i = 0; i < agents.Count; i++)
+			{
+				AgentModel m = agents[i];
+				AgentUnit unit = m == null ? null : m.GetUnit();
+				if (unit != null && InView(m, unit, pos, w, h))
+				{
+					CheckUnit(m, unit, true);
+				}
+			}
+			if (OfficerManager.instance == null)
+			{
+				return;
+			}
+			IList<OfficerModel> clerks = OfficerManager.instance.GetOfficerList();
+			for (int i = 0; i < clerks.Count; i++)
+			{
+				OfficerModel m = clerks[i];
+				OfficerUnit unit = m == null ? null : m.GetUnit();
+				// Clerks: culling only (ClerkImpostor hides clerks in view on purpose).
+				if (unit != null && InView(m, unit, pos, w, h))
+				{
+					CheckUnit(m, unit, false);
+				}
+			}
+		}
+
+		private static bool InView(WorkerModel m, Component unit, Vector3 pos, float w, float h)
+		{
+			if (m.IsDead() || !unit.gameObject.activeInHierarchy)
+			{
+				return false;
+			}
+			Vector3 d = unit.transform.position - pos;
+			return Mathf.Abs(d.x) <= w && Mathf.Abs(d.y) <= h;
+		}
+
+		private static void CheckUnit(WorkerModel m, Component unit, bool diag)
+		{
+			int id = unit.GetInstanceID();
+			if (ClerkCull.IsCulled(unit))
+			{
+				// One check is normal after a zoom out (exit budget); two in a row are not.
+				if (Streak(id) >= 2)
+				{
+					ClerkCull.ForceExit(unit);
+					Repair(m, id);
+				}
+				return;
+			}
+			if (!diag)
+			{
+				return;
+			}
+			if (_reported.ContainsKey(~id))
+			{
+				return;
+			}
+			string problem = BodyProblem(unit);
+			if (problem == null)
+			{
+				_drawn[~id] = true;
+				return;
+			}
+			if (!_drawn.ContainsKey(~id))
+			{
+				return;
+			}
+			if (Streak(~id) == 2)
+			{
+				_reported[~id] = true;
+				Line(false, "diag: agent " + m.GetUnitName() + " in view without a drawn body (" + problem + ") at " + unit.transform.position.x.ToString("0.0") + "," + unit.transform.position.y.ToString("0.0"));
+			}
+		}
+
+		private static int Streak(int key)
+		{
+			int last;
+			int n;
+			if (_stamp.TryGetValue(key, out last) && last == _tick - 1 && _streak.TryGetValue(key, out n))
+			{
+				n++;
+			}
+			else
+			{
+				n = 1;
+			}
+			_stamp[key] = _tick;
+			_streak[key] = n;
+			return n;
+		}
+
+		// Null when at least one Spine skeleton of the agent is drawn (mods add extra skeletons that may be off); otherwise
+		// the reason for the first one.
+		private static string BodyProblem(Component unit)
+		{
+			unit.GetComponentsInChildren<Spine.Unity.SkeletonRenderer>(false, _skeletons);
+			if (_skeletons.Count == 0)
+			{
+				return "no active skeleton";
+			}
+			for (int i = 0; i < _skeletons.Count; i++)
+			{
+				Spine.Unity.SkeletonRenderer sk = _skeletons[i];
+				MeshRenderer mr = sk.GetComponent<MeshRenderer>();
+				MeshFilter mf = sk.GetComponent<MeshFilter>();
+				if (sk.enabled && mr != null && mr.enabled && (mf == null || mf.sharedMesh != null))
+				{
+					return null;
+				}
+			}
+			Spine.Unity.SkeletonRenderer first = _skeletons[0];
+			MeshRenderer r0 = first.GetComponent<MeshRenderer>();
+			if (!first.enabled)
+			{
+				return "skeleton " + first.name + " off";
+			}
+			if (r0 == null || !r0.enabled)
+			{
+				return "mesh renderer " + first.name + " off";
+			}
+			return "mesh " + first.name + " missing";
+		}
+
+		private static void Repair(WorkerModel m, int id)
+		{
+			_repairs++;
+			if (!_reported.ContainsKey(id))
+			{
+				_reported[id] = true;
+				Line(true, "VisibilityGuard: " + m.GetUnitName() + " was kept culled in view; shown again (repair " + _repairs + "/" + RepairLimit + " today)");
+			}
+			if (_repairs >= RepairLimit && !_quarantined)
+			{
+				_quarantined = true;
+				ClerkCull.Quarantine();
+				Line(true, "VisibilityGuard: " + RepairLimit + " repairs today, agent and clerk culling off for this session");
+				N.Alerts.Add(1, "PerfPack.AgentCull", "culling of agents and clerks switched off for this session after " + RepairLimit + " repairs (see Logs/NailReport.txt)");
+			}
+		}
+
+		private static void CheckControl()
+		{
+			float now = Time.time;
+			IList<AgentModel> agents = AgentManager.instance.GetAgentList();
+			for (int i = 0; i < agents.Count; i++)
+			{
+				AgentModel m = agents[i];
+				if (m == null)
+				{
+					continue;
+				}
+				// LoseControl sets CANNOT_CONTROLL without an action: only GetControl clears it.
+				if (m.IsDead() || m.IsPanic() || (m.unconAction == null && !m.CannotControll()))
+				{
+					_since.Remove(m);
+					_sinceAction.Remove(m);
+					continue;
+				}
+				float t;
+				object last;
+				_sinceAction.TryGetValue(m, out last);
+				if (!_since.TryGetValue(m, out t) || !object.ReferenceEquals(last, m.unconAction))
+				{
+					// A new episode (or another action) starts the clock again and may be reported again.
+					_since[m] = now;
+					_sinceAction[m] = m.unconAction;
+					_ctlReported.Remove(m);
+				}
+				else if (now - t >= StuckSec && !_ctlReported.ContainsKey(m))
+				{
+					_ctlReported[m] = true;
+					string act;
+					if (m.unconAction == null)
+					{
+						act = "none (state CANNOT_CONTROLL)";
+					}
+					else
+					{
+						Type action = m.unconAction.GetType();
+						act = action.FullName + " (" + AssemblyName(action) + "), Execute owners " + Owners(action);
+					}
+					WorkerCommand cmd = m.GetCurrentCommand();
+					Line(false, "ControlWatch: " + m.GetUnitName() + " uncontrollable for " + Mathf.RoundToInt(now - t) + " s: action " + act + ", command " + (cmd == null ? "none" : cmd.GetType().Name));
+				}
+			}
+		}
+
+		private static string AssemblyName(Type t)
+		{
+			return t.Assembly.GetName().Name;
+		}
+
+		private static string Owners(Type action)
+		{
+			try
+			{
+				MethodInfo ex = action.GetMethod("Execute", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, Type.EmptyTypes, null);
+				Patches p = object.ReferenceEquals(ex, null) ? null : _harmony.IsPatched(ex);
+				if (p == null)
+				{
+					return "none";
+				}
+				List<string> owners = new List<string>();
+				AddOwners(owners, p.Prefixes);
+				AddOwners(owners, p.Postfixes);
+				AddOwners(owners, p.Transpilers);
+				return owners.Count == 0 ? "none" : string.Join(", ", owners.ToArray());
+			}
+			catch (Exception e)
+			{
+				return "? (" + e.Message + ")";
+			}
+		}
+
+		private static void AddOwners(List<string> owners, IEnumerable<Patch> patches)
+		{
+			if (patches == null)
+			{
+				return;
+			}
+			foreach (Patch p in patches)
+			{
+				if (!owners.Contains(p.owner))
+				{
+					owners.Add(p.owner);
+				}
+			}
+		}
+
+		// Log line plus Logs/NailReport.txt.
+		private static void Line(bool warn, string text)
+		{
+			if (warn)
+			{
+				N.ULog.Warn(Tag, text);
+			}
+			else
+			{
+				N.ULog.Info(Tag, text);
+			}
+			if (_reportLines >= MaxReport)
+			{
+				return;
+			}
+			try
+			{
+				string stamp = DateTime.Now.ToString("HH:mm:ss") + " " + text + Environment.NewLine;
+				if (_reportPath == null)
+				{
+					_reportPath = Path.Combine(Path.Combine(N.UiHost.RootDir, "Logs"), "NailReport.txt");
+					Directory.CreateDirectory(Path.GetDirectoryName(_reportPath));
+					File.WriteAllText(_reportPath, "NailOptimization report, session " + DateTime.Now.ToString("yyyy-MM-dd HH:mm") + Environment.NewLine + stamp);
+				}
+				else
+				{
+					File.AppendAllText(_reportPath, stamp);
+				}
+				_reportLines++;
+			}
+			catch (Exception e)
+			{
+				_reportLines = MaxReport;
+				N.ULog.Warn(Tag, "NailReport.txt write failed: " + e.Message);
+			}
 		}
 	}
 

@@ -89,6 +89,10 @@ Mod names are as shown in the mod list.
 | `FastFix.YaZiOnDie` | YaZi | Agent deaths while WhiteNight is in the facility no longer throw from YaZi's death patch (it looked up WhiteNight's script as YaZi). |
 | `FastFix.GrunglyLure` | Grungly | A lure whose target no longer qualifies, or with no agent left to lure, no longer throws every tick; the lure stops. |
 | `FastFix.BlackBirdPassageHit` | BlackBird_WhiteBird | Its hit on the hallway no longer stops when it kills someone there. Needs 12Harmony. |
+| `FastFix.VbfYield` | Vanilla Bug Fixes | Its Void Dream fix is skipped while ours is on; both woke sleepers from one queue. |
+| `FastFix.PeiPeiLogWrite` | PeiPeiEGO | Its stun no longer writes a Desktop/LOG file every tick; without that folder the write threw and the stun never applied. Needs 12Harmony. |
+| `FastFix.FengYunMoveLoop` | FengYunWeapon Enhance | A knock-back on a unit that stands on no node or edge no longer freezes the game. Needs 12Harmony. |
+| `FastFix.HengMingAttack` | FengYunWeapon Enhance | An attack with a HengMing weapon no longer throws an error after the weapon has done its work. |
 | `FastFix.FDTick` | FD (Krau Deluge) | A unit in its room no longer closes the game; works without 12Harmony. |
 | `FastFix.CustomRiskChild` | kekesi CustomRisk | Clicking a child creature without its own observation data no longer throws and leaves the command window half-built. |
 | `FastFix.FeatherHardMode` | Bloody Past | Its hard-mode setting is read from disk once instead of every tick (about 0.6 ms per tick while it is out). |

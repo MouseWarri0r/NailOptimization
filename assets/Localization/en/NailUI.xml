@@ -877,6 +877,18 @@
       <name>Agents outside the view</name>
       <desc>Calm agents out of view stop animating and drawing.</desc>
     </option>
+    <option key="PerfPack.CullKeepAnimState" section="Performance" group="PerfRender" order="31">
+      <name>Culled units keep their pose</name>
+      <desc>Agents and clerks hidden outside the view keep their animation state (death, dual weapons, custom idles) instead of starting from idle when they come back.</desc>
+    </option>
+    <option key="PerfPack.VisibilityGuard" section="Performance" group="PerfRender" order="32">
+      <name>Guard: units hidden in view</name>
+      <desc>Once a second an agent or clerk in view that the culling still hides is shown again; after 3 repairs in a day culling is off for the session. Agents in view without a drawn body are noted in Logs/NailReport.txt.</desc>
+    </option>
+    <option key="PerfPack.ControlWatch" section="Performance" group="PerfRender" order="33">
+      <name>Guard: stuck uncontrollable agents</name>
+      <desc>An agent uncontrollable for 120 s of game time (not panic) is noted in Logs/NailReport.txt with the action and the mods that patch it. Nothing is changed.</desc>
+    </option>
     <option key="PerfPack.ClerkCull" section="Performance" group="PerfRender" order="40">
       <name>Clerks outside the view</name>
       <desc>Calm clerks out of view stop animating and drawing. Off while clerk pictures are on.</desc>
@@ -1128,6 +1140,22 @@
     <option key="FastFix.BlackBirdPassageHit" section="ModFixes" group="ModFixList" order="520" restart="1">
       <name>Black Bird: hallway hit</name>
       <desc>Its hit on the hallway no longer stops when it kills someone there. Needs 12Harmony.</desc>
+    </option>
+    <option key="FastFix.VbfYield" section="ModFixes" group="ModFixList" order="530" restart="1">
+      <name>Vanilla Bug Fixes: Void Dream</name>
+      <desc>Its Void Dream fix is turned off while ours (Bugfixes, Void Dream) is on, so the two fixes do not release sleeping employees from one queue.</desc>
+    </option>
+    <option key="FastFix.PeiPeiLogWrite" section="ModFixes" group="ModFixList" order="540" restart="1">
+      <name>PeiPeiEGO: stun log writes</name>
+      <desc>Its stun no longer writes a Desktop/LOG file every tick; without that folder the write threw and the stun never applied. Needs 12Harmony.</desc>
+    </option>
+    <option key="FastFix.FengYunMoveLoop" section="ModFixes" group="ModFixList" order="550" restart="1">
+      <name>FengYun weapon: knock-back freeze</name>
+      <desc>A knock-back on a unit that stands on no node or edge no longer freezes the game. Needs 12Harmony.</desc>
+    </option>
+    <option key="FastFix.HengMingAttack" section="ModFixes" group="ModFixList" order="560" restart="1">
+      <name>HengMing weapons: attack error</name>
+      <desc>An attack with a HengMing weapon (FengYun) no longer throws an error after the weapon has done its work.</desc>
     </option>
     <option key="PerfPack.EffectLazyExperimental" section="Experimental" group="PerfPack" order="40" restart="1">
       <name>Effect pictures on first show</name>

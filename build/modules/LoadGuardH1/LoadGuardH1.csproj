@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Module LoadGuardH1: modules/h1/LoadGuardH1.dll, loaded by LoadGuard at start (HarmonyCache, HarmonyDefer). -->
+  <Import Project="../../Common.props" />
+  <PropertyGroup>
+    <AssemblyName>LoadGuardH1</AssemblyName>
+    <OutputPath>$(ModOut)modules/h1/</OutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../../src/modules/h1/LoadGuardH1.cs" />
+    <ProjectReference Include="../../NailOptimization.csproj"><Private>false</Private></ProjectReference>
+  </ItemGroup>
+</Project>

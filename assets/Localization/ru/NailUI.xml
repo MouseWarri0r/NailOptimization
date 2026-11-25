@@ -214,6 +214,22 @@
       <name>Зависание атаки особого EGO (ремейки оружия)</name>
       <desc>EGO-оружие со своей Spine-атакой (ремейки kygi123 и похожие): если анимация атаки так и не запустилась, агент больше не стоит на месте около 100 с и потом не ходит в боевой стойке; атака завершается через 1 с. Идущую атаку фикс не трогает.</desc>
     </option>
+    <option key="FastFix.VbfYield" section="ModFixes" group="ModFixList" order="93" restart="1">
+      <name>Vanilla Bug Fixes: Void Dream</name>
+      <desc>Его фикс Void Dream отключён, пока включён наш (Исправления, Void Dream): два фикса не отпускают спящих сотрудников из одной очереди.</desc>
+    </option>
+    <option key="FastFix.PeiPeiLogWrite">
+      <name>PeiPeiEGO: запись лога оглушения</name>
+      <desc>Его оглушение больше не пишет файл в Desktop/LOG каждый тик; без этой папки запись падала, и оглушение не срабатывало. Нужен 12Harmony.</desc>
+    </option>
+    <option key="FastFix.FengYunMoveLoop">
+      <name>Оружие FengYun: зависание при отбросе</name>
+      <desc>Отброс юнита, который не стоит ни на узле, ни на ребре, больше не вешает игру. Нужен 12Harmony.</desc>
+    </option>
+    <option key="FastFix.HengMingAttack">
+      <name>Оружие HengMing: ошибка атаки</name>
+      <desc>Атака оружием HengMing (FengYun) больше не выдаёт ошибку после того, как оружие сделало своё дело.</desc>
+    </option>
     <option key="FastFix.TrainRestart" section="Bugfixes" group="Vanilla" order="97" restart="1">
       <name>Перезапуск дня во время Поезда в ад убивает сотрудников</name>
       <desc>Перезапуск дня в момент отправления Поезда в ад больше не убивает сотрудников перезагруженного дня: они не начинают день мёртвыми и не теряют EGO.</desc>
@@ -874,6 +890,18 @@
     <option key="PerfPack.AgentCull">
       <name>Агенты вне камеры</name>
       <desc>Спокойные агенты вне экрана не анимируются и не рисуются.</desc>
+    </option>
+    <option key="PerfPack.CullKeepAnimState">
+      <name>Скрытые юниты сохраняют позу</name>
+      <desc>Агенты и клерки, скрытые вне экрана, сохраняют состояние анимации (смерть, два оружия, особые стойки), а не начинают с покоя при возврате.</desc>
+    </option>
+    <option key="PerfPack.VisibilityGuard">
+      <name>Защита: скрытые юниты в кадре</name>
+      <desc>Раз в секунду агент или клерк в кадре, которого всё ещё прячет отсечение, снова показывается; после 3 таких случаев за день отсечение выключается до конца сессии. Агенты в кадре без нарисованного тела записываются в Logs/NailReport.txt.</desc>
+    </option>
+    <option key="PerfPack.ControlWatch">
+      <name>Защита: застрявшие неуправляемые агенты</name>
+      <desc>Агент, неуправляемый 120 с игрового времени (не паника), записывается в Logs/NailReport.txt с действием и модами, которые его патчат. Ничего не меняется.</desc>
     </option>
     <option key="PerfPack.ClerkCull">
       <name>Клерки вне камеры</name>

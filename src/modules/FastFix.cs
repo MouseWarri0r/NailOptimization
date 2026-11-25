@@ -20,6 +20,8 @@
 //   Special attack stuck           Special-weapon attack with no Spine track for 1 s ends through WorkerUnit.EndAttack.
 //   Train restart (vanilla)        HellTrainDeparture.CollisionCheck does nothing while the game state is STOP.
 //   Void Dream (vanilla)           Baku wake/annoy release per worker with a timeout; cry loop goes past downed units.
+//   Vanilla Bug Fixes              its Void Dream hooks are skipped while ours is on: its SleepWorker Postfix replaces the
+//                                  worker's event delegate, so the two fixes would split one queue (class VbfYield).
 //   Expand once (vanilla)          ExpandUI.OnClickCancel after Confirm keeps _isLoadNextScene: no second expansion.
 //   Select click (vanilla)         UnitMouseEventManager.OnPointerClick: a click with a small move clears the drag flag first.
 //   Camera drag (vanilla)          CameraMover.LateUpdate: a right/middle-button drag starts and runs during a Recoil shake.
@@ -597,7 +599,7 @@ namespace FastFix
 		{
 			get
 			{
-				return "1.75";
+				return "1.77";
 			}
 		}
 
@@ -653,6 +655,7 @@ namespace FastFix
 			FastFixDriver.GyroPending = true;
 			FastFixDriver.CovariancePending = true;
 			FastFixDriver.ModNrePending = true;
+			FastFixDriver.VbfYieldPending = true;
 			PanicStuck.Install(Harmony, N.Config.BindFlag("FastFix.PanicStuck", true, "An agent in the panic that opens containment units walks again when the walk to the unit was interrupted, and picks another unit if it cannot get there."));
 			TrainRestart.Install(Harmony, N.Config.BindFlag("FastFix.TrainRestart", true, "Restarting the day while Express Train to Hell departs no longer kills employees of the reloaded day and loses their EGO."));
 			WeaponReskin.Install(Harmony, N.Config.BindFlag("FastFix.WeaponReskin", true, "After a weapon is unequipped the agent shows and swings the Riot stick instead of One Sin's weapon."));
@@ -830,6 +833,7 @@ namespace FastFix
 		internal static bool CovariancePending;
 		internal static bool ModNrePending;
 		internal static bool YaZiPending;
+		internal static bool VbfYieldPending;
 
 		// Checks every N frames while waiting: all mod DLLs load in one pass before the first frame.
 		private const int PollFrames = 30;
@@ -844,7 +848,7 @@ namespace FastFix
 			SpecialAttackStuck.Tick();
 			CensoredChildren.Tick();
 			H12Hint.Tick();
-			if (WhiteRabbitPending || RiskPortraitPending || StarflarePending || HellTrainPending || EffectNamesPending || BambooPending || CauldronPending || ChaofengPending || ColoredFixerPending || BossBirdPending || AddRoomPending || PinelPending || KingGreedPending || ElysiaUnitPending || AcaciaPending || GyroPending || CovariancePending || ModNrePending || YaZiPending)
+			if (WhiteRabbitPending || RiskPortraitPending || StarflarePending || HellTrainPending || EffectNamesPending || BambooPending || CauldronPending || ChaofengPending || ColoredFixerPending || BossBirdPending || AddRoomPending || PinelPending || KingGreedPending || ElysiaUnitPending || AcaciaPending || GyroPending || CovariancePending || ModNrePending || YaZiPending || VbfYieldPending)
 			{
 				_frames++;
 				if (_frames == 1 || _frames % PollFrames == 0 || _frames >= GiveUpFrames)
@@ -1077,6 +1081,18 @@ namespace FastFix
 					{
 						ModNrePending = false;
 						N.ULog.Error(FastFixModule.Tag, "mod nre fixes install failed: " + e);
+					}
+					try
+					{
+						if (VbfYieldPending && VbfYield.TryInstall(_frames >= GiveUpFrames))
+						{
+							VbfYieldPending = false;
+						}
+					}
+					catch (Exception e)
+					{
+						VbfYieldPending = false;
+						N.ULog.Error(FastFixModule.Tag, "vbf yield install failed: " + e);
 					}
 				}
 			}
@@ -4080,6 +4096,9 @@ namespace FastFix
 		private static bool _yaziEscDone;
 		private static bool _grunglyDone;
 		private static bool _bbPassageDone;
+		private static bool _peiPeiDone;
+		private static bool _fengYunMoveDone;
+		private static bool _hengMingDone;
 		private static bool _childLogged;
 		private static FieldInfo _blackBirdAnim;
 		private static FieldInfo _pinoAnim;
@@ -4254,12 +4273,25 @@ namespace FastFix
 			{
 				_bbPassageDone = Mod("BlackBird_WhiteBird", "FastFix.BlackBirdPassageHit", "Black Bird: its hit on the hallway no longer stops when it kills someone there. Needs 12Harmony. Read at game start.", last, InstallBlackBirdPassageHit);
 			}
+			if (!_peiPeiDone)
+			{
+				_peiPeiDone = Mod("PeiPeiEGO", "FastFix.PeiPeiLogWrite", "PeiPeiEGO: its stun no longer writes a Desktop/LOG file every tick (without that folder the write threw and the stun never applied). Needs 12Harmony. Read at game start.", last, InstallPeiPeiLog);
+			}
+			if (!_fengYunMoveDone)
+			{
+				_fengYunMoveDone = Mod("FengYunWeapon Enhance", "FastFix.FengYunMoveLoop", "FengYun weapon: a knock-back on a unit that is on no node or edge no longer freezes the game. Needs 12Harmony. Read at game start.", last, InstallFengYunMove);
+			}
+			if (!_hengMingDone)
+			{
+				_hengMingDone = Mod("FengYunWeapon Enhance", "FastFix.HengMingAttack", "HengMing weapons (FengYun): an attack no longer throws an error after the weapon has done its work. Read at game start.", last, InstallHengMingAttack);
+			}
 			bool batch = InstallBatch(last);
 			return _blackBirdDone && _pinoDone && _boneFishDone && _dragonDone && _flowerDone && _isomerDone
 				&& _toyDone && _invSefiraDone && _invPathDone && _pinoRangeDone && _rainDone && _qiuDone && _niuDone && _hookahDone
 				&& _whaleDone && _charlotteDone && _kekesiDone && _fdDone && _riskDone && _featherDone && _puLaoDone
 				&& _pinoEscDone && _floodDone && _beastDone && _yaziDone && _bbDeathDone && _whaleRoamDone
-				&& _qianRuDone && _cauldronDone && _ribbonDone && _cloudDone && _yaziEscDone && _grunglyDone && _bbPassageDone && _fourFoolsDone && batch;
+				&& _qianRuDone && _cauldronDone && _ribbonDone && _cloudDone && _yaziEscDone && _grunglyDone && _bbPassageDone && _fourFoolsDone
+				&& _peiPeiDone && _fengYunMoveDone && _hengMingDone && batch;
 		}
 
 		private delegate void Installer(Assembly asm);
@@ -11116,6 +11148,170 @@ namespace FastFix
 			return new ReadOnlyCollection<MovableObjectNode>(passage.GetEnteredTargetsAsArray());
 		}
 
+		// ----- PeiPeiEGO: OnFixedUpdate prefixes write Desktop/LOG files every tick of a stunned unit (task 098 F1) -----
+
+		private static void InstallPeiPeiLog(Assembly asm)
+		{
+			const string Key = "FastFix.PeiPeiLogWrite";
+			string[] types = { "PeiPeiEGO.Harmony_Patch+StopAction", "PeiPeiEGO.Harmony_Patch+StopAction1", "PeiPeiEGO.Harmony_Patch+StopAction_Worker", "PeiPeiEGO.Harmony_Patch+StopAction_Rabbit" };
+			string[] names = { "OnFixedUpdate_Stop", "OnFixedUpdate_Stop1", "OnFixedUpdate_StopWorker", "OnFixedUpdate_StopWorker" };
+			Type[] args = { typeof(CreatureModel), typeof(CreatureModel), typeof(WorkerModel), typeof(RabbitModel) };
+			bool checkedH12 = false;
+			for (int i = 0; i < types.Length; i++)
+			{
+				MethodInfo m = Find(asm, types[i], names[i], new Type[] { args[i] });
+				if (object.ReferenceEquals(m, null))
+				{
+					Missing(Key, types[i] + "." + names[i]);
+					continue;
+				}
+				// The prefixes have try/catch: under 0Harmony the wrapper would lose them (GL-53).
+				if (!checkedH12)
+				{
+					checkedH12 = true;
+					if (!Covariance.Handlers12())
+					{
+						Covariance.NoH12(Key, "PeiPeiEGO prefixes have exception handlers and 12Harmony is not loaded");
+						return;
+					}
+				}
+				_hits = 0;
+				FastFixModule.Harmony.Patch(m, null, null, new HarmonyMethod(Own("PeiPeiLogTranspiler")));
+				Report(Key, m, "File.WriteAllText call");
+			}
+		}
+
+		// File.WriteAllText(path, text) -> no-op: the write throws without Desktop/LOG and its catch writes again, so the
+		// stun branch (UpdateBufState, return false) never ran; with the folder it was a file write per tick.
+		public static IEnumerable<CodeInstruction> PeiPeiLogTranspiler(IEnumerable<CodeInstruction> instructions)
+		{
+			List<CodeInstruction> list = new List<CodeInstruction>(instructions);
+			MethodInfo to = Own("PeiPeiNoWrite");
+			for (int i = 0; i < list.Count; i++)
+			{
+				MethodInfo c = list[i].operand as MethodInfo;
+				if ((list[i].opcode == OpCodes.Call || list[i].opcode == OpCodes.Callvirt) && !object.ReferenceEquals(c, null)
+					&& string.Equals(c.Name, "WriteAllText", StringComparison.Ordinal) && object.ReferenceEquals(c.DeclaringType, typeof(System.IO.File))
+					&& c.GetParameters().Length == 2)
+				{
+					list[i].opcode = OpCodes.Call;
+					list[i].operand = to;
+					_hits++;
+				}
+			}
+			return list;
+		}
+
+		public static void PeiPeiNoWrite(string path, string text)
+		{
+		}
+
+		// ----- FengYunWeapon Enhance: FengYun_Weapon.Move loops forever on a unit with neither node nor edge (task 098 F2) -----
+
+		private static bool _fengYunLogged;
+
+		private static void InstallFengYunMove(Assembly asm)
+		{
+			const string Key = "FastFix.FengYunMoveLoop";
+			MethodInfo m = Find(asm, "FengYunWeapon_Enhance.FengYun_Weapon", "Move", new Type[] { typeof(MovableObjectNode), typeof(UnitDirection), typeof(float) });
+			if (object.ReferenceEquals(m, null))
+			{
+				Missing(Key, "FengYunWeapon_Enhance.FengYun_Weapon.Move");
+				return;
+			}
+			if (!Covariance.Handlers12())
+			{
+				Covariance.NoH12(Key, "FengYun_Weapon.Move has exception handlers and 12Harmony is not loaded");
+				return;
+			}
+			FastFixModule.Harmony.Patch(m, new HarmonyMethod(Own("FengYunMovePrefix")), null);
+			Patched(Key, m);
+		}
+
+		// for(;;) in Move breaks only inside the node and edge branches: with both null it never ends (game freeze).
+		public static bool FengYunMovePrefix(MovableObjectNode movable)
+		{
+			if (movable != null && (movable.currentNode != null || movable.currentEdge != null))
+			{
+				return true;
+			}
+			if (!_fengYunLogged)
+			{
+				_fengYunLogged = true;
+				N.ULog.Info(FastFixModule.Tag, "FastFix.FengYunMoveLoop: Move skipped for a unit with no node or edge (would freeze)");
+			}
+			return false;
+		}
+
+		// ----- FengYunWeapon Enhance: HengMing_WeaponBase.OnAttackStart returns null -> NRE in WeaponModel.OnAttack per attack (task 098 F3) -----
+
+		private static Type _hengMingBase;
+		private static FieldInfo _fireEffectRunned;
+		private static readonly Dictionary<Type, bool> _hengMingTypes = new Dictionary<Type, bool>();
+
+		// True when the script's OnAttackStart is HengMing_WeaponBase's own (a subclass with its own may return real damage info).
+		private static bool HengMingStart(Type t)
+		{
+			bool own;
+			if (!_hengMingTypes.TryGetValue(t, out own))
+			{
+				MethodInfo start = _hengMingBase.IsAssignableFrom(t) ? t.GetMethod("OnAttackStart", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(UnitModel), typeof(UnitModel) }, null) : null;
+				own = !object.ReferenceEquals(start, null) && object.ReferenceEquals(start.DeclaringType, _hengMingBase);
+				_hengMingTypes[t] = own;
+			}
+			return own;
+		}
+
+		private static void InstallHengMingAttack(Assembly asm)
+		{
+			const string Key = "FastFix.HengMingAttack";
+			_hengMingBase = asm.GetType("HengMing_WeaponBase");
+			_fireEffectRunned = typeof(WeaponModel).GetField("fireEffectRunned", BindingFlags.NonPublic | BindingFlags.Instance);
+			MethodInfo m = typeof(UnitModel).GetMethod("Attack", BindingFlags.Public | BindingFlags.Instance, null, new Type[] { typeof(UnitModel) }, null);
+			if (object.ReferenceEquals(_hengMingBase, null) || object.ReferenceEquals(_fireEffectRunned, null) || object.ReferenceEquals(m, null))
+			{
+				Missing(Key, "HengMing_WeaponBase, WeaponModel.fireEffectRunned or UnitModel.Attack");
+				return;
+			}
+			// UnitModel.Attack has no exception handlers: no 12Harmony needed. Last: a blocking prefix of another mod
+			// (Harmony 1.0.9.1 skips the later prefixes after a false) decides before this one starts the attack.
+			FastFixModule.Harmony.Patch(m, N.PatchUtil.WithPriority(Own("HengMingAttackPrefix"), Priority.Last), null);
+			Patched(Key, m);
+		}
+
+		// Vanilla Attack for a HengMing weapon up to OnAttackStart: the script plays the animation and queues the damage
+		// itself and returns null, so vanilla OnAttack threw after it and PlayAttackAnimation never ran; it is skipped here too.
+		public static bool HengMingAttackPrefix(UnitModel __instance, UnitModel target)
+		{
+			UnitEquipSpace eq = __instance.Equipment;
+			WeaponModel weapon = eq == null ? null : eq.weapon;
+			if (weapon == null || weapon.script == null || !HengMingStart(weapon.script.GetType()))
+			{
+				return true;
+			}
+			if (__instance.IsAttackState() || !weapon.InRange(__instance, target))
+			{
+				return false;
+			}
+			if (eq.kitCreature != null && __instance is AgentModel)
+			{
+				eq.kitCreature.script.kitEvent.OnAttack(__instance as AgentModel, target);
+			}
+			if (__instance.GetMovableNode().GetCurrentViewPosition().x > target.GetMovableNode().GetCurrentViewPosition().x)
+			{
+				__instance.GetMovableNode().SetDirection(UnitDirection.LEFT);
+			}
+			else
+			{
+				__instance.GetMovableNode().SetDirection(UnitDirection.RIGHT);
+			}
+			_fireEffectRunned.SetValue(weapon, false);
+			weapon.remainDelay = 8f;
+			weapon.currentTarget = target;
+			weapon.script.OnAttackStart(__instance, target);
+			return false;
+		}
+
 		// ----- PuLao: GiveDamage re-enters itself for a "music" creature that is in its own target list -----
 
 		private static readonly List<UnitModel> _puChain = new List<UnitModel>();
@@ -14547,6 +14743,59 @@ namespace FastFix
 	// at the first null or downed unit (return instead of continue): later units take no damage and the cry effect is not made.
 	// Fix: a Prefix on Baku.OnCryDamage runs the same loop with continue (its foreach is over an array: no exception handler,
 	// handlers 0 in the live patch report). SleepWorker (try) is not patched.
+	// Vanilla Bug Fixes (BugFix_Vanilla, AuditFixesF) fixes Void Dream too. Its Baku.SleepWorker Postfix replaces the worker's
+	// animation event delegate with its own, so VoidDream.AnimPrefix steps aside and both fixes work one queue (two timeouts,
+	// two release paths). While FastFix.VoidDream is on, VBF's seven Baku hook methods are skipped (patched with SkipVoid /
+	// SkipBool, as the guard does: 0Harmony 1.0.9.1 has no Unpatch); the Baku methods themselves are not touched.
+	// Its KeepBetrayerInvincible is covered in VoidDream.Release. Mono may inline the tiny hooks (Wake/Annoy Postfix: 14 bytes
+	// of IL) into the Harmony wrapper, which bypasses a patch on them; their callee Track is skipped as well, and the hooks
+	// that act (SleepWorker Postfix, OnWorkerAnimCalled Prefix, Uncontrollable_Baku.Execute Postfix) are too large to inline.
+	public static class VbfYield
+	{
+		private static readonly string[] VoidHooks = new string[] { "Baku_SleepWorker_Postfix", "Baku_WakeWorker_Postfix", "Baku_AnnoyWorker_Postfix", "Track", "Baku_OnWorkerAnimCalled_Postfix", "Baku_OnStageStart_Postfix", "BakuUncon_Execute_Postfix" };
+		private const string BoolHook = "Baku_OnWorkerAnimCalled_Prefix";
+
+		internal static bool TryInstall(bool last)
+		{
+			Assembly a = WhiteRabbitFix.FindAssembly("BugFix_Vanilla");
+			if (object.ReferenceEquals(a, null))
+			{
+				return last;
+			}
+			N.Flag flag = N.Config.BindFlag("FastFix.VbfYield", true, "Vanilla Bug Fixes: its Void Dream fix is turned off while ours (FastFix.VoidDream) is on, so the two do not release sleepers from one queue. Read at game start.");
+			if (!flag.On || !VoidDream.Enabled())
+			{
+				return true;
+			}
+			Type t = a.GetType("BugFix_Vanilla.AuditFixesF");
+			const BindingFlags Any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
+			MethodInfo[] hooks = new MethodInfo[VoidHooks.Length];
+			for (int k = 0; k < VoidHooks.Length; k++)
+			{
+				hooks[k] = object.ReferenceEquals(t, null) ? null : t.GetMethod(VoidHooks[k], Any);
+				if (object.ReferenceEquals(hooks[k], null) || !object.ReferenceEquals(hooks[k].ReturnType, typeof(void)))
+				{
+					N.ULog.Warn(FastFixModule.Tag, "vbf yield not applied: " + VoidHooks[k] + " not found");
+					return true;
+				}
+			}
+			MethodInfo pre = object.ReferenceEquals(t, null) ? null : t.GetMethod(BoolHook, Any);
+			if (object.ReferenceEquals(pre, null) || !object.ReferenceEquals(pre.ReturnType, typeof(bool)))
+			{
+				N.ULog.Warn(FastFixModule.Tag, "vbf yield not applied: " + BoolHook + " not found");
+				return true;
+			}
+			HarmonyMethod skipVoid = new HarmonyMethod(typeof(Guard).GetMethod("SkipVoid", BindingFlags.Public | BindingFlags.Static));
+			for (int k = 0; k < hooks.Length; k++)
+			{
+				FastFixModule.Harmony.Patch(hooks[k], skipVoid, null, null);
+			}
+			FastFixModule.Harmony.Patch(pre, new HarmonyMethod(typeof(Guard).GetMethod("SkipBool", BindingFlags.Public | BindingFlags.Static)), null, null);
+			N.ULog.Info(FastFixModule.Tag, "vbf yield: Vanilla Bug Fixes Void Dream hooks skipped (" + (hooks.Length + 1) + "), FastFix.VoidDream handles Baku");
+			return true;
+		}
+	}
+
 	public static class VoidDream
 	{
 		private const int WakeEvent = 1000600;
@@ -14571,10 +14820,17 @@ namespace FastFix
 		private static MethodInfo _makeEffect;
 		private static MethodInfo _cryDmg;
 		private static readonly List<Entry> _pending = new List<Entry>();
+		private static bool _installed;
 		private static bool _errorLogged;
 		private static bool _eventLogged;
 		private static bool _ignoredLogged;
 		private static bool _cryLogged;
+
+		// True when the wake fix (AnimPrefix) is installed and on.
+		internal static bool Enabled()
+		{
+			return _installed && _flag != null && _flag.On;
+		}
 
 		internal static void Install(HarmonyInstance harmony, N.Flag flag)
 		{
@@ -14598,6 +14854,7 @@ namespace FastFix
 			}
 			else if (N.PatchUtil.Install(harmony, FastFixModule.Tag, anim, new HarmonyMethod(typeof(VoidDream).GetMethod("AnimPrefix", BindingFlags.Public | BindingFlags.Static)), null))
 			{
+				_installed = true;
 				HarmonyMethod queued = new HarmonyMethod(typeof(VoidDream).GetMethod("QueuedPostfix", BindingFlags.Public | BindingFlags.Static));
 				N.PatchUtil.Install(harmony, FastFixModule.Tag, wake, null, queued);
 				N.PatchUtil.Install(harmony, FastFixModule.Tag, annoy, null, queued);
@@ -14787,6 +15044,11 @@ namespace FastFix
 			try
 			{
 				(annoy ? _annoyedUp : _wakedUp).Invoke(script, new object[] { worker });
+				// WakedWorkerWakeUp clears invincibility also for a WhiteNight betrayer (AnnoyedWorkerWakeUp spares him).
+				if (!annoy && worker.HasUnitBuf(UnitBufType.DEATH_ANGEL_BETRAYER))
+				{
+					worker.SetInvincible(true);
+				}
 			}
 			catch (Exception)
 			{

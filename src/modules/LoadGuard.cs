@@ -55,7 +55,7 @@ namespace LoadGuard
 		{
 			get
 			{
-				return "1.13";
+				return "1.16";
 			}
 		}
 
@@ -74,13 +74,11 @@ namespace LoadGuard
 			CreatureGuard.UseIndex = N.Config.BindFlag("LoadGuard.CreatureIndex", true, "With LoadGuard on: creature stat files are found through an index built once instead of reading the folders of all mods for each creature. Off = the old walk. Restart required.").On;
 			_repair = N.Config.BindFlag("LoadGuard.Repair", false, "With LoadGuard on: broken mod creature openLevel values and EGO gift attachPos/attachType/bonus values are repaired in memory instead of skipping the entry; each repair is logged. Read at game start.");
 			// First: every Harmony patch after this point (other mods included) goes through the cache.
-			if (N.Config.BindFlag("LoadGuard.HarmonyCache", true, "Faster start: Harmony keeps the patch list of each patched method and reads it back for every new patch on it; the list is kept ready in memory instead of being decoded again (about 2 s with many mods). Restart required.").On)
+			bool cache = N.Config.BindFlag("LoadGuard.HarmonyCache", true, "Faster start: Harmony keeps the patch list of each patched method and reads it back for every new patch on it; the list is kept ready in memory instead of being decoded again (about 2 s with many mods). Restart required.").On;
+			bool defer = N.Config.BindFlag("LoadGuard.HarmonyDefer", true, "Faster start: Harmony rebuilds the whole patched copy of a method for every new patch on it (up to 38 times for one method with many mods); the copy is built once, at the first call or shortly after the patching stops. Restart required.").On;
+			if (cache || defer)
 			{
-				HarmonyCache.Start(HarmonyInstance.Create(HarmonyId + ".harmonycache"));
-			}
-			if (N.Config.BindFlag("LoadGuard.HarmonyDefer", true, "Faster start: Harmony rebuilds the whole patched copy of a method for every new patch on it (up to 38 times for one method with many mods); the copy is built once, at the first call or shortly after the patching stops. Restart required.").On)
-			{
-				HarmonyDefer.Start(HarmonyInstance.Create(HarmonyId + ".harmonydefer"));
+				StartH1(cache, defer);
 			}
 			if (N.Config.BindFlag("LoadGuard.ArtWalk", true, "Faster start: Wondering Fox, QiuNiu, Warma, Faraway Kingdom Branch and Wonderlab load every file of their folder as a picture at start; files that are not pictures (xml, txt, json, mp3) are no longer read and decoded. Restart required.").On)
 			{
@@ -115,6 +113,10 @@ namespace LoadGuard
 				return;
 			}
 			Guard.RepairOn = _repair.On;
+			if (N.Config.BindFlag("LoadGuard.ModId", true, "With LoadGuard on: a mod whose Info/GlobalInfo.xml has an ID keeps it in every game language (BaseMod drops it when the mod has no Info/en or Info/kr folder, and the mod then overwrites vanilla abnormalities and EGO with the same ids). Old saves: items and abnormalities saved while overwritten load as the vanilla ones. Restart required.").On)
+			{
+				ModIdFix.Run();
+			}
 			TypeLoad.Flag = N.Config.BindFlag("LoadGuard.TypeLoad", true, "With LoadGuard on: a mod DLL whose types cannot all load (missing or later-loaded dependency) loads partially instead of stopping the loading of every later mod; it is named in the log and the warning list. Works for mods after NailOptimization in the load order. Read at game start.");
 			CustomDamageCache.Flag = N.Config.BindFlag("LoadGuard.CustomDamageCache", true, "With LoadGuard on: kekesi_CustomDamageBase finds the script class of a custom damage type through a list built once instead of reading the types of every mod for each weapon (about 6 s at start with many mods). Read at game start.");
 			CreatureLoad.Flag = N.Config.BindFlag("LoadGuard.CreatureLoad", true, "With LoadGuard on: at day load an abnormality whose script class is missing or throws is skipped (or kept with an error) and named in the log and the warning list, instead of stopping the load. Read at game start.");
@@ -125,6 +127,34 @@ namespace LoadGuard
 			int n = Install();
 			int expected = Expected + (TypeLoad.Flag.On ? 1 : 0) + (CreatureLoad.Flag.On ? 1 : 0);
 			N.ULog.Info("loadguard", "hook installed " + n + "/" + expected);
+		}
+
+		// HarmonyCache / HarmonyDefer live in modules/h1/LoadGuardH1.dll: they use Harmony 1.0.9.1 internals that the
+		// HXLoader facade does not have (a static reference here puts LoadGuard.dll on its legacy engine). Under HarmonyX
+		// the Harmony 1 shared state and wrapper builds are not used, so both are skipped there.
+		private static void StartH1(bool cache, bool defer)
+		{
+			try
+			{
+				string engine = typeof(HarmonyInstance).Assembly.GetName().Name;
+				if (engine != "0Harmony")
+				{
+					N.ULog.Info(Guard.Tag, "harmony cache/defer off: Harmony engine " + engine);
+					return;
+				}
+				string path = Path.Combine(Path.Combine(Path.GetDirectoryName(typeof(LoadGuardModule).Assembly.Location), "h1"), "LoadGuardH1.dll");
+				if (!File.Exists(path))
+				{
+					N.ULog.Warn(Guard.Tag, "harmony cache/defer off: missing " + path);
+					return;
+				}
+				Type boot = Assembly.LoadFile(path).GetType("LoadGuardH1.Boot", true);
+				boot.GetMethod("Start", BindingFlags.Public | BindingFlags.Static).Invoke(null, new object[] { cache, defer, HarmonyId, typeof(LoadGuardModule).Assembly });
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Guard.Tag, "harmony cache/defer off: " + e);
+			}
 		}
 
 		[MethodImpl(MethodImplOptions.NoInlining)]
@@ -164,6 +194,12 @@ namespace LoadGuard
 					N.PatchUtil.GuardLate(Guard.Tag, target, typeof(CreatureLoad).GetMethod("PrefixLoadData"), CreatureLoad.Flag, "LoadGuard.CreatureLoad");
 				}
 				n += k;
+				// Not counted in n: the new-creature path (AddCreature_Mod) is an extra, see CreatureLoad.PrefixAdd.
+				MethodBase add = N.PatchUtil.Resolve(Guard.Tag, typeof(CreatureManager), "AddCreature_Mod", new Type[] { typeof(LcIdLong), typeof(SefiraIsolate), typeof(string) });
+				if (!object.ReferenceEquals(add, null))
+				{
+					N.PatchUtil.Install(harmony, Guard.Tag, add, new HarmonyMethod(typeof(CreatureLoad).GetMethod("PrefixAdd")), new HarmonyMethod(typeof(CreatureLoad).GetMethod("PostfixAdd")));
+				}
 			}
 			return n;
 		}
@@ -1623,6 +1659,7 @@ namespace LoadGuard
 				InitTypeList(list3.ToArray(), list4.ToArray(), dictionary3);
 				BootProfile.CrAdd(BootProfile.CrInit, tPh);
 				ModDebug.Log("CDL Load 6");
+				GenPrune.Run();
 				total = list3.Count;
 				foreach (KeyValuePair<string, List<CreatureTypeInfo>> kv in dictionary)
 				{
@@ -1769,7 +1806,8 @@ namespace LoadGuard
 			}
 			catch (NullReferenceException e)
 			{
-				if (e.StackTrace == null || e.StackTrace.IndexOf("CreatureGenerateInfoManager.Init", StringComparison.Ordinal) < 0)
+				// HarmonyX names the patched copy "DMD<CreatureGenerate.CreatureGenerateInfoManager..Init>".
+				if (e.StackTrace == null || (e.StackTrace.IndexOf("CreatureGenerateInfoManager.Init", StringComparison.Ordinal) < 0 && e.StackTrace.IndexOf("CreatureGenerateInfoManager..Init", StringComparison.Ordinal) < 0))
 				{
 					throw;
 				}
@@ -2180,6 +2218,8 @@ namespace LoadGuard
 		private static readonly Dictionary<string, string> _folders = new Dictionary<string, string>(StringComparer.Ordinal);
 		// Short name -> type over AssemList (last match wins), built once per LoadData call.
 		private static Dictionary<string, Type> _types;
+		// Type the last CheckScript call resolved (null when it failed).
+		private static Type _lastType;
 
 		private static string FolderKey(string modid, long id)
 		{
@@ -2345,7 +2385,7 @@ namespace LoadGuard
 			{
 				try
 				{
-					mgr.BuildCreatureModel_Mod(model, lcid, model.isolateRoomData, model.sefiraNum);
+					BuildModel(mgr, model, lcid);
 				}
 				catch (Exception e0)
 				{
@@ -2374,12 +2414,104 @@ namespace LoadGuard
 			}
 		}
 
+		// BuildCreatureModel_Mod falls back to Type.GetType(script) for scripts outside AssemList (all base-game ones). When
+		// another mod has patched BuildCreatureModel_Mod, the body runs as a Harmony DynamicMethod, Type.GetType no longer
+		// sees Assembly-CSharp and returns null: Activator.CreateInstance throws ArgumentNullException before any side effect.
+		// Then retry once with the script's own assembly in AssemList, so the AssemList walk finds the class.
+		private static void BuildModel(CreatureManager mgr, CreatureModel model, LcIdLong lcid)
+		{
+			CreatureBase before = model.script;
+			try
+			{
+				mgr.BuildCreatureModel_Mod(model, lcid, model.isolateRoomData, model.sefiraNum);
+				return;
+			}
+			catch (ArgumentNullException)
+			{
+				List<Assembly> asms = Add_On.instance.AssemList;
+				if (object.ReferenceEquals(_lastType, null) || !object.ReferenceEquals(model.script, before) || asms.Contains(_lastType.Assembly))
+				{
+					throw;
+				}
+			}
+			List<Assembly> list = Add_On.instance.AssemList;
+			list.Insert(0, _lastType.Assembly);
+			try
+			{
+				mgr.BuildCreatureModel_Mod(model, lcid, model.isolateRoomData, model.sefiraNum);
+			}
+			finally
+			{
+				list.Remove(_lastType.Assembly);
+			}
+			if (!_retryLogged)
+			{
+				_retryLogged = true;
+				N.ULog.Warn(Tag, "creature load: BuildCreatureModel_Mod could not resolve base-game script '" + _lastType.Name + "' (method patched by another mod); resolved through AssemList instead");
+			}
+		}
+
+		private static bool _retryLogged;
+		private static bool _scoped;
+		private static bool _addErrorLogged;
+
+		// New creatures (day-start pick, mod spawns) go through AddCreature_Mod -> BuildCreatureModel_Mod with the same
+		// Type.GetType fallback as above. For a base-game id whose script class is in Assembly-CSharp, that assembly is put
+		// first in AssemList for this call, so the AssemList walk finds the class (a mod class of the same name, later in the
+		// list, still wins as in vanilla). The Postfix takes it out; if the original threw, the next Prefix does.
+		public static void PrefixAdd(LcIdLong metadataId)
+		{
+			try
+			{
+				Unscope();
+				if (!Flag.On || object.ReferenceEquals(metadataId, null) || metadataId.packageId != string.Empty)
+				{
+					return;
+				}
+				CreatureTypeInfo info = CreatureTypeList.instance.GetData_Mod(metadataId);
+				if (info == null || string.IsNullOrEmpty(info.script) || info.script.IndexOf(',') >= 0 || object.ReferenceEquals(_gameAsm.GetType(info.script, false), null))
+				{
+					return;
+				}
+				List<Assembly> list = Add_On.instance.AssemList;
+				if (list.Contains(_gameAsm))
+				{
+					return;
+				}
+				list.Insert(0, _gameAsm);
+				_scoped = true;
+			}
+			catch (Exception e)
+			{
+				if (!_addErrorLogged)
+				{
+					_addErrorLogged = true;
+					N.ULog.Error(Tag, "new creature script scope failed (logged once): " + e);
+				}
+			}
+		}
+
+		public static void PostfixAdd()
+		{
+			Unscope();
+		}
+
+		private static void Unscope()
+		{
+			if (_scoped)
+			{
+				_scoped = false;
+				Add_On.instance.AssemList.Remove(_gameAsm);
+			}
+		}
+
 		// Null when the script resolves the way BuildCreatureModel_Mod resolves it (AssemList walk, last match wins; then
 		// Type.GetType as called from Assembly-CSharp) to a CreatureBase; else the reason. Nothing is instantiated here: a
 		// throwing constructor is caught around BuildCreatureModel_Mod, which runs the constructors before any side effect.
 		private static string CheckScript(CreatureTypeInfo info)
 		{
 			string name = info.script;
+			_lastType = null;
 			if (string.IsNullOrEmpty(name))
 			{
 				return "no script name";
@@ -2405,6 +2537,7 @@ namespace LoadGuard
 			{
 				return "script '" + name + "' is not a CreatureBase";
 			}
+			_lastType = found;
 			return null;
 		}
 
@@ -5195,6 +5328,89 @@ namespace LoadGuard
 		}
 	}
 
+	// A CreatureGen <add> id of a modid mod with no loaded creature data stays in CreatureGenerateInfo.all_mod; when the
+	// day's candidate pool is empty CreatureSelectUI.GetCreatureList falls back to GetAll_Mod(true), whose lambda reads
+	// GetData_Mod(x).creatureWorkType -> NRE, the selection screen stays empty (decomp CreatureGenerateInfo.cs:58-66,
+	// CreatureSelectUI.cs:628-640). Such an id can never be generated, so it is dropped and named once.
+	public static class GenPrune
+	{
+		internal static void Run()
+		{
+			List<LcIdLong> all = CreatureGenerateInfo.all_mod;
+			if (all == null)
+			{
+				return;
+			}
+			for (int i = all.Count - 1; i >= 0; i--)
+			{
+				LcIdLong x = all[i];
+				if (!object.ReferenceEquals(x, null) && CreatureTypeList.instance.GetData_Mod(x) != null)
+				{
+					continue;
+				}
+				all.RemoveAt(i);
+				N.ULog.Warn(Guard.Tag, object.ReferenceEquals(x, null) ? "creature gen: null id removed" : "creature gen: id " + x.id + " of mod '" + x.packageId + "' has no creature data (CreatureGen add without a loaded CreatureList/CreatureInfo entry); removed from the extraction pool");
+			}
+		}
+	}
+
+	// LoadGuard.ModId: BaseMod ModInfo reads Info/GlobalInfo.xml (and its <ID>) only when Info/<lang|en|kr>/info.xml exists
+	// (decomp basemod/ModInfo.cs:59-163), so a mod with Info/cn,jp,ru only gets modid "" in an English game and its data
+	// overwrites the vanilla ids it reuses (Incubator: creatures 100001-100008, EGO 200005/300005 ...). Runs before data loading.
+	public static class ModIdFix
+	{
+		internal static void Run()
+		{
+			try
+			{
+				Add_On a = Add_On.instance;
+				if (a == null || a.ModList == null)
+				{
+					return;
+				}
+				for (int i = 0; i < a.ModList.Count; i++)
+				{
+					ModInfo mi = a.ModList[i];
+					if (mi == null || mi.modpath == null || !string.IsNullOrEmpty(mi.modid))
+					{
+						continue;
+					}
+					string id = ReadId(Path.Combine(Path.Combine(mi.modpath.FullName, "Info"), "GlobalInfo.xml"));
+					if (string.IsNullOrEmpty(id))
+					{
+						continue;
+					}
+					mi.modid = id;
+					N.ULog.Info(Guard.Tag, "modid '" + id + "' set for " + mi.modpath.Name + " (BaseMod skips Info/GlobalInfo.xml without Info/en or Info/kr)");
+				}
+			}
+			catch (Exception e)
+			{
+				N.ULog.Error(Guard.Tag, "modid fix failed: " + e);
+			}
+		}
+
+		private static string ReadId(string file)
+		{
+			if (!File.Exists(file))
+			{
+				return null;
+			}
+			try
+			{
+				XmlDocument doc = new XmlDocument();
+				doc.LoadXml(File.ReadAllText(file));
+				XmlNode node = doc.SelectSingleNode("/info/ID");
+				return node != null ? node.InnerText : null;
+			}
+			catch (Exception e)
+			{
+				N.ULog.Warn(Guard.Tag, "modid fix: " + file + " not read: " + e.Message);
+				return null;
+			}
+		}
+	}
+
 	// LoadGuard.DisableLoadErrorCheck: kekesi_LoadErrorCheck (harmony id Lobotomy.kekesi.ErrorCheck) stops IntroPlayer.Update while its
 	// error screen is up, and under NailOptimization that screen cannot be left. At the first frame (every mod loaded) its IntroPlayer
 	// prefix methods are skipped by Prefixes of ours (Harmony 1.0.9.1 has no Unpatch), HasError is cleared, its log hook is removed and
@@ -5482,653 +5698,6 @@ namespace LoadGuard
 			{
 				enabled = false;
 			}
-		}
-	}
-
-	// LoadGuard.HarmonyCache (task 097, boot time): Harmony 1.0.9.1 keeps every PatchInfo as BinaryFormatter bytes in a shared
-	// Dictionary<MethodBase, byte[]> and reaches it through GetState (AppDomain.GetAssemblies + GetName per call); each Patch call
-	// deserializes, adds, serializes. Both HarmonySharedState.GetPatchInfo and UpdatePatchInfo (no exception handlers) are replaced:
-	// the dictionary is taken once, Update keeps (stored byte[], copy of the PatchInfo), Get returns a fresh copy while the state
-	// still holds that same byte[] and deserializes otherwise (another Harmony copy wrote it). Serialize stays (other copies read
-	// the bytes). Copies: new PatchInfo with cloned arrays; Patch objects are readonly and shared.
-	public static class HarmonyCache
-	{
-		private delegate byte[] SerializeFn(PatchInfo info);
-		private delegate PatchInfo DeserializeFn(byte[] bytes);
-
-		private sealed class Entry
-		{
-			public byte[] Bytes;
-			public PatchInfo Info;
-		}
-
-		private static Dictionary<MethodBase, byte[]> _state;
-		private static SerializeFn _serialize;
-		private static DeserializeFn _deserialize;
-		private static readonly Dictionary<MethodBase, Entry> _cache = new Dictionary<MethodBase, Entry>();
-		private static readonly object _gate = new object();
-		internal static bool Active;
-		internal static int Hits;
-		internal static int Misses;
-		internal static int Stores;
-
-		internal static void Start(HarmonyInstance harmony)
-		{
-			try
-			{
-				StartCore(harmony);
-			}
-			catch (Exception e)
-			{
-				N.ULog.Warn(Guard.Tag, "harmony cache off: " + e);
-			}
-		}
-
-		private static void StartCore(HarmonyInstance harmony)
-		{
-			const BindingFlags Any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-			Type shared = typeof(HarmonySharedState);
-			Type ser = typeof(HarmonyInstance).Assembly.GetType("Harmony.PatchInfoSerialization");
-			MethodInfo getState = shared.GetMethod("GetState", Any, null, Type.EmptyTypes, null);
-			MethodInfo get = shared.GetMethod("GetPatchInfo", Any, null, new Type[] { typeof(MethodBase) }, null);
-			MethodInfo set = shared.GetMethod("UpdatePatchInfo", Any, null, new Type[] { typeof(MethodBase), typeof(PatchInfo) }, null);
-			MethodInfo s = object.ReferenceEquals(ser, null) ? null : ser.GetMethod("Serialize", Any, null, new Type[] { typeof(PatchInfo) }, null);
-			MethodInfo d = object.ReferenceEquals(ser, null) ? null : ser.GetMethod("Deserialize", Any, null, new Type[] { typeof(byte[]) }, null);
-			if (object.ReferenceEquals(getState, null) || object.ReferenceEquals(get, null) || object.ReferenceEquals(set, null) || object.ReferenceEquals(s, null) || object.ReferenceEquals(d, null))
-			{
-				N.ULog.Warn(Guard.Tag, "harmony cache off: Harmony " + typeof(HarmonyInstance).Assembly.GetName().Version + " members not found");
-				return;
-			}
-			_state = getState.Invoke(null, null) as Dictionary<MethodBase, byte[]>;
-			if (_state == null)
-			{
-				N.ULog.Warn(Guard.Tag, "harmony cache off: shared state not found");
-				return;
-			}
-			_serialize = (SerializeFn)Delegate.CreateDelegate(typeof(SerializeFn), s);
-			_deserialize = (DeserializeFn)Delegate.CreateDelegate(typeof(DeserializeFn), d);
-			// UpdatePatchInfo first: patching GetPatchInfo then stores its own PatchInfo through the new Update.
-			if (!N.PatchUtil.Install(harmony, Guard.Tag, set, new HarmonyMethod(typeof(HarmonyCache).GetMethod("UpdatePrefix", BindingFlags.Public | BindingFlags.Static)), null))
-			{
-				return;
-			}
-			Active = N.PatchUtil.Install(harmony, Guard.Tag, get, new HarmonyMethod(typeof(HarmonyCache).GetMethod("GetPrefix", BindingFlags.Public | BindingFlags.Static)), null);
-			N.ULog.Info(Guard.Tag, "harmony cache " + (Active ? "on" : "partly on (Get not patched)") + ", " + _state.Count + " methods patched before it");
-			GameObject go = new GameObject("NailOptimization.HarmonyCache");
-			UnityEngine.Object.DontDestroyOnLoad(go);
-			go.AddComponent<HarmonyCacheDriver>();
-		}
-
-		// Replaces HarmonySharedState.UpdatePatchInfo: GetState()[method] = patchInfo.Serialize().
-		public static bool UpdatePrefix(MethodBase method, PatchInfo patchInfo)
-		{
-			byte[] bytes = _serialize(patchInfo);
-			_state[method] = bytes;
-			Entry e = new Entry();
-			e.Bytes = bytes;
-			e.Info = Copy(patchInfo);
-			System.Threading.Monitor.Enter(_gate);
-			try
-			{
-				_cache[method] = e;
-			}
-			finally
-			{
-				System.Threading.Monitor.Exit(_gate);
-			}
-			Stores++;
-			return false;
-		}
-
-		// Replaces HarmonySharedState.GetPatchInfo: null when the method has no state, else a PatchInfo nobody else holds.
-		public static bool GetPrefix(MethodBase method, ref PatchInfo __result)
-		{
-			byte[] bytes;
-			if (!_state.TryGetValue(method, out bytes) || bytes == null)
-			{
-				__result = null;
-				return false;
-			}
-			Entry e;
-			System.Threading.Monitor.Enter(_gate);
-			try
-			{
-				if (_cache.TryGetValue(method, out e) && object.ReferenceEquals(e.Bytes, bytes))
-				{
-					Hits++;
-					__result = Copy(e.Info);
-					return false;
-				}
-			}
-			finally
-			{
-				System.Threading.Monitor.Exit(_gate);
-			}
-			PatchInfo info = _deserialize(bytes);
-			e = new Entry();
-			e.Bytes = bytes;
-			e.Info = Copy(info);
-			System.Threading.Monitor.Enter(_gate);
-			try
-			{
-				_cache[method] = e;
-			}
-			finally
-			{
-				System.Threading.Monitor.Exit(_gate);
-			}
-			Misses++;
-			__result = info;
-			return false;
-		}
-
-		internal static PatchInfo Copy(PatchInfo p)
-		{
-			if (p == null)
-			{
-				return null;
-			}
-			PatchInfo c = new PatchInfo();
-			c.prefixes = p.prefixes == null ? null : (Patch[])p.prefixes.Clone();
-			c.postfixes = p.postfixes == null ? null : (Patch[])p.postfixes.Clone();
-			c.transpilers = p.transpilers == null ? null : (Patch[])p.transpilers.Clone();
-			return c;
-		}
-	}
-
-	public class HarmonyCacheDriver : MonoBehaviour
-	{
-		private void Update()
-		{
-			enabled = false;
-			N.ULog.Info(Guard.Tag, "harmony cache at first frame: stores " + HarmonyCache.Stores + ", hits " + HarmonyCache.Hits + ", misses " + HarmonyCache.Misses);
-		}
-	}
-
-	// LoadGuard.HarmonyDefer (task 097, boot time): Harmony 1.0.9.1 PatchProcessor.Patch rebuilds the whole wrapper of a method
-	// for every new patch on it (PatchFunctions.UpdateWrapper: copy of the original + all patches, JIT, jump), so a method with
-	// N patches is built N times. For a method that already has a 0Harmony wrapper the rebuild is deferred: the original jumps
-	// to a small stub (same signature: FlushId(id), then call the original again) that builds the final wrapper on its first
-	// call; the driver builds the rest 1 s after the last deferral (4 ms per frame, from the first frame), and all are built
-	// when 12Harmony loads (its first Create swaps 0Harmony's generator, GL-55, so earlier methods keep the 0Harmony one).
-	// A flush builds from the current shared state (other Harmony copies included). A failing build is replayed patch by
-	// patch like vanilla: the failing patch is dropped and the state written back without it (its mod got no exception).
-	// No exception handlers in UpdateWrapper (GL-53 ok). All state is guarded by PatchProcessor.locker.
-	public static class HarmonyDefer
-	{
-		private delegate PatchInfo GetFn(MethodBase method);
-		private delegate void SetFn(MethodBase method, PatchInfo info);
-
-		private sealed class Pending
-		{
-			public MethodBase Original;
-			public int Id;
-			public PatchInfo Basis;
-			public readonly List<PatchInfo> Steps = new List<PatchInfo>();
-		}
-
-		private static object _locker;
-		private static Dictionary<object, object> _wrappers;
-		private static GetFn _get;
-		private static SetFn _set;
-		private static MethodInfo _flushId;
-		private static readonly Dictionary<MethodBase, Pending> _pending = new Dictionary<MethodBase, Pending>();
-		private static readonly Dictionary<int, Pending> _byId = new Dictionary<int, Pending>();
-		private static readonly List<System.Reflection.Emit.DynamicMethod> _stubs = new List<System.Reflection.Emit.DynamicMethod>();
-		[ThreadStatic]
-		private static bool _building;
-		private static bool _warned;
-		private static bool _h12;
-		private static int _nextId;
-		private const int MinIl = 32;
-		internal static bool Active;
-		internal static long LastDefer;
-		internal static int Methods;
-		internal static int Deferred;
-		internal static int Built;
-		internal static int StubCalls;
-		internal static int Dropped;
-		internal static int PrefixErrors;
-
-		internal static int PendingCount
-		{
-			get { return _pending.Count; }
-		}
-
-		internal static void Start(HarmonyInstance harmony)
-		{
-			try
-			{
-				const BindingFlags Any = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static;
-				FieldInfo locker = typeof(PatchProcessor).GetField("locker", Any);
-				FieldInfo refs = typeof(PatchTools).GetField("objectReferences", Any);
-				MethodInfo get = typeof(HarmonySharedState).GetMethod("GetPatchInfo", Any, null, new Type[] { typeof(MethodBase) }, null);
-				MethodInfo set = typeof(HarmonySharedState).GetMethod("UpdatePatchInfo", Any, null, new Type[] { typeof(MethodBase), typeof(PatchInfo) }, null);
-				MethodInfo wrap = typeof(PatchFunctions).GetMethod("UpdateWrapper", Any, null, new Type[] { typeof(MethodBase), typeof(PatchInfo) }, null);
-				_flushId = typeof(HarmonyDefer).GetMethod("FlushId", BindingFlags.Public | BindingFlags.Static);
-				_locker = object.ReferenceEquals(locker, null) ? null : locker.GetValue(null);
-				_wrappers = object.ReferenceEquals(refs, null) ? null : refs.GetValue(null) as Dictionary<object, object>;
-				if (_locker == null || _wrappers == null || object.ReferenceEquals(get, null) || object.ReferenceEquals(set, null) || object.ReferenceEquals(wrap, null) || object.ReferenceEquals(_flushId, null))
-				{
-					N.ULog.Warn(Guard.Tag, "harmony defer off: Harmony " + typeof(HarmonyInstance).Assembly.GetName().Version + " members not found");
-					return;
-				}
-				_get = (GetFn)Delegate.CreateDelegate(typeof(GetFn), get);
-				_set = (SetFn)Delegate.CreateDelegate(typeof(SetFn), set);
-				Assembly[] all = AppDomain.CurrentDomain.GetAssemblies();
-				for (int i = 0; i < all.Length; i++)
-				{
-					if (Is12Harmony(all[i]))
-					{
-						_h12 = true;
-					}
-				}
-				AppDomain.CurrentDomain.AssemblyLoad += OnLoad;
-				// Last: other prefixes on UpdateWrapper (timing probes) still run before the build is skipped.
-				Active = N.PatchUtil.Install(harmony, Guard.Tag, wrap, N.PatchUtil.WithPriority(typeof(HarmonyDefer).GetMethod("Prefix", BindingFlags.Public | BindingFlags.Static), Priority.Last), null);
-				N.ULog.Info(Guard.Tag, "harmony defer " + (Active ? "on" : "off") + (_h12 ? " (12Harmony already loaded)" : ""));
-				if (Active)
-				{
-					GameObject go = new GameObject("NailOptimization.HarmonyDefer");
-					UnityEngine.Object.DontDestroyOnLoad(go);
-					go.AddComponent<HarmonyDeferDriver>();
-				}
-			}
-			catch (Exception e)
-			{
-				Active = false;
-				N.ULog.Warn(Guard.Tag, "harmony defer off: " + e);
-			}
-		}
-
-		private static bool Is12Harmony(Assembly a)
-		{
-			string n = a.FullName;
-			return n != null && n.StartsWith("12Harmony,", StringComparison.Ordinal);
-		}
-
-		private static void OnLoad(object sender, AssemblyLoadEventArgs e)
-		{
-			if (!_h12 && Is12Harmony(e.LoadedAssembly))
-			{
-				_h12 = true;
-				int n = FlushAll();
-				N.ULog.Info(Guard.Tag, "harmony defer: 12Harmony loaded, " + n + " deferred methods built with the 0Harmony generator");
-			}
-		}
-
-		// Prefix on PatchFunctions.UpdateWrapper(original, patchInfo): false = the build is deferred.
-		public static bool Prefix(MethodBase original, PatchInfo patchInfo)
-		{
-			if (_building || !Active || object.ReferenceEquals(original, null) || patchInfo == null)
-			{
-				return true;
-			}
-			System.Threading.Monitor.Enter(_locker);
-			try
-			{
-				Pending p;
-				bool pending = _pending.TryGetValue(original, out p);
-				// Transpilers and patch factories run mod code while the wrapper is built: keep that inside the mod's Patch call.
-				if (RunsModCode(pending ? p.Steps[p.Steps.Count - 1] : null, patchInfo))
-				{
-					if (pending)
-					{
-						Cancel(p);
-					}
-					return true;
-				}
-				if (!pending)
-				{
-					if (!Eligible(original))
-					{
-						return true;
-					}
-					PatchInfo basis = _get(original);
-					if (basis == null || RunsModCode(basis, patchInfo))
-					{
-						return true;
-					}
-					int id = ++_nextId;
-					long from = Harmony.ILCopying.Memory.GetMethodStart(original);
-					System.Reflection.Emit.DynamicMethod stub = MakeStub((MethodInfo)original, id);
-					long to = Harmony.ILCopying.Memory.GetMethodStart(stub);
-					_stubs.Add(stub);
-					p = new Pending();
-					p.Original = original;
-					p.Id = id;
-					p.Basis = HarmonyCache.Copy(basis);
-					_pending[original] = p;
-					_byId[id] = p;
-					Harmony.ILCopying.Memory.WriteJump(from, to);
-					Methods++;
-				}
-				p.Steps.Add(HarmonyCache.Copy(patchInfo));
-				Deferred++;
-				LastDefer = System.Diagnostics.Stopwatch.GetTimestamp();
-				return false;
-			}
-			catch (Exception e)
-			{
-				PrefixErrors++;
-				if (!_warned)
-				{
-					_warned = true;
-					N.ULog.Warn(Guard.Tag, "harmony defer: " + Name(original) + " built at once: " + e.Message);
-				}
-				return true;
-			}
-			finally
-			{
-				System.Threading.Monitor.Exit(_locker);
-			}
-		}
-
-		private static bool Eligible(MethodBase original)
-		{
-			MethodInfo mi = original as MethodInfo;
-			if (object.ReferenceEquals(mi, null))
-			{
-				return false;
-			}
-			Type t = mi.DeclaringType;
-			if (object.ReferenceEquals(t, null) || !object.ReferenceEquals(mi.ReflectedType, t) || t.IsValueType || t.IsInterface || t.IsGenericType || t.ContainsGenericParameters || mi.IsGenericMethod || mi.ContainsGenericParameters || mi.IsAbstract)
-			{
-				return false;
-			}
-			if ((mi.CallingConvention & CallingConventions.VarArgs) != 0)
-			{
-				return false;
-			}
-			MethodBody body = mi.GetMethodBody();
-			if (body == null || body.GetILAsByteArray().Length < MinIl)
-			{
-				return false;
-			}
-			if (object.ReferenceEquals(t.Assembly, typeof(PatchFunctions).Assembly) || object.ReferenceEquals(t.Assembly, typeof(HarmonyDefer).Assembly))
-			{
-				return false;
-			}
-			return _wrappers.ContainsKey(original);
-		}
-
-		// static R Name_Defer(T this, args...) { HarmonyDefer.FlushId(id); return original(this, args...); }
-		// Mono 2.0 DynamicMethod has no EmitCalli (ModuleBuilder expected, run 097-defer-C1); the plain call cannot be inlined
-		// because Eligible takes only originals of MinIl bytes or more (Mono inlines up to 20).
-		private static System.Reflection.Emit.DynamicMethod MakeStub(MethodInfo mi, int id)
-		{
-			ParameterInfo[] ps = mi.GetParameters();
-			int off = mi.IsStatic ? 0 : 1;
-			Type[] types = new Type[ps.Length + off];
-			if (off == 1)
-			{
-				types[0] = mi.DeclaringType;
-			}
-			for (int i = 0; i < ps.Length; i++)
-			{
-				types[i + off] = ps[i].ParameterType;
-			}
-			System.Reflection.Emit.DynamicMethod dm = new System.Reflection.Emit.DynamicMethod(mi.Name + "_Defer", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard, mi.ReturnType, types, mi.DeclaringType, true);
-			System.Reflection.Emit.ILGenerator il = dm.GetILGenerator();
-			il.Emit(System.Reflection.Emit.OpCodes.Ldc_I4, id);
-			il.Emit(System.Reflection.Emit.OpCodes.Call, _flushId);
-			for (int i = 0; i < types.Length; i++)
-			{
-				il.Emit(System.Reflection.Emit.OpCodes.Ldarg, (short)i);
-			}
-			il.Emit(System.Reflection.Emit.OpCodes.Call, mi);
-			il.Emit(System.Reflection.Emit.OpCodes.Ret);
-			// Mono: compile the method before its start is read (as MethodPatcher does); an unfinished one gives a bad address (run 097-defer-C2 crashed).
-			Harmony.DynamicTools.PrepareDynamicMethod(dm);
-			return dm;
-		}
-
-		// Called by a stub. Must leave the original jumping to a real wrapper: the stub calls the original next.
-		public static void FlushId(int id)
-		{
-			System.Threading.Monitor.Enter(_locker);
-			try
-			{
-				Pending p;
-				if (_byId.TryGetValue(id, out p))
-				{
-					StubCalls++;
-					Build(p);
-				}
-			}
-			catch (Exception e)
-			{
-				N.ULog.Warn(Guard.Tag, "harmony defer: build on first call failed: " + e);
-			}
-			finally
-			{
-				System.Threading.Monitor.Exit(_locker);
-			}
-		}
-
-		// Driver: builds one pending method; false when none is left.
-		internal static bool FlushNext()
-		{
-			System.Threading.Monitor.Enter(_locker);
-			try
-			{
-				Pending p = null;
-				foreach (KeyValuePair<MethodBase, Pending> kv in _pending)
-				{
-					p = kv.Value;
-					break;
-				}
-				if (p == null)
-				{
-					return false;
-				}
-				Build(p);
-				return _pending.Count > 0;
-			}
-			catch (Exception e)
-			{
-				N.ULog.Warn(Guard.Tag, "harmony defer: build failed: " + e);
-				return _pending.Count > 0;
-			}
-			finally
-			{
-				System.Threading.Monitor.Exit(_locker);
-			}
-		}
-
-		private static int FlushAll()
-		{
-			int n = _pending.Count;
-			while (FlushNext())
-			{
-			}
-			return n;
-		}
-
-		// Caller holds _locker.
-		private static void Build(Pending p)
-		{
-			Cancel(p);
-			PatchInfo info = _get(p.Original);
-			PatchInfo lastStep = p.Steps[p.Steps.Count - 1];
-			// The state lags behind the last step while Patch has not stored it yet (a call of the method in that window).
-			if (info == null || Count(lastStep) > Count(info))
-			{
-				info = lastStep;
-			}
-			bool was = _building;
-			_building = true;
-			try
-			{
-				Exception first = null;
-				try
-				{
-					PatchFunctions.UpdateWrapper(p.Original, info);
-					Built++;
-				}
-				catch (Exception e)
-				{
-					first = e;
-				}
-				if (first != null)
-				{
-					Replay(p, first, info);
-				}
-			}
-			finally
-			{
-				_building = was;
-			}
-		}
-
-		// Back to the last real wrapper, then forget the entry: a call after this must not reach the stub again.
-		private static void Cancel(Pending p)
-		{
-			object last;
-			if (_wrappers.TryGetValue(p.Original, out last) && last is MethodBase)
-			{
-				long from = Harmony.ILCopying.Memory.GetMethodStart(p.Original);
-				long to = Harmony.ILCopying.Memory.GetMethodStart((MethodBase)last);
-				Harmony.ILCopying.Memory.WriteJump(from, to);
-			}
-			_pending.Remove(p.Original);
-			_byId.Remove(p.Id);
-		}
-
-		private static int Count(PatchInfo info)
-		{
-			return (info.prefixes == null ? 0 : info.prefixes.Length) + (info.postfixes == null ? 0 : info.postfixes.Length) + (info.transpilers == null ? 0 : info.transpilers.Length);
-		}
-
-		// True when the new patch info adds a transpiler or holds a patch factory (a patch method returning DynamicMethod).
-		private static bool RunsModCode(PatchInfo prev, PatchInfo now)
-		{
-			int before = prev == null || prev.transpilers == null ? 0 : prev.transpilers.Length;
-			if (now.transpilers != null && now.transpilers.Length > before)
-			{
-				return true;
-			}
-			return HasFactory(now.prefixes) || HasFactory(now.postfixes);
-		}
-
-		private static bool HasFactory(Patch[] patches)
-		{
-			if (patches == null)
-			{
-				return false;
-			}
-			for (int i = 0; i < patches.Length; i++)
-			{
-				MethodInfo pm = patches[i].patch;
-				if (!object.ReferenceEquals(pm, null) && object.ReferenceEquals(pm.ReturnType, typeof(System.Reflection.Emit.DynamicMethod)))
-				{
-					return true;
-				}
-			}
-			return false;
-		}
-
-		// Vanilla order: basis + the new patches of each step; a step that fails is dropped as Patch would have thrown.
-		private static void Replay(Pending p, Exception first, PatchInfo info)
-		{
-			if (Count(info) != Count(p.Steps[p.Steps.Count - 1]))
-			{
-				// The state was changed by another Harmony copy or a direct UpdateWrapper caller: keep it and the last wrapper.
-				Dropped++;
-				N.ULog.Warn(Guard.Tag, "harmony defer: " + Name(p.Original) + " build failed (" + first.Message + "), state changed outside Patch; last wrapper kept");
-				return;
-			}
-			N.ULog.Warn(Guard.Tag, "harmony defer: " + Name(p.Original) + " build failed (" + first.Message + "), replaying " + p.Steps.Count + " patch call(s)");
-			PatchInfo good = p.Basis;
-			PatchInfo prev = p.Basis;
-			List<Patch> delta = new List<Patch>();
-			for (int i = 0; i < p.Steps.Count; i++)
-			{
-				PatchInfo s = p.Steps[i];
-				PatchInfo cand = HarmonyCache.Copy(good);
-				delta.Clear();
-				cand.prefixes = AddNew(cand.prefixes, prev.prefixes, s.prefixes, delta);
-				cand.postfixes = AddNew(cand.postfixes, prev.postfixes, s.postfixes, delta);
-				cand.transpilers = AddNew(cand.transpilers, prev.transpilers, s.transpilers, delta);
-				prev = s;
-				if (delta.Count == 0)
-				{
-					continue;
-				}
-				try
-				{
-					PatchFunctions.UpdateWrapper(p.Original, cand);
-					Built++;
-					good = cand;
-				}
-				catch (Exception e)
-				{
-					Dropped++;
-					N.ULog.Warn(Guard.Tag, "harmony defer: patch by " + delta[0].owner + " (" + delta[0].patch + ") on " + Name(p.Original) + " dropped: " + e.Message);
-				}
-			}
-			_set(p.Original, good);
-		}
-
-		private static Patch[] AddNew(Patch[] target, Patch[] prev, Patch[] now, List<Patch> delta)
-		{
-			if (now == null || now.Length == 0)
-			{
-				return target;
-			}
-			List<Patch> list = target == null ? new List<Patch>() : new List<Patch>(target);
-			// Patch only appends, so the new patches are the tail (a second Patch with the same method counts again, as in vanilla).
-			for (int i = prev == null ? 0 : prev.Length; i < now.Length; i++)
-			{
-				list.Add(now[i]);
-				delta.Add(now[i]);
-			}
-			return list.ToArray();
-		}
-
-		private static string Name(MethodBase method)
-		{
-			return object.ReferenceEquals(method, null) ? "?" : (object.ReferenceEquals(method.DeclaringType, null) ? "" : method.DeclaringType.FullName + ".") + method.Name;
-		}
-	}
-
-	public class HarmonyDeferDriver : MonoBehaviour
-	{
-		private bool _first = true;
-		private int _reports;
-
-		private void Update()
-		{
-			if (_first)
-			{
-				_first = false;
-				N.ULog.Info(Guard.Tag, "harmony defer at first frame: " + Summary());
-			}
-			if (HarmonyDefer.PendingCount == 0)
-			{
-				return;
-			}
-			long now = System.Diagnostics.Stopwatch.GetTimestamp();
-			if (now - HarmonyDefer.LastDefer < System.Diagnostics.Stopwatch.Frequency)
-			{
-				return;
-			}
-			long end = now + System.Diagnostics.Stopwatch.Frequency / 250;
-			bool more = true;
-			while (more && System.Diagnostics.Stopwatch.GetTimestamp() < end)
-			{
-				more = HarmonyDefer.FlushNext();
-			}
-			if (!more && _reports < 3)
-			{
-				_reports++;
-				N.ULog.Info(Guard.Tag, "harmony defer: all built at frame " + Time.frameCount + ": " + Summary());
-			}
-		}
-
-		private static string Summary()
-		{
-			return "deferred " + HarmonyDefer.Deferred + " patch calls in " + HarmonyDefer.Methods + " pending entries, built " + HarmonyDefer.Built + " (on first call " + HarmonyDefer.StubCalls + ", dropped " + HarmonyDefer.Dropped + ", prefix errors " + HarmonyDefer.PrefixErrors + "), pending " + HarmonyDefer.PendingCount;
 		}
 	}
 

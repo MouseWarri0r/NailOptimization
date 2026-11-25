@@ -112,6 +112,9 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `PerfPack.CanvasCull` | `true` | yes | **Hide off-screen interface**. World interface outside the view is switched off. |
 | `PerfPack.AgentCull` | `true` | no | **Agents outside the view**. Calm agents out of view stop animating and drawing. |
 | `PerfPack.ClerkCull` | `true` | no | **Clerks outside the view**. Calm clerks out of view stop animating and drawing. Off while clerk pictures are on. |
+| `PerfPack.CullKeepAnimState` | `true` | no | **Keep animation state when hidden**. A hidden agent or clerk keeps its animator on and only stops updating it, so a pose or effect another mod keeps there survives. |
+| `PerfPack.VisibilityGuard` | `true` | no | **Visibility guard**. Once a second a unit in view that is still marked hidden is shown again; a feature repaired 3 times in a day is switched off for the session. A unit that vanished after it was drawn is named in the log and in Logs/NailReport.txt. |
+| `PerfPack.ControlWatch` | `true` | no | **Control watch**. An agent uncontrollable for over 120 s of game time is named once in the log, with the action and the mods that patch it. Nothing is released. |
 | `PerfPack.ClerkImpostor` | `true` | yes | **Clerks as pictures at wide zoom**. With 20 or more clerks at wide zoom, calm clerks are drawn as still pictures. |
 | `PerfPack.AgentAnimLod` | `true` | no | **Agent animation LOD**. Zoomed out, agents animate a little less often. |
 | `PerfPack.PauseSkeletons` | `true` | no | **Skeletons on pause**. On pause, characters refresh their pose rarely. |
@@ -337,6 +340,10 @@ Options in the Interface, Experimental and Debug sections are shown at the botto
 | `FastFix.YaZiEscapeUI` | `true` | yes | **YaZi: breach without request window**. A breach before its request window was ever opened no longer throws. |
 | `FastFix.GrunglyLure` | `true` | yes | **Grungly: lure**. A lure whose target no longer qualifies, or with no agent left to lure, no longer throws every tick; the lure stops. |
 | `FastFix.BlackBirdPassageHit` | `true` | yes | **Black Bird: hallway hit**. Its hit on the hallway no longer stops when it kills someone there. Needs 12Harmony. |
+| `FastFix.VbfYield` | `true` | yes | **Vanilla Bug Fixes: Void Dream**. Its Void Dream fix is turned off while ours (Bugfixes, Void Dream) is on, so the two fixes do not release sleeping employees from one queue. |
+| `FastFix.PeiPeiLogWrite` | `true` | yes | **PeiPeiEGO: stun log writes**. Its stun no longer writes a Desktop/LOG file every tick; without that folder the write threw and the stun never applied. Needs 12Harmony. |
+| `FastFix.FengYunMoveLoop` | `true` | yes | **FengYun weapon: knock-back freeze**. A knock-back on a unit that stands on no node or edge no longer freezes the game. Needs 12Harmony. |
+| `FastFix.HengMingAttack` | `true` | yes | **HengMing weapons: attack error**. An attack with a HengMing weapon (FengYun) no longer throws an error after the weapon has done its work. |
 
 ### Errors of any mod
 

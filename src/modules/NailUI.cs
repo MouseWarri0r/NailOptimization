@@ -50,7 +50,7 @@ namespace NailUI
 		{
 			get
 			{
-				return "1.16";
+				return "1.17";
 			}
 		}
 
@@ -2182,6 +2182,7 @@ namespace NailUI
 			}
 		}
 
+		// AgentUnitUI.activateUI switches title.gameObject on at every refresh, so the Text component is what stays off.
 		private static void Titles(bool show)
 		{
 			if (AgentManager.instance == null)
@@ -2192,10 +2193,9 @@ namespace NailUI
 			for (int i = 0; i < list.Count; i++)
 			{
 				AgentUnit unit = list[i].GetUnit();
-				Transform root = unit == null || unit.agentUI == null || unit.agentUI.ActiveControl == null ? null : unit.agentUI.ActiveControl.transform.Find("TitleRoot");
-				if (root != null && root.gameObject.activeSelf != show)
+				if (unit != null && unit.ui != null && unit.ui.title != null && unit.ui.title.enabled != show)
 				{
-					root.gameObject.SetActive(show);
+					unit.ui.title.enabled = show;
 				}
 			}
 		}
